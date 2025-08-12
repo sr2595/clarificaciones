@@ -3,9 +3,9 @@ import streamlit as st
 from ortools.sat.python import cp_model
 from io import BytesIO
 
-st.set_page_config(page_title="Selector de Facturas", page_icon="📄", layout="wide")
+st.set_page_config(page_title="Clarificador 2.0", page_icon="📄", layout="wide")
 
-st.title("📄 Selector de Facturas con OR-Tools")
+st.title("📄 Clarificador 2.0")
 
 # --- Subir archivo Excel ---
 archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
