@@ -13,12 +13,14 @@ if archivo:
     df = pd.read_excel(archivo, engine="openpyxl")
 
     # --- Detectar columnas ---
-    possible_date_cols = ['FECHA', 'Fecha', 'fecha', 'Fecha Emision', 'FECHA_EMISION']
+    possible_date_cols = ['FECHA', 'Fecha', 'fecha', 'Fecha Emision', 'FECHA_EMISION', 'Fecha Emisión']
     col_fecha_emision = next((col for col in possible_date_cols if col in df.columns), None)
-    possible_factura_cols = ['FACTURA', 'Factura', 'factura', 'Nº Factura', 'NRO_FACTURA']
+    possible_factura_cols = ['FACTURA', 'Factura', 'factura', 'Nº Factura', 'NRO_FACTURA', 'Núm.Doc.Deuda']
     possible_importe_cols = ['IMPORTE', 'Importe', 'importe', 'TOTAL', 'TOTAL_FACTURA']
     col_factura = next((col for col in possible_factura_cols if col in df.columns), None)
     col_importe = next((col for col in possible_importe_cols if col in df.columns), None)
+
+    
 
     if not (col_fecha_emision and col_factura and col_importe):
         st.error("❌ No se encontraron todas las columnas necesarias (fecha, factura, importe).")
