@@ -34,7 +34,8 @@ if archivo:
             return None
         if isinstance(valor, (int, float)):
             return float(valor)
-        texto = str(valor).strip().replace("€", "").replace(" ", "")
+        texto = str(valor).strip()
+        texto = texto.replace("€", "").replace(" ", "")  # quitar símbolo y espacios
         texto = texto.replace('.', '').replace(',', '.')
         try:
             return float(texto)
@@ -71,7 +72,7 @@ if archivo:
         df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
         df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'].fillna(0) * 100).round().astype(int)
 
-        # --- Filtrar solo facturas positivas para OR-Tools ---
+        # --- Filtrar solo facturas positivas ---
         df_positivas = df[df['IMPORTE_CORRECTO'] > 0].copy()
 
         # --- Función OR-Tools ---
@@ -112,3 +113,4 @@ if archivo:
             )
         else:
             st.warning("❌ No se encontró una combinación EXACTA de facturas.")
+
