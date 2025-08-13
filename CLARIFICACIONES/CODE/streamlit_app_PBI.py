@@ -4,7 +4,6 @@ from ortools.sat.python import cp_model
 from io import BytesIO
 
 st.set_page_config(page_title="Clarificador PBI", page_icon="📄", layout="wide")
-
 st.title("📄 Clarificador PBI")
 
 # --- Subir archivo Excel ---
@@ -35,9 +34,7 @@ if archivo:
             return None
         if isinstance(valor, (int, float)):
             return float(valor)
-        texto = str(valor).strip()
-        texto = texto.replace("€", "").replace(" ", "")  # quitar símbolo y espacios
-        texto = texto.replace('.', '').replace(',', '.')
+        texto = str(valor).strip().replace("€", "").replace(" ", "").replace('.', '').replace(',', '.')
         try:
             return float(texto)
         except:
@@ -73,13 +70,13 @@ if archivo:
         df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
         df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'].fillna(0) * 100).round().astype(int)
 
-        # --- Filtrar solo facturas positivas para OR-Tools ---
+        # --- Filtrar solo facturas positivas ---
         df_positivas = df[df['IMPORTE_CORRECTO'] > 0].copy()
 
         # --- Función OR-Tools ---
         def seleccionar_facturas_exactas_ortools(df, objetivo_cent):
             model = cp_model.CpModel()
-            data = list(zip(df[col_factura], df['IMPORTE_CENT'], df['DAYS_FROM_BASE'], df['IMPORTE_CORRECTO']))
+            data = list(zip(df.index, df['IMPORTE_CENT'], df['DAYS_FROM_BASE']))
             vars = [model.NewBoolVar(f"sel_{i}") for i in range(len(data))]
             model.Add(sum(vars[i] * data[i][1] for i in range(len(data))) == objetivo_cent)
             model.Minimize(sum(vars))
@@ -87,27 +84,22 @@ if archivo:
             solver.parameters.max_time_in_seconds = 10
             status = solver.Solve(model)
             if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                seleccionadas = []
-                for i, (factura, imp_cent, _, imp_eur) in enumerate(data):
-                    if solver.Value(vars[i]) == 1:
-                        seleccionadas.append((factura, imp_eur))
-                return seleccionadas
+                seleccionadas_idx = [data[i][0] for i in range(len(data)) if solver.Value(vars[i]) == 1]
+                return seleccionadas_idx
             else:
                 return None
 
-        # --- Llamada a la función usando solo facturas positivas ---
-        seleccion = seleccionar_facturas_exactas_ortools(df_positivas, importe_objetivo_cent)
+        # --- Llamada a la función ---
+        seleccion_idx = seleccionar_facturas_exactas_ortools(df_positivas, importe_objetivo_cent)
 
-        if seleccion:
+        if seleccion_idx:
             st.success(f"✅ Combinación encontrada para {importe_objetivo_eur:,.2f} €")
 
-            # Obtener todas las columnas originales de las facturas seleccionadas
-            facturas_seleccionadas = [f[0] for f in seleccion]
-            df_sel = df_positivas[df_positivas[col_factura].isin(facturas_seleccionadas)].copy()
-
+            # Extraer todas las columnas originales de esas filas
+            df_sel = df_positivas.loc[seleccion_idx].copy()
             st.dataframe(df_sel)
 
-            # Descargar resultados con todas las columnas
+            # Descargar resultados
             buffer = BytesIO()
             df_sel.to_excel(buffer, index=False, engine="openpyxl")
             st.download_button(
@@ -118,5 +110,3 @@ if archivo:
             )
         else:
             st.warning("❌ No se encontró una combinación EXACTA de facturas.")
-
-
