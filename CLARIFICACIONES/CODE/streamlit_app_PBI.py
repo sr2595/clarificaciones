@@ -35,7 +35,9 @@ if archivo:
             return None
         if isinstance(valor, (int, float)):
             return float(valor)
-        texto = str(valor).strip().replace('.', '').replace(',', '.')
+        texto = str(valor).strip()
+        texto = texto.replace("€", "").replace(" ", "")  # quitar símbolo y espacios
+        texto = texto.replace('.', '').replace(',', '.')
         try:
             return float(texto)
         except:
@@ -59,7 +61,9 @@ if archivo:
 
     if importe_objetivo:
         try:
-            importe_objetivo_eur = float(importe_objetivo.replace('.', '').replace(',', '.'))
+            importe_objetivo_eur = float(
+                importe_objetivo.replace("€", "").replace(" ", "").replace('.', '').replace(',', '.')
+            )
             importe_objetivo_cent = int(round(importe_objetivo_eur * 100))
         except:
             st.error("Formato de importe no válido.")
@@ -67,22 +71,7 @@ if archivo:
 
         fecha_base = df[col_fecha_emision].min()
         df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
-
-        # --- Conversión segura de importe a céntimos ---
-        if df['IMPORTE_CORRECTO'].isna().any():
-            st.warning(f"⚠️ Se han encontrado {df['IMPORTE_CORRECTO'].isna().sum()} filas con importe vacío. Se considerarán como 0.")
-
-        df['IMPORTE_CENT'] = (
-            df['IMPORTE_CORRECTO']
-            .fillna(0)
-            .astype(str)
-            .str.replace('.', '', regex=False)
-            .str.replace(',', '.', regex=False)
-            .astype(float)
-            .mul(100)
-            .round()
-            .astype(int)
-        )
+        df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'].fillna(0) * 100).round().astype(int)
 
         # --- Función OR-Tools ---
         def seleccionar_facturas_exactas_ortools(df, objetivo_cent):
@@ -110,6 +99,7 @@ if archivo:
             df_sel = pd.DataFrame(seleccion, columns=["Factura", "Importe (€)"])
             st.dataframe(df_sel)
 
+            # Descargar resultados
             buffer = BytesIO()
             df_sel.to_excel(buffer, index=False, engine="openpyxl")
             st.download_button(
