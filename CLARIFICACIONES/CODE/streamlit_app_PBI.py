@@ -4,6 +4,7 @@ from ortools.sat.python import cp_model
 from io import BytesIO
 
 st.set_page_config(page_title="Clarificador PBI", page_icon="📄", layout="wide")
+
 st.title("📄 Clarificador PBI")
 
 # --- Subir archivo Excel ---
@@ -72,7 +73,7 @@ if archivo:
         df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
         df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'].fillna(0) * 100).round().astype(int)
 
-        # --- Filtrar solo facturas positivas ---
+        # --- Filtrar solo facturas positivas para OR-Tools ---
         df_positivas = df[df['IMPORTE_CORRECTO'] > 0].copy()
 
         # --- Función OR-Tools ---
@@ -99,10 +100,14 @@ if archivo:
 
         if seleccion:
             st.success(f"✅ Combinación encontrada para {importe_objetivo_eur:,.2f} €")
-            df_sel = pd.DataFrame(seleccion, columns=["Factura", "Importe (€)"])
+
+            # Obtener todas las columnas originales de las facturas seleccionadas
+            facturas_seleccionadas = [f[0] for f in seleccion]
+            df_sel = df_positivas[df_positivas[col_factura].isin(facturas_seleccionadas)].copy()
+
             st.dataframe(df_sel)
 
-            # Descargar resultados
+            # Descargar resultados con todas las columnas
             buffer = BytesIO()
             df_sel.to_excel(buffer, index=False, engine="openpyxl")
             st.download_button(
@@ -113,4 +118,5 @@ if archivo:
             )
         else:
             st.warning("❌ No se encontró una combinación EXACTA de facturas.")
+
 
