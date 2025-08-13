@@ -4,7 +4,6 @@ from ortools.sat.python import cp_model
 from io import BytesIO
 
 st.set_page_config(page_title="Clarificador 2.0 COBRA", page_icon="📄", layout="wide")
-
 st.title("📄 Clarificador 2.0 COBRA")
 
 # --- Subir archivo Excel ---
@@ -19,8 +18,6 @@ if archivo:
     possible_importe_cols = ['IMPORTE', 'Importe', 'importe', 'TOTAL', 'TOTAL_FACTURA']
     col_factura = next((col for col in possible_factura_cols if col in df.columns), None)
     col_importe = next((col for col in possible_importe_cols if col in df.columns), None)
-
-    
 
     if not (col_fecha_emision and col_factura and col_importe):
         st.error("❌ No se encontraron todas las columnas necesarias (fecha, factura, importe).")
@@ -69,10 +66,13 @@ if archivo:
         df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
         df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype(int)
 
-        # --- Función OR-Tools ---
-        def seleccionar_facturas_exactas_ortools(df, objetivo_cent):
+        # --- Filtrar solo facturas positivas para OR-Tools ---
+        df_positivas = df[df['IMPORTE_CORRECTO'] > 0].copy()
+
+        # --- Función OR-Tools usando solo el DataFrame filtrado ---
+        def seleccionar_facturas_exactas_ortools(df_filtrado, objetivo_cent):
+            data = list(zip(df_filtrado[col_factura], df_filtrado['IMPORTE_CENT'], df_filtrado['DAYS_FROM_BASE'], df_filtrado['IMPORTE_CORRECTO']))
             model = cp_model.CpModel()
-            data = list(zip(df[col_factura], df['IMPORTE_CENT'], df['DAYS_FROM_BASE'], df['IMPORTE_CORRECTO']))
             vars = [model.NewBoolVar(f"sel_{i}") for i in range(len(data))]
             model.Add(sum(vars[i] * data[i][1] for i in range(len(data))) == objetivo_cent)
             model.Minimize(sum(vars))
@@ -88,7 +88,8 @@ if archivo:
             else:
                 return None
 
-        seleccion = seleccionar_facturas_exactas_ortools(df, importe_objetivo_cent)
+        # --- Llamada a la función usando solo facturas positivas ---
+        seleccion = seleccionar_facturas_exactas_ortools(df_positivas, importe_objetivo_cent)
 
         if seleccion:
             st.success(f"✅ Combinación encontrada para {importe_objetivo_eur:,.2f} €")
@@ -106,3 +107,5 @@ if archivo:
             )
         else:
             st.warning("❌ No se encontró una combinación EXACTA de facturas.")
+
+
