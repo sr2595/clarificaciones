@@ -3,24 +3,24 @@ import streamlit as st
 from ortools.sat.python import cp_model
 from io import BytesIO
 
-st.set_page_config(page_title="Clarificador 2.0", page_icon="📄", layout="wide")
+st.set_page_config(page_title="Clarificador PBI", page_icon="📄", layout="wide")
 
-st.title("📄 Clarificador 2.0")
+st.title("📄 Clarificador PBI")
 
 # --- Subir archivo Excel ---
-archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
+archivo = st.file_uploader("Sube el archivo Excel PBI", type=["xlsx", "xls"])
 if archivo:
     df = pd.read_excel(archivo, engine="openpyxl")
 
     # --- Detectar columnas ---
-    possible_date_cols = ['FECHA', 'Fecha', 'fecha', 'Fecha Emision', 'FECHA_EMISION', 'Fecha Emisión', 'FX_EMISION']
+    possible_date_cols = ['FX_EMISION', 'FECHA', 'Fecha', 'fecha']
     col_fecha_emision = next((col for col in possible_date_cols if col in df.columns), None)
-    possible_factura_cols = ['FACTURA', 'Factura', 'factura', 'Nº Factura', 'NRO_FACTURA', 'Núm.Doc.Deuda']
-    possible_importe_cols = ['IMPORTE', 'Importe', 'importe', 'TOTAL', 'TOTAL_FACTURA']
-    col_factura = next((col for col in possible_factura_cols if col in df.columns), None)
-    col_importe = next((col for col in possible_importe_cols if col in df.columns), None)
 
-    
+    possible_factura_cols = ['FACTURA', 'Factura', 'factura']
+    col_factura = next((col for col in possible_factura_cols if col in df.columns), None)
+
+    possible_importe_cols = ['IMPORTE', 'Importe', 'importe']
+    col_importe = next((col for col in possible_importe_cols if col in df.columns), None)
 
     if not (col_fecha_emision and col_factura and col_importe):
         st.error("❌ No se encontraron todas las columnas necesarias (fecha, factura, importe).")
@@ -67,7 +67,22 @@ if archivo:
 
         fecha_base = df[col_fecha_emision].min()
         df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
-        df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype(int)
+
+        # --- Conversión segura de importe a céntimos ---
+        if df['IMPORTE_CORRECTO'].isna().any():
+            st.warning(f"⚠️ Se han encontrado {df['IMPORTE_CORRECTO'].isna().sum()} filas con importe vacío. Se considerarán como 0.")
+
+        df['IMPORTE_CENT'] = (
+            df['IMPORTE_CORRECTO']
+            .fillna(0)
+            .astype(str)
+            .str.replace('.', '', regex=False)
+            .str.replace(',', '.', regex=False)
+            .astype(float)
+            .mul(100)
+            .round()
+            .astype(int)
+        )
 
         # --- Función OR-Tools ---
         def seleccionar_facturas_exactas_ortools(df, objetivo_cent):
@@ -95,13 +110,12 @@ if archivo:
             df_sel = pd.DataFrame(seleccion, columns=["Factura", "Importe (€)"])
             st.dataframe(df_sel)
 
-            # Descargar resultados
             buffer = BytesIO()
             df_sel.to_excel(buffer, index=False, engine="openpyxl")
             st.download_button(
                 label="📥 Descargar facturas seleccionadas",
                 data=buffer,
-                file_name="facturas_seleccionadas.xlsx",
+                file_name="facturas_seleccionadas_PBI.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
