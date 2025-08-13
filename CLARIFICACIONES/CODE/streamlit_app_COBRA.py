@@ -66,12 +66,12 @@ if archivo:
         df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
         df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype(int)
 
-        # --- Filtrar solo facturas positivas para OR-Tools ---
+        # --- Filtrar solo facturas positivas ---
         df_positivas = df[df['IMPORTE_CORRECTO'] > 0].copy()
 
-        # --- Función OR-Tools usando solo el DataFrame filtrado ---
+        # --- Función OR-Tools ---
         def seleccionar_facturas_exactas_ortools(df_filtrado, objetivo_cent):
-            data = list(zip(df_filtrado[col_factura], df_filtrado['IMPORTE_CENT'], df_filtrado['DAYS_FROM_BASE'], df_filtrado['IMPORTE_CORRECTO']))
+            data = list(zip(df_filtrado.index, df_filtrado['IMPORTE_CENT'], df_filtrado['DAYS_FROM_BASE']))
             model = cp_model.CpModel()
             vars = [model.NewBoolVar(f"sel_{i}") for i in range(len(data))]
             model.Add(sum(vars[i] * data[i][1] for i in range(len(data))) == objetivo_cent)
@@ -80,23 +80,22 @@ if archivo:
             solver.parameters.max_time_in_seconds = 10
             status = solver.Solve(model)
             if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                seleccionadas = []
-                for i, (factura, imp_cent, _, imp_eur) in enumerate(data):
-                    if solver.Value(vars[i]) == 1:
-                        seleccionadas.append((factura, imp_eur))
-                return seleccionadas
+                seleccionadas_idx = [data[i][0] for i in range(len(data)) if solver.Value(vars[i]) == 1]
+                return seleccionadas_idx
             else:
                 return None
 
-        # --- Llamada a la función usando solo facturas positivas ---
-        seleccion = seleccionar_facturas_exactas_ortools(df_positivas, importe_objetivo_cent)
+        # --- Llamada ---
+        seleccion_idx = seleccionar_facturas_exactas_ortools(df_positivas, importe_objetivo_cent)
 
-        if seleccion:
+        if seleccion_idx:
             st.success(f"✅ Combinación encontrada para {importe_objetivo_eur:,.2f} €")
-            df_sel = pd.DataFrame(seleccion, columns=["Factura", "Importe (€)"])
+
+            # Mostrar todas las columnas originales
+            df_sel = df_positivas.loc[seleccion_idx].copy()
             st.dataframe(df_sel)
 
-            # Descargar resultados
+            # Descargar resultados con todas las columnas
             buffer = BytesIO()
             df_sel.to_excel(buffer, index=False, engine="openpyxl")
             st.download_button(
@@ -107,5 +106,4 @@ if archivo:
             )
         else:
             st.warning("❌ No se encontró una combinación EXACTA de facturas.")
-
 
