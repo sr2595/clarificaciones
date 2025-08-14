@@ -28,7 +28,7 @@ if archivo:
     possible_cif_cols = ['CIF', 'cif', 'NIF', 'nif', 'CIF_CLIENTE', 'NIF_CLIENTE', 'Cliente CIF', 'Cliente NIF']
     col_cif = next((col for col in possible_cif_cols if col in df.columns), None)
 
-    possible_nombre_cols = ['NOMBRE', 'Nombre', 'nombre', 'CLIENTE', 'Cliente', 'cliente', 'NOMBRE_CLIENTE', 'RAZON_SOCIAL']
+    possible_nombre_cols = ['NOMBRE', 'Nombre', 'nombre', 'CLIENTE', 'Cliente', 'cliente', 'NOMBRE_CLIENTE', 'RAZON_SOCIAL', 'Nombre Cliente']
     col_nombre_cliente = next((col for col in possible_nombre_cols if col in df.columns), None)
 
     if not (col_fecha_emision and col_factura and col_importe and col_cif):
