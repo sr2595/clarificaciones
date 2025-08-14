@@ -26,13 +26,17 @@ if archivo:
     possible_importe_cols = ['IMPORTE', 'Importe', 'importe', 'TOTAL', 'TOTAL_FACTURA']
     col_importe = next((col for col in possible_importe_cols if col in df.columns), None)
 
-    if not (col_fecha_emision and col_factura and col_importe):
-        st.error("❌ No se encontraron todas las columnas necesarias (fecha, factura, importe).")
+    possible_cif_cols = ['CIF', 'cif', 'NIF', 'nif', 'CIF_CLIENTE', 'NIF_CLIENTE', 'Cliente CIF', 'Cliente NIF', 'T.Doc.- Núm.Doc.']
+    col_cif = next((col for col in possible_cif_cols if col in df.columns), None)
+
+    if not (col_fecha_emision and col_factura and col_importe and col_cif):
+        st.error("❌ No se encontraron todas las columnas necesarias (fecha, factura, importe, CIF cliente).")
         st.stop()
 
     # --- Procesar datos ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
+    df[col_cif] = df[col_cif].astype(str)
 
     def convertir_importe_europeo(valor):
         if pd.isna(valor):
@@ -58,11 +62,14 @@ if archivo:
     st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
     # --- Inputs para búsqueda ---
+    cliente_cif = st.selectbox("Selecciona CIF de cliente", sorted(df[col_cif].unique()))
     importe_objetivo = st.text_input("Introduce importe objetivo (ej: 295.206,63)")
     fecha_pago = st.date_input("Fecha de pago")
 
+    # Filtrar por CIF cliente
+    df_cliente = df[df[col_cif] == cliente_cif].copy()
+
     if importe_objetivo:
-        # Validación e interpretación del importe
         try:
             importe_objetivo_eur = float(importe_objetivo.replace('.', '').replace(',', '.'))
             importe_objetivo_cent = int(round(importe_objetivo_eur * 100))
@@ -70,29 +77,22 @@ if archivo:
             st.error("Formato de importe no válido.")
             st.stop()
 
-        # Fechas de referencia para costes de desempate
-        fecha_base = df[col_fecha_emision].min()
+        fecha_base = df_cliente[col_fecha_emision].min()
         if pd.isna(fecha_base):
-            st.error("❌ La columna de fechas no contiene valores válidos.")
+            st.error("❌ La columna de fechas no contiene valores válidos para este cliente.")
             st.stop()
 
-        df['DAYS_FROM_BASE'] = (df[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
-        df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype('Int64')
+        df_cliente['DAYS_FROM_BASE'] = (df_cliente[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
+        df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype('Int64')
 
-        # --- Filtrar solo facturas positivas y con importe válido ---
-        df_positivas = df[(df['IMPORTE_CORRECTO'] > 0) & df['IMPORTE_CENT'].notna()].copy()
+        # Filtrar facturas positivas
+        df_positivas = df_cliente[(df_cliente['IMPORTE_CORRECTO'] > 0) & df_cliente['IMPORTE_CENT'].notna()].copy()
         if df_positivas.empty:
-            st.warning("No hay facturas positivas con importes válidos.")
+            st.warning("No hay facturas positivas con importes válidos para este cliente.")
             st.stop()
 
         # --- Función OR-Tools ---
         def seleccionar_facturas_exactas_ortools(df_filtrado, objetivo_cent, target_days):
-            """
-            1) Suma exacta de importes en cent.
-            2) Minimiza número de facturas.
-            3) Desempata favoreciendo fechas cercanas a 'fecha_pago' (target_days).
-            """
-            # data: (index, importe_cent, days_from_base)
             data = list(zip(df_filtrado.index.tolist(),
                             df_filtrado['IMPORTE_CENT'].astype(int).tolist(),
                             df_filtrado['DAYS_FROM_BASE'].astype(int).tolist()))
@@ -100,24 +100,18 @@ if archivo:
             model = cp_model.CpModel()
             x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-            # (1) Suma exacta
             model.Add(sum(x[i] * data[i][1] for i in range(n)) == int(objetivo_cent))
 
-            # Coste de cercanía a fecha objetivo (precomputado, lineal)
             if target_days is not None:
                 costs = [abs(data[i][2] - target_days) for i in range(n)]
                 max_cost = (max(costs) if costs else 0) * n
-                BIG_M = max_cost + 1  # Garantiza prioridad a minimizar número de facturas
-
-                # (2)+(3) Objetivo lexicográfico: primero nº facturas, luego cercanía fechas
+                BIG_M = max_cost + 1
                 model.Minimize(BIG_M * sum(x) + sum(x[i] * costs[i] for i in range(n)))
             else:
-                # Solo minimizar número de facturas si no hay fecha de pago
                 model.Minimize(sum(x))
 
             solver = cp_model.CpSolver()
             solver.parameters.max_time_in_seconds = 10
-            # Puedes paralelizar si quieres: solver.parameters.num_search_workers = 8
             status = solver.Solve(model)
 
             if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
@@ -126,11 +120,9 @@ if archivo:
             else:
                 return None
 
-        # --- Llamada ---
         target_days = None
         if fecha_pago:
             try:
-                # fecha_pago es date; convierto a datetime para restar
                 target_days = (pd.to_datetime(datetime.combine(fecha_pago, datetime.min.time())) - fecha_base).days
             except Exception:
                 target_days = None
@@ -139,23 +131,18 @@ if archivo:
 
         if seleccion_idx:
             st.success(f"✅ Combinación encontrada para {importe_objetivo_eur:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-
-            # Mostrar todas las columnas originales
             df_sel = df_positivas.loc[seleccion_idx].copy()
 
-            # Orden opcional por fecha y factura si existen
             try:
                 df_sel = df_sel.sort_values([col_fecha_emision, col_factura])
             except Exception:
                 pass
 
-            # Checksum visual
             suma_sel = float(df_sel['IMPORTE_CORRECTO'].sum())
             st.write(f"**Suma seleccionada:** {suma_sel:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
             st.dataframe(df_sel)
 
-            # Descargar resultados con todas las columnas
             buffer = BytesIO()
             df_sel.to_excel(buffer, index=False, engine="openpyxl")
             buffer.seek(0)
