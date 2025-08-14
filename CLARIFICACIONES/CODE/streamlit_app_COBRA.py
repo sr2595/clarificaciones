@@ -67,6 +67,8 @@ if archivo:
     col_cif           = find_col(df, ['T.Doc. - Núm.Doc.', 'CIF', 'cif', 'NIF', 'nif', 'CIF_CLIENTE', 'NIF_CLIENTE', 'Cliente CIF', 'Cliente NIF'])  
     col_nombre_cliente= find_col(df, ['NOMBRE', 'Nombre', 'nombre', 'CLIENTE', 'Cliente', 'cliente',
                                       'NOMBRE_CLIENTE', 'RAZON_SOCIAL', 'Nombre Cliente'])
+    col_sociedad       = find_col(df, ['SOCIEDAD', 'Sociedad', 'sociedad'])
+
 
     # --- Validación y feedback útil ---
     faltan = []
@@ -113,6 +115,14 @@ if archivo:
 
     cliente_seleccionado_display = st.selectbox("Selecciona cliente (CIF - Nombre)", opciones_clientes)
     cliente_cif = mapping_cif[cliente_seleccionado_display]
+
+     # --- Filtro por sociedad ---
+    if col_sociedad:
+        sociedades_unicas = sorted(df[col_sociedad].dropna().astype(str).str.strip().unique())
+        sociedad_seleccionada = st.selectbox("🏢 Selecciona Sociedad", sociedades_unicas)
+        df = df[df[col_sociedad] == sociedad_seleccionada]
+    else:
+        st.warning("⚠ No se detectó columna 'SOCIEDAD'. No se filtrará por sociedad.")
 
     # --- Inputs adicionales ---
     importe_objetivo = st.text_input("Introduce importe objetivo (ej: 295.206,63)")
