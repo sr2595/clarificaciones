@@ -114,7 +114,7 @@ if archivo:
     # --- Filtro por sociedad ---
     if col_sociedad:
         sociedades_unicas = sorted(df[col_sociedad].dropna().astype(str).str.strip().unique())
-        sociedad_seleccionada = st.selectbox("🏢 Selecciona Sociedad", sociedades_unicas)
+        sociedad_seleccionada = st.selectbox("Selecciona Sociedad", sociedades_unicas)
         df = df[df[col_sociedad] == sociedad_seleccionada]
     else:
         st.warning("⚠ No se detectó columna 'SOCIEDAD'. No se filtrará por sociedad.")
