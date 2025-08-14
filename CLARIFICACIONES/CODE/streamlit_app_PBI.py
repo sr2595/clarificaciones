@@ -75,14 +75,7 @@ if archivo:
         st.info("Revisa el nombre exacto en el Excel o abre el desplegable de arriba para ver cómo llegan los encabezados.")
         st.stop()
 
-    # --- Filtro por sociedad ---
-    if col_sociedad:
-        sociedades_unicas = sorted(df[col_sociedad].dropna().astype(str).str.strip().unique())
-        sociedad_seleccionada = st.selectbox("🏢 Selecciona Sociedad", sociedades_unicas)
-        df = df[df[col_sociedad] == sociedad_seleccionada]
-    else:
-        st.warning("⚠ No se detectó columna 'SOCIEDAD'. No se filtrará por sociedad.")
-
+    
     # --- Procesar datos ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
@@ -117,6 +110,14 @@ if archivo:
 
     cliente_seleccionado_display = st.selectbox("Selecciona cliente (CIF - Nombre)", opciones_clientes)
     cliente_cif = mapping_cif[cliente_seleccionado_display]
+
+    # --- Filtro por sociedad ---
+    if col_sociedad:
+        sociedades_unicas = sorted(df[col_sociedad].dropna().astype(str).str.strip().unique())
+        sociedad_seleccionada = st.selectbox("🏢 Selecciona Sociedad", sociedades_unicas)
+        df = df[df[col_sociedad] == sociedad_seleccionada]
+    else:
+        st.warning("⚠ No se detectó columna 'SOCIEDAD'. No se filtrará por sociedad.")
 
     # --- Inputs adicionales ---
     importe_objetivo = st.text_input("Introduce importe objetivo (ej: 295.206,63)")
