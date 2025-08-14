@@ -10,7 +10,6 @@ st.title("📄 Clarificador 2.0 COBRA")
 # --- Subir archivo Excel ---
 archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
 if archivo:
-    # Lee con openpyxl si está disponible; si no, deja que pandas elija motor
     try:
         df = pd.read_excel(archivo, engine="openpyxl")
     except Exception:
@@ -26,8 +25,11 @@ if archivo:
     possible_importe_cols = ['IMPORTE', 'Importe', 'importe', 'TOTAL', 'TOTAL_FACTURA']
     col_importe = next((col for col in possible_importe_cols if col in df.columns), None)
 
-    possible_cif_cols = ['CIF', 'cif', 'NIF', 'nif', 'CIF_CLIENTE', 'NIF_CLIENTE', 'Cliente CIF', 'Cliente NIF', 'T.Doc. - Núm.Doc.']
+    possible_cif_cols = ['CIF', 'cif', 'NIF', 'nif', 'CIF_CLIENTE', 'NIF_CLIENTE', 'Cliente CIF', 'Cliente NIF']
     col_cif = next((col for col in possible_cif_cols if col in df.columns), None)
+
+    possible_nombre_cols = ['NOMBRE', 'Nombre', 'nombre', 'CLIENTE', 'Cliente', 'cliente', 'NOMBRE_CLIENTE', 'RAZON_SOCIAL']
+    col_nombre_cliente = next((col for col in possible_nombre_cols if col in df.columns), None)
 
     if not (col_fecha_emision and col_factura and col_importe and col_cif):
         st.error("❌ No se encontraron todas las columnas necesarias (fecha, factura, importe, CIF cliente).")
@@ -37,6 +39,8 @@ if archivo:
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
     df[col_cif] = df[col_cif].astype(str)
+    if col_nombre_cliente:
+        df[col_nombre_cliente] = df[col_nombre_cliente].astype(str)
 
     def convertir_importe_europeo(valor):
         if pd.isna(valor):
@@ -61,8 +65,18 @@ if archivo:
     st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
     st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    # --- Inputs para búsqueda ---
-    cliente_cif = st.selectbox("Selecciona CIF de cliente", sorted(df[col_cif].unique()))
+    # --- Crear lista desplegable CIF + Nombre ---
+    if col_nombre_cliente:
+        opciones_clientes = sorted(df[[col_cif, col_nombre_cliente]].drop_duplicates().apply(lambda x: f"{x[col_cif]} - {x[col_nombre_cliente]}", axis=1))
+        mapping_cif = {f"{row[col_cif]} - {row[col_nombre_cliente]}": row[col_cif] for _, row in df[[col_cif, col_nombre_cliente]].drop_duplicates().iterrows()}
+    else:
+        opciones_clientes = sorted(df[col_cif].drop_duplicates())
+        mapping_cif = {cif: cif for cif in opciones_clientes}
+
+    cliente_seleccionado_display = st.selectbox("Selecciona cliente", opciones_clientes)
+    cliente_cif = mapping_cif[cliente_seleccionado_display]
+
+    # --- Inputs adicionales ---
     importe_objetivo = st.text_input("Introduce importe objetivo (ej: 295.206,63)")
     fecha_pago = st.date_input("Fecha de pago")
 
@@ -85,13 +99,11 @@ if archivo:
         df_cliente['DAYS_FROM_BASE'] = (df_cliente[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
         df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype('Int64')
 
-        # Filtrar facturas positivas
         df_positivas = df_cliente[(df_cliente['IMPORTE_CORRECTO'] > 0) & df_cliente['IMPORTE_CENT'].notna()].copy()
         if df_positivas.empty:
             st.warning("No hay facturas positivas con importes válidos para este cliente.")
             st.stop()
 
-        # --- Función OR-Tools ---
         def seleccionar_facturas_exactas_ortools(df_filtrado, objetivo_cent, target_days):
             data = list(zip(df_filtrado.index.tolist(),
                             df_filtrado['IMPORTE_CENT'].astype(int).tolist(),
