@@ -25,7 +25,7 @@ if archivo:
     possible_importe_cols = ['IMPORTE', 'Importe', 'importe', 'TOTAL', 'TOTAL_FACTURA']
     col_importe = next((col for col in possible_importe_cols if col in df.columns), None)
 
-    possible_cif_cols = ['CIF', 'cif', 'NIF', 'nif', 'CIF_CLIENTE', 'NIF_CLIENTE', 'Cliente CIF', 'Cliente NIF']
+    possible_cif_cols = ['CIF', 'cif', 'NIF', 'nif', 'CIF_CLIENTE', 'NIF_CLIENTE', 'Cliente CIF', 'Cliente NIF', 'T.Doc. - Núm.Doc.']
     col_cif = next((col for col in possible_cif_cols if col in df.columns), None)
 
     possible_nombre_cols = ['NOMBRE', 'Nombre', 'nombre', 'CLIENTE', 'Cliente', 'cliente', 'NOMBRE_CLIENTE', 'RAZON_SOCIAL', 'Nombre Cliente']
