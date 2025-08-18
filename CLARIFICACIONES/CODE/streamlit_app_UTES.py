@@ -149,7 +149,7 @@ if archivo:
         def cuadrar_internas(externa, df_internas, tol=100):
             """tol en céntimos, default 1€ = 100 céntimos"""
             if externa is None or df_internas.empty:
-                return None
+                return pd.DataFrame()
 
             objetivo = int(externa['IMPORTE_CENT'])
             fecha_ref = externa[col_fecha_emision]
@@ -160,7 +160,7 @@ if archivo:
 
             n = len(data)
             if n == 0:
-                return None
+                return pd.DataFrame()
 
             model = cp_model.CpModel()
             x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
@@ -171,36 +171,41 @@ if archivo:
 
             # Minimizar número de facturas y diferencia de fechas
             costs = [abs(d[2]) for d in data]
-            BIG_M = (max(costs) if costs else 0) * n + 1
-            model.Minimize(BIG_M * sum(x) + sum(x[i] * costs[i] for i in range(n)))
+            model.Minimize(sum(x) + sum(x[i] * costs[i] for i in range(n)))
 
             solver = cp_model.CpSolver()
             solver.parameters.max_time_in_seconds = 10
             status = solver.Solve(model)
 
             if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                seleccion = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
-                return seleccion
-            return None
+                seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
+                return df_internas.loc[seleccionadas]
+            else:
+                return pd.DataFrame()
 
-        seleccion = cuadrar_internas(factura_final, df_internas) if factura_final is not None else None
+        if factura_final is not None and not df_internas.empty:
+            df_resultado = cuadrar_internas(factura_final, df_internas)
+            if df_resultado.empty:
+                st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+            else:
+                st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
 
-        if seleccion:
-            df_sel = df_internas.loc[seleccion].copy().sort_values(col_fecha_emision)
-            st.success(f"✅ Se encontraron {len(df_sel)} facturas de la UTE que cuadran con la factura final {factura_final[col_factura]}")
-            suma_sel = df_sel['IMPORTE_CORRECTO'].sum()
-            st.write(f"**Suma seleccionada:** {suma_sel:,.2f} €")
+                # Mostrar tabla final
+                st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision]])
 
-            st.dataframe(df_sel)
+                # Botón de descarga
+                def to_excel(df_out):
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_out.to_excel(writer, index=False, sheet_name='Resultado')
+                        writer.save()
+                    processed_data = output.getvalue()
+                    return processed_data
 
-            buffer = BytesIO()
-            df_sel.to_excel(buffer, index=False, engine="openpyxl")
-            buffer.seek(0)
-            st.download_button(
-                label="📥 Descargar facturas UTE asociadas",
-                data=buffer,
-                file_name=f"UTE_para_{factura_final[col_factura]}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.warning("❌ No se encontró una combinación de facturas de la UTE dentro de la tolerancia para esta factura final")
+                excel_data = to_excel(df_resultado)
+                st.download_button(
+                    label="📥 Descargar Excel con facturas internas seleccionadas",
+                    data=excel_data,
+                    file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
