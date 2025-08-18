@@ -211,17 +211,28 @@ if archivo:
 
                 # Botón de descarga
               
-                def to_excel(df_out):
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df_out.to_excel(writer, index=False, sheet_name='Resultado')
-                        processed_data = output.getvalue()
-                    return processed_data
+               # Botón de descarga
+def to_excel(df_out, sheet_name="Resultado"):
+    # Asegurar tipos compatibles (opcional pero recomendable)
+    df_safe = df_out.copy()
+    # Si hay enteros "Int64" con NA, pásalos a float o a object
+    for c in df_safe.select_dtypes(include=["Int64"]).columns:
+        df_safe[c] = df_safe[c].astype("float")
 
-                excel_data = to_excel(df_resultado)
-                st.download_button(
-                    label="📥 Descargar Excel con facturas internas seleccionadas",
-                    data=excel_data,
-                    file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+    output = BytesIO()
+    # xlsxwriter suele ser más robusto para escribir a BytesIO
+    with pd.ExcelWriter(output, engine="xlsxwriter", datetime_format="yyyy-mm-dd", date_format="yyyy-mm-dd") as writer:
+        df_safe.to_excel(writer, index=False, sheet_name=sheet_name)
+        # El with cierra y guarda el libro correctamente
+
+    # MUY IMPORTANTE: mover el puntero al inicio antes de leer
+    output.seek(0)
+    return output.read()
+
+excel_data = to_excel(df_resultado)
+st.download_button(
+    label="📥 Descargar Excel con facturas internas seleccionadas",
+    data=excel_data,
+    file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
