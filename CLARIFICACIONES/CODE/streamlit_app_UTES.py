@@ -134,7 +134,7 @@ if archivo:
         st.warning("⚠️ No hay UTES disponibles para este cliente final")
     else:
         # Crear lista de socios ordenada alfabéticamente por CIF
-        df_utes_grupo_sorted = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
+        df_utes_grupo_sorted = df_utes_grupo[[col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision]].drop_duplicates().sort_values(by=col_cif)
         opciones_utes = [
             f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
             for _, row in df_utes_grupo_sorted.iterrows()
@@ -143,7 +143,10 @@ if archivo:
 
         socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
         socios_cifs = [mapping_utes_cif[s] for s in socios_display]
-        df_internas = df[df[col_cif].isin(socios_cifs)].copy()
+        df_internas = df_utes_grupo_sorted[df_utes_grupo_sorted[col_cif].isin(socios_cifs)].copy()
+
+        # --- Filtrar facturas internas negativas o cero ---
+        df_internas = df_internas[df_internas['IMPORTE_CORRECTO'].fillna(0) > 0]
 
         # --- Solver ---
         def cuadrar_internas(externa, df_internas, tol=100):
@@ -201,7 +204,6 @@ if archivo:
                         processed_data = output.getvalue()
                     return processed_data
 
-                    
                 excel_data = to_excel(df_resultado)
                 st.download_button(
                     label="📥 Descargar Excel con facturas internas seleccionadas",
@@ -209,4 +211,3 @@ if archivo:
                     file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-                
