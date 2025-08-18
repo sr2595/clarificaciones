@@ -95,35 +95,60 @@ if archivo:
         mapping_cif = {cif: cif for cif in opciones_clientes}
 
     # --- Selección de cliente final ---
-    cliente_final_display = st.selectbox("Selecciona cliente final (CIF - Nombre)", opciones_clientes)
-    cliente_final_cif = mapping_cif[cliente_final_display]
-    df_cliente_final = df[df[col_cif] == cliente_final_cif].copy()
+    if opciones_clientes:
+        cliente_final_display = st.selectbox("Selecciona cliente final (CIF - Nombre)", opciones_clientes)
+        cliente_final_cif = mapping_cif[cliente_final_display]
+        df_cliente_final = df[df[col_cif] == cliente_final_cif].copy()
+    else:
+        st.warning("❌ No hay clientes disponibles en el archivo")
+        df_cliente_final = pd.DataFrame()
+        cliente_final_cif = None
+        factura_final = None
 
     # --- Filtrar solo facturas de TSS ---
-    col_sociedad = find_col(df_cliente_final, ['SOCIEDAD', 'Sociedad'])
-    df_tss = df_cliente_final[df_cliente_final[col_sociedad] == 'TSS']
+    if not df_cliente_final.empty:
+        col_sociedad = find_col(df_cliente_final, ['SOCIEDAD', 'Sociedad'])
+        df_tss = df_cliente_final[df_cliente_final[col_sociedad] == 'TSS'] if col_sociedad else pd.DataFrame()
+    else:
+        df_tss = pd.DataFrame()
 
-    # --- Selección de factura final (90) solo TSS ---
-    facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
-    opciones_facturas = [
-        f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
-        for _, row in facturas_cliente.iterrows()
-    ]
-    factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
-    factura_final_id = factura_final_display.split(" - ")[0]
-    factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
-
-    st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
-            f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+    if df_tss.empty:
+        st.warning("❌ No se encontraron facturas de TSS para el cliente seleccionado")
+        factura_final = None
+    else:
+        facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
+        if facturas_cliente.empty:
+            st.warning("❌ No hay facturas válidas de TSS para seleccionar")
+            factura_final = None
+        else:
+            opciones_facturas = [
+                f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
+                for _, row in facturas_cliente.iterrows()
+            ]
+            factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
+            factura_final_id = factura_final_display.split(" - ")[0]
+            factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
+            st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
+                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
 
     # --- Selección de UTE (socios) ---
     opciones_utes = [c for c in opciones_clientes if mapping_cif[c] != cliente_final_cif]
-    socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
-    socios_cifs = [mapping_cif[s] for s in socios_display]
-    df_internas = df[df[col_cif].isin(socios_cifs)].copy()
+    if not opciones_utes:
+        st.warning("❌ No hay clientes disponibles para formar la UTE (socios)")
+        df_internas = pd.DataFrame()
+    else:
+        socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
+        if socios_display:
+            socios_cifs = [mapping_cif[s] for s in socios_display]
+            df_internas = df[df[col_cif].isin(socios_cifs)].copy()
+        else:
+            st.warning("❌ No se seleccionaron socios para la UTE")
+            df_internas = pd.DataFrame()
 
     # --- Solver ---
     def cuadrar_internas(externa, df_internas):
+        if externa is None or df_internas.empty:
+            return None
         objetivo = int(externa['IMPORTE_CENT'])
         fecha_ref = externa[col_fecha_emision]
 
@@ -138,10 +163,8 @@ if archivo:
         model = cp_model.CpModel()
         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-        # Suma exacta
         model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
 
-        # Minimizar número de facturas y diferencia de fechas
         costs = [abs(d[2]) for d in data]
         BIG_M = (max(costs) if costs else 0) * n + 1
         model.Minimize(BIG_M * sum(x) + sum(x[i] * costs[i] for i in range(n)))
@@ -157,7 +180,6 @@ if archivo:
 
     # --- Ejecutar búsqueda ---
     seleccion = cuadrar_internas(factura_final, df_internas)
-
     if seleccion:
         df_sel = df_internas.loc[seleccion].copy().sort_values(col_fecha_emision)
         st.success(f"✅ Se encontraron {len(df_sel)} facturas de la UTE que cuadran con la factura final {factura_final[col_factura]}")
