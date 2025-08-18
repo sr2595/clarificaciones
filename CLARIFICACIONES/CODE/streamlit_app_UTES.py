@@ -159,9 +159,13 @@ if archivo:
             objetivo = int(externa['IMPORTE_CENT'])
             fecha_ref = externa[col_fecha_emision]
 
-            data = list(zip(df_internas.index.tolist(),
-                            df_internas['IMPORTE_CENT'].astype(int).tolist(),
-                            (df_internas[col_fecha_emision] - fecha_ref).dt.days.fillna(0).astype(int).tolist()))
+            # Preparar datos
+            data = list(zip(
+                df_internas.index.tolist(),
+                df_internas['IMPORTE_CENT'].astype(int).tolist(),
+                (df_internas[col_fecha_emision] - fecha_ref).dt.days.fillna(0).astype(int).tolist(),
+                df_internas[col_sociedad].tolist()  # Añadimos sociedad
+            ))
 
             n = len(data)
             if n == 0:
@@ -173,6 +177,13 @@ if archivo:
             # Suma con tolerancia
             model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
             model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+
+            # Restricción: solo una factura por sociedad
+            sociedades = set(d[3] for d in data)
+            for s in sociedades:
+                indices = [i for i, d in enumerate(data) if d[3] == s]
+                if indices:
+                    model.Add(sum(x[i] for i in indices) <= 1)
 
             # Minimizar número de facturas y diferencia de fechas
             costs = [abs(d[2]) for d in data]
@@ -196,7 +207,7 @@ if archivo:
                 st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
 
                 # Mostrar tabla final
-                st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision]])
+                st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]])
 
                 # Botón de descarga
                 def to_excel(df_out):
