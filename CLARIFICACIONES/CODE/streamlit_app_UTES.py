@@ -198,29 +198,29 @@ if archivo:
                 return df_internas.loc[seleccionadas]
             else:
                 return pd.DataFrame()
+       
+if factura_final is not None and not df_internas.empty:
+    df_resultado = cuadrar_internas(factura_final, df_internas)
+    if df_resultado.empty:
+        st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+    else:
+        st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
 
-        if factura_final is not None and not df_internas.empty:
-            df_resultado = cuadrar_internas(factura_final, df_internas)
-            if df_resultado.empty:
-                st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
-            else:
-                st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
+        # --- Mostrar tabla final ---
+        st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]])
 
-                # Mostrar tabla final
-                st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]])
+        # --- Botón de descarga ---
+        def to_excel(df_out):
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_out.to_excel(writer, index=False, sheet_name="Resultado")
+            processed_data = output.getvalue()
+            return processed_data
 
-                # Botón de descarga
-def to_excel(df_out):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_out.to_excel(writer, index=False, sheet_name="Resultado")
-    processed_data = output.getvalue()
-    return processed_data
-
-excel_data = to_excel(df_resultado)
-st.download_button(
-    label="📥 Descargar Excel con facturas internas seleccionadas",
-    data=excel_data,
-    file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+        excel_data = to_excel(df_resultado)
+        st.download_button(
+            label="📥 Descargar Excel con facturas internas seleccionadas",
+            data=excel_data,
+            file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
