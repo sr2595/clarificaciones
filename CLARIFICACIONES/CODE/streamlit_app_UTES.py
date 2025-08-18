@@ -210,6 +210,7 @@ if archivo:
                 st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]])
 
                 # Botón de descarga
+              
                 def to_excel(df_out):
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
