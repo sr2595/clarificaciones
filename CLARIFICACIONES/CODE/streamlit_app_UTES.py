@@ -78,9 +78,24 @@ if archivo:
     df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
     df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
 
+    # --- Opciones de clientes (CIF + Nombre) ---
+    if col_nombre_cliente:
+        df_clientes_unicos = df[[col_cif, col_nombre_cliente]].drop_duplicates()
+        df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
+        df_clientes_unicos[col_cif] = df_clientes_unicos[col_cif].fillna("").str.strip()
+        df_clientes_unicos = df_clientes_unicos.sort_values(col_nombre_cliente)
+        opciones_clientes = [
+            f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
+            for _, row in df_clientes_unicos.iterrows()
+        ]
+        mapping_cif = dict(zip(opciones_clientes, df_clientes_unicos[col_cif]))
+    else:
+        opciones_clientes = sorted(df[col_cif].fillna("").str.strip().drop_duplicates())
+        mapping_cif = {cif: cif for cif in opciones_clientes}
+
     # --- Selección de cliente final ---
-    opciones_clientes = sorted(df[col_cif].dropna().unique())
-    cliente_final_cif = st.selectbox("Selecciona cliente final (CIF)", opciones_clientes)
+    cliente_final_display = st.selectbox("Selecciona cliente final (CIF - Nombre)", opciones_clientes)
+    cliente_final_cif = mapping_cif[cliente_final_display]
     df_cliente_final = df[df[col_cif] == cliente_final_cif].copy()
 
     # --- Selección de factura final (90) ---
@@ -97,9 +112,10 @@ if archivo:
             f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
 
     # --- Selección de UTE (socios) ---
-    opciones_utes = [c for c in opciones_clientes if c != cliente_final_cif]
-    socio_cif = st.selectbox("Selecciona CIF de la UTE (socios)", opciones_utes)
-    df_internas = df[df[col_cif] == socio_cif].copy()
+    opciones_utes = [c for c in opciones_clientes if mapping_cif[c] != cliente_final_cif]
+    socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
+    socios_cifs = [mapping_cif[s] for s in socios_display]
+    df_internas = df[df[col_cif].isin(socios_cifs)].copy()
 
     # --- Solver ---
     def cuadrar_internas(externa, df_internas):
