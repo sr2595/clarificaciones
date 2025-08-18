@@ -198,10 +198,10 @@ if archivo:
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df_out.to_excel(writer, index=False, sheet_name='Resultado')
-                        writer.save()
-                    processed_data = output.getvalue()
+                        processed_data = output.getvalue()
                     return processed_data
 
+                    
                 excel_data = to_excel(df_resultado)
                 st.download_button(
                     label="📥 Descargar Excel con facturas internas seleccionadas",
