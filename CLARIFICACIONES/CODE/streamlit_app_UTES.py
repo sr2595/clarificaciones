@@ -44,20 +44,6 @@ def convertir_importe_europeo(valor):
     except Exception:
         return None
 
-def es_ute(cif):
-    if pd.isna(cif):
-        return False
-    cif = str(cif).upper().replace(" ", "").replace("-", "")
-    if cif.startswith("L00") and len(cif) > 3:
-        letra = cif[3]
-        return letra == "U"
-    return False
-
-def limpiar_cif(cif):
-    if pd.isna(cif):
-        return ""
-    return str(cif).upper().replace(" ", "").replace("-", "")
-
 # --------- App ---------
 archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
 if archivo:
@@ -76,13 +62,14 @@ if archivo:
     col_cif           = find_col(df, ['T.Doc. - Núm.Doc.', 'CIF', 'NIF', 'CIF_CLIENTE', 'NIF_CLIENTE'])
     col_nombre_cliente= find_col(df, ['NOMBRE', 'CLIENTE', 'RAZON_SOCIAL'])
     col_sociedad      = find_col(df, ['SOCIEDAD', 'Sociedad', 'SOC', 'EMPRESA'])
-    col_grupo         = find_col(df, ['CIF_GRUPO', 'Grupo', 'CIF Grupo'])
+    col_grupo         = find_col(df, ['CIF_GRUPO', 'GRUPO', 'CIF Grupo'])
 
     faltan = []
     if not col_fecha_emision: faltan.append("fecha emisión")
     if not col_factura:       faltan.append("nº factura")
     if not col_importe:       faltan.append("importe")
     if not col_cif:           faltan.append("CIF")
+    if not col_grupo:         faltan.append("CIF grupo")
     if faltan:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
@@ -93,14 +80,15 @@ if archivo:
     df[col_cif] = df[col_cif].astype(str)
     df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
     df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
-    df['CIF_LIMPIO'] = df[col_cif].apply(limpiar_cif)
-    df['ES_UTE'] = df[col_cif].apply(es_ute)
+
+    # --- Detectar UTES ---
+    df['ES_UTE'] = df[col_cif].str.replace(" ", "").str.contains(r"L-00U")
 
     # --- Opciones de clientes finales (no UTES) ---
-    df_clientes_unicos = df[~df['ES_UTE']][[col_cif, col_nombre_cliente, 'CIF_LIMPIO', col_grupo]].drop_duplicates()
+    df_clientes_unicos = df[~df['ES_UTE']][[col_cif, col_nombre_cliente, col_grupo]].drop_duplicates()
     df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
     df_clientes_unicos[col_cif] = df_clientes_unicos[col_cif].fillna("").str.strip()
-
+    df_clientes_unicos = df_clientes_unicos.sort_values(col_nombre_cliente)
     opciones_clientes = [
         f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
         for _, row in df_clientes_unicos.iterrows()
@@ -108,28 +96,33 @@ if archivo:
     mapping_cif = dict(zip(opciones_clientes, df_clientes_unicos[col_cif]))
     mapping_grupo = dict(zip(df_clientes_unicos[col_cif], df_clientes_unicos[col_grupo]))
 
+    # --- Selección de cliente final ---
     cliente_final_display = st.selectbox("Selecciona cliente final (CIF - Nombre)", opciones_clientes)
     cliente_final_cif = mapping_cif[cliente_final_display]
     cliente_final_grupo = mapping_grupo[cliente_final_cif]
-
     df_cliente_final = df[df[col_cif] == cliente_final_cif].copy()
 
-    # --- Filtrar solo facturas TSS ---
+    # --- Filtrar solo facturas de TSS ---
     df_tss = df_cliente_final[df_cliente_final[col_sociedad] == 'TSS']
     if df_tss.empty:
-        st.warning("❌ No hay facturas de TSS para este cliente final")
-        st.stop()
+        st.warning("⚠️ No se encontraron facturas de TSS para este cliente final")
 
-    # --- Selección de factura final ---
+    # --- Selección de factura final (TSS) ---
     facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
-    opciones_facturas = [
-        f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
-        for _, row in facturas_cliente.iterrows()
-    ]
-    factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
-    factura_final_id = factura_final_display.split(" - ")[0]
-    factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
-    st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** ({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+    if not facturas_cliente.empty:
+        opciones_facturas = [
+            f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
+            for _, row in facturas_cliente.iterrows()
+        ]
+        factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
+        factura_final_id = factura_final_display.split(" - ")[0]
+        factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
+
+        st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
+                f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+    else:
+        st.warning("⚠️ No hay facturas TSS disponibles para seleccionar")
+        factura_final = None
 
     # --- Filtrar UTES del mismo grupo ---
     df_utes_grupo = df[
@@ -137,53 +130,77 @@ if archivo:
         (df['ES_UTE'])
     ].copy()
 
-    opciones_utes = [
-        f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
-        for _, row in df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().iterrows()
-    ]
-    mapping_utes_cif = dict(zip(opciones_utes, df_utes_grupo[col_cif]))
+    if df_utes_grupo.empty:
+        st.warning("⚠️ No hay UTES disponibles para este cliente final")
+    else:
+        # Crear lista de socios ordenada alfabéticamente por CIF
+        df_utes_grupo_sorted = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
+        opciones_utes = [
+            f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
+            for _, row in df_utes_grupo_sorted.iterrows()
+        ]
+        mapping_utes_cif = dict(zip(opciones_utes, df_utes_grupo_sorted[col_cif]))
 
-    socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
-    socios_cifs = [mapping_utes_cif[s] for s in socios_display]
-    df_internas = df[df[col_cif].isin(socios_cifs)].copy()
+        socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
+        socios_cifs = [mapping_utes_cif[s] for s in socios_display]
+        df_internas = df[df[col_cif].isin(socios_cifs)].copy()
 
-    if df_internas.empty:
-        st.warning("❌ No hay facturas de UTE para los socios seleccionados")
-        st.stop()
+        # --- Solver ---
+        def cuadrar_internas(externa, df_internas, tol=100):
+            """tol en céntimos, default 1€ = 100 céntimos"""
+            if externa is None or df_internas.empty:
+                return None
 
-    # --- Solver con tolerancia ±1€ ---
-    def cuadrar_internas(externa, df_internas):
-        objetivo = int(externa['IMPORTE_CORRECTO']*100)
-        data = list(zip(df_internas.index.tolist(),
-                        df_internas['IMPORTE_CENT'].astype(int).tolist()))
+            objetivo = int(externa['IMPORTE_CENT'])
+            fecha_ref = externa[col_fecha_emision]
 
-        n = len(data)
-        if n == 0:
+            data = list(zip(df_internas.index.tolist(),
+                            df_internas['IMPORTE_CENT'].astype(int).tolist(),
+                            (df_internas[col_fecha_emision] - fecha_ref).dt.days.fillna(0).astype(int).tolist()))
+
+            n = len(data)
+            if n == 0:
+                return None
+
+            model = cp_model.CpModel()
+            x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
+
+            # Suma con tolerancia
+            model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
+            model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+
+            # Minimizar número de facturas y diferencia de fechas
+            costs = [abs(d[2]) for d in data]
+            BIG_M = (max(costs) if costs else 0) * n + 1
+            model.Minimize(BIG_M * sum(x) + sum(x[i] * costs[i] for i in range(n)))
+
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = 10
+            status = solver.Solve(model)
+
+            if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                seleccion = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
+                return seleccion
             return None
 
-        model = cp_model.CpModel()
-        x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
+        seleccion = cuadrar_internas(factura_final, df_internas) if factura_final is not None else None
 
-        # Tolerancia ±1€
-        tol = 100
-        model.Add(sum(x[i]*data[i][1] for i in range(n)) >= objetivo - tol)
-        model.Add(sum(x[i]*data[i][1] for i in range(n)) <= objetivo + tol)
+        if seleccion:
+            df_sel = df_internas.loc[seleccion].copy().sort_values(col_fecha_emision)
+            st.success(f"✅ Se encontraron {len(df_sel)} facturas de la UTE que cuadran con la factura final {factura_final[col_factura]}")
+            suma_sel = df_sel['IMPORTE_CORRECTO'].sum()
+            st.write(f"**Suma seleccionada:** {suma_sel:,.2f} €")
 
-        # Minimizar número de facturas
-        model.Minimize(sum(x))
+            st.dataframe(df_sel)
 
-        solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 5.0
-        status = solver.Solve(model)
-
-        if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-            indices_seleccionados = [data[i][0] for i in range(n) if solver.BooleanValue(x[i])]
-            return df_internas.loc[indices_seleccionados]
-        return None
-
-    df_solucion = cuadrar_internas(factura_final, df_internas)
-    if df_solucion is not None:
-        st.success(f"✅ Se han encontrado {len(df_solucion)} facturas que cuadran con ±1€ de tolerancia")
-        st.dataframe(df_solucion[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]])
-    else:
-        st.error("❌ No se pudo cuadrar la factura final con las facturas de socios dentro de ±1€")
+            buffer = BytesIO()
+            df_sel.to_excel(buffer, index=False, engine="openpyxl")
+            buffer.seek(0)
+            st.download_button(
+                label="📥 Descargar facturas UTE asociadas",
+                data=buffer,
+                file_name=f"UTE_para_{factura_final[col_factura]}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            st.warning("❌ No se encontró una combinación de facturas de la UTE dentro de la tolerancia para esta factura final")
