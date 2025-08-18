@@ -166,7 +166,10 @@ if archivo:
                     indices = [i for i, d in enumerate(data) if d[3] == cif]
                     model.Add(sum(x[i] * data[i][1] for i in indices) <= objetivo)
 
-                model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+                # Suma con tolerancia de 1€
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - 100)
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + 100)
+
 
                 # Minimizar número de facturas y diferencia de fechas
                 costs = [abs(d[2]) for d in data]
