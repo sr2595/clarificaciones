@@ -95,7 +95,7 @@ if archivo:
         mapping_cif = dict(zip(opciones_clientes, df_clientes_unicos[col_cif]))
     else:
         df_clientes_unicos = df[[col_cif]].drop_duplicates()
-        df_clientes_unicos = df_clientes_unicos[~df_clientes_unicos[col_cif].str[5].str.upper().eq("U")]
+        df_clientes_unicos = df_clientes_unicos[~df_clientes_unicos[col_cif].str[6].str.upper().eq("U")]
         opciones_clientes = sorted(df_clientes_unicos[col_cif].tolist())
         mapping_cif = {cif: cif for cif in opciones_clientes}
 
@@ -126,7 +126,7 @@ if archivo:
         grupo_cliente = df_cliente_final[col_cif_grupo].iloc[0]
         df_utes = df[df[col_cif_grupo] == grupo_cliente].copy()
         # Solo UTES: CIF con "U" en la posición 5
-        df_utes = df_utes[df_utes[col_cif].str[5].str.upper().eq("U")]
+        df_utes = df_utes[df_utes[col_cif].str[6].str.upper().eq("U")]
         if df_utes.empty:
             st.warning("❌ No se encontraron UTES para el grupo de este cliente final.")
         else:
