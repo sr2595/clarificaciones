@@ -86,7 +86,7 @@ if archivo:
         df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
         df_clientes_unicos[col_cif] = df_clientes_unicos[col_cif].fillna("").str.strip()
         # Excluir UTES: CIF con "U" después de "L - 00"
-        df_clientes_unicos = df_clientes_unicos[~df_clientes_unicos[col_cif].str[5].str.upper().eq("U")]
+        df_clientes_unicos = df_clientes_unicos[~df_clientes_unicos[col_cif].str[7].str.upper().eq("U")]
         df_clientes_unicos = df_clientes_unicos.sort_values(col_nombre_cliente)
         opciones_clientes = [
             f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
