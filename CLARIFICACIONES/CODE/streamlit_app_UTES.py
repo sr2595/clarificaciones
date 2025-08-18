@@ -61,6 +61,7 @@ if archivo:
     col_importe       = find_col(df, ['IMPORTE', 'TOTAL', 'TOTAL_FACTURA'])
     col_cif           = find_col(df, ['T.Doc. - Núm.Doc.', 'CIF', 'NIF', 'CIF_CLIENTE', 'NIF_CLIENTE'])
     col_nombre_cliente= find_col(df, ['NOMBRE', 'CLIENTE', 'RAZON_SOCIAL'])
+    col_sociedad      = find_col(df, ['SOCIEDAD', 'Sociedad', 'SOC', 'EMPRESA'])
 
     faltan = []
     if not col_fecha_emision: faltan.append("fecha emisión")
@@ -98,15 +99,19 @@ if archivo:
     cliente_final_cif = mapping_cif[cliente_final_display]
     df_cliente_final = df[df[col_cif] == cliente_final_cif].copy()
 
-    # --- Selección de factura final (90) ---
-    facturas_cliente = df_cliente_final[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
+    # --- Filtrar solo facturas de TSS ---
+    col_sociedad = find_col(df_cliente_final, ['SOCIEDAD', 'Sociedad'])
+    df_tss = df_cliente_final[df_cliente_final[col_sociedad] == 'TSS']
+
+    # --- Selección de factura final (90) solo TSS ---
+    facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
     opciones_facturas = [
         f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
         for _, row in facturas_cliente.iterrows()
     ]
-    factura_final_display = st.selectbox("Selecciona factura final (90)", opciones_facturas)
+    factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
     factura_final_id = factura_final_display.split(" - ")[0]
-    factura_final = df_cliente_final[df_cliente_final[col_factura] == factura_final_id].iloc[0]
+    factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
 
     st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
             f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
@@ -142,7 +147,7 @@ if archivo:
         model.Minimize(BIG_M * sum(x) + sum(x[i] * costs[i] for i in range(n)))
 
         solver = cp_model.CpSolver()
-        solver.parameters.max_time_in_seconds = 5
+        solver.parameters.max_time_in_seconds = 10
         status = solver.Solve(model)
 
         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
