@@ -218,20 +218,25 @@ if archivo:
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
     df_resultado = cuadrar_internas(factura_final, df_internas)
+    
     if df_resultado.empty:
         st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
     else:
         st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
 
+        # --- Normalizar nombres de columnas de df_resultado para evitar KeyError ---
+        df_resultado.columns = df_resultado.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
+
         # --- NUEVO: carga opcional de pagos ---
         cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm'], key="cobros")
         if cobros_file:
+            # Leer archivo
             if cobros_file.name.endswith('.xlsm'):
                 df_cobros = pd.read_excel(cobros_file, engine='openpyxl')
             else:
                 df_cobros = pd.read_csv(cobros_file)
 
-            # --- Normalización de columnas ---
+            # Normalizar columnas
             df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
 
             # Convertir tipos
@@ -242,18 +247,18 @@ if factura_final is not None and not df_internas.empty:
 
             TOLERANCIA = 1.0  # ±1€
 
-            # Crear columnas en df_resultado
-            df_resultado['Posible Pago'] = 'No'
-            df_resultado['Pagos_Detalle'] = None
+            # Crear columnas en df_resultado para pagos
+            df_resultado['posible_pago'] = 'No'
+            df_resultado['pagos_detalle'] = None
 
             # Función para buscar pagos
-            def buscar_pagos(fila, df_cobros):
+            def buscar_pagos(fila, df_cobros, col_factura='factura', col_fecha='fecha_emision'):
                 posibles = []
 
                 # 1️⃣ Match exacto Posible Factura
                 pagos_match = df_cobros[df_cobros['posible_factura'] == str(fila[col_factura])]
                 for _, p in pagos_match.iterrows():
-                    if abs(p['importe'] - fila['IMPORTE_CORRECTO']) <= TOLERANCIA:
+                    if abs(p['importe'] - fila['importe_correcto']) <= TOLERANCIA:
                         posibles.append(p)
 
                 if posibles:
@@ -262,42 +267,39 @@ if factura_final is not None and not df_internas.empty:
                 # 2️⃣ Buscar dentro de Norma 43
                 pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(str(fila[col_factura]), na=False)]
                 for _, p in pagos_match_norma43.iterrows():
-                    if abs(p['importe'] - fila['IMPORTE_CORRECTO']) <= TOLERANCIA:
+                    if abs(p['importe'] - fila['importe_correcto']) <= TOLERANCIA:
                         posibles.append(p)
+
                 if posibles:
                     return posibles
 
-                # 3️⃣ Buscar por Fec. Operación a partir de fecha de la factura
-                fecha_inicio = fila[col_fecha_emision]
+                # 3️⃣ Buscar por fecha de operación a partir de fecha de la factura
+                fecha_inicio = fila[col_fecha]
                 pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
                 for _, p in pagos_fecha.iterrows():
-                    if abs(p['importe'] - fila['IMPORTE_CORRECTO']) <= TOLERANCIA:
+                    if abs(p['importe'] - fila['importe_correcto']) <= TOLERANCIA:
                         posibles.append(p)
 
                 return posibles
 
-            # Aplicar a cada fila
+            # Aplicar búsqueda de pagos a cada fila
             for idx, fila in df_resultado.iterrows():
                 pagos = buscar_pagos(fila, df_cobros)
                 if pagos:
-                    df_resultado.at[idx, 'Posible Pago'] = 'Sí'
+                    df_resultado.at[idx, 'posible_pago'] = 'Sí'
                     detalles = []
                     for i, p in enumerate(pagos, 1):
                         detalles.append(f"Pago{i}: {p['importe']:.2f} € ({p['fec_operacion'].date()}) Norma43: {p['norma_43']}")
-                        # Crear columnas adicionales Pago1, Pago2…
-                        col_importe = f'Pago{i}_Importe'
-                        col_fecha = f'Pago{i}_Fecha'
-                        col_norma = f'Pago{i}_Norma43'
-                        df_resultado.at[idx, col_importe] = p['importe']
-                        df_resultado.at[idx, col_fecha] = p['fec_operacion']
-                        df_resultado.at[idx, col_norma] = p['norma_43']
-                    df_resultado.at[idx, 'Pagos_Detalle'] = "; ".join(detalles)
+                        # Columnas dinámicas Pago1, Pago2…
+                        df_resultado.at[idx, f'Pago{i}_Importe'] = p['importe']
+                        df_resultado.at[idx, f'Pago{i}_Fecha'] = p['fec_operacion']
+                        df_resultado.at[idx, f'Pago{i}_Norma43'] = p['norma_43']
+                    df_resultado.at[idx, 'pagos_detalle'] = "; ".join(detalles)
 
         # --- Mostrar tabla final ---
-        st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente,
-                                   'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad,
-                                   'Posible Pago', 'Pagos_Detalle'] + 
-                                  [c for c in df_resultado.columns if c.startswith('Pago')]])
+        columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto', 'fecha_emision', 'sociedad', 'posible_pago', 'pagos_detalle']
+        columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
+        st.dataframe(df_resultado[columnas_base + columnas_pago])
 
         # --- Botón de descarga ---
         def to_excel(df_out):
@@ -313,3 +315,4 @@ if factura_final is not None and not df_internas.empty:
             file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
