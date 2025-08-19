@@ -78,6 +78,14 @@ if archivo:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
 
+    
+    # --- Normalizar ---
+    df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
+    df[col_factura] = df[col_factura].astype(str)
+    df[col_cif] = df[col_cif].astype(str)
+    df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
+    df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
+
     #Resumen del archivo
         
     total = df['IMPORTE_CORRECTO'].sum(skipna=True)
@@ -90,13 +98,6 @@ if archivo:
     st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
     st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
-
-    # --- Normalizar ---
-    df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
-    df[col_factura] = df[col_factura].astype(str)
-    df[col_cif] = df[col_cif].astype(str)
-    df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
-    df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
 
     # --- Detectar UTES ---
     df['ES_UTE'] = df[col_cif].str.replace(" ", "").str.contains(r"L-00U")
