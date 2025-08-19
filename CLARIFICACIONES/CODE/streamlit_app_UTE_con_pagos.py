@@ -227,42 +227,58 @@ if factura_final is not None and not df_internas.empty:
         .str.strip('_')
     )
 
-    # --- Debug: mostrar columnas disponibles ---
-    st.write("🧐 Columnas disponibles en df_internas después de normalizar:")
-    st.write(df_internas.columns.tolist())
+    # --- Mapear columna de CIF ---
+    col_cif = None
+    for posible in ['cif', 't_doc_n_m_doc']:
+        if posible in df_internas.columns:
+            col_cif = posible
+            break
 
-    # --- Renombrar t_doc_n_m_doc → cif ---
-    if "t_doc_n_m_doc" not in df_internas.columns:
-        st.error("❌ No se encontró la columna 't_doc_n_m_doc' en el archivo de facturas internas.")
+    if not col_cif:
+        st.error("❌ No se encontró la columna de CIF (ej. 'T.Doc. - Núm.Doc.') en el archivo de facturas internas.")
     else:
-        df_internas = df_internas.rename(columns={"t_doc_n_m_doc": "cif"})
-
         # --- Selección de CIF(s) ---
         cif_seleccionados = st.multiselect(
             "Selecciona CIF(s) de la UTE (socios)",
-            options=df_internas['cif'].unique()
+            options=df_internas[col_cif].unique()
         )
 
         if cif_seleccionados:
             # --- Filtrar por CIF ---
-            df_internas_filtrado = df_internas[df_internas['cif'].isin(cif_seleccionados)]
+            df_internas_filtrado = df_internas[df_internas[col_cif].isin(cif_seleccionados)]
 
-            # --- Filtrar por importe ±1€
-            TOLERANCIA = 1.0
-            df_internas_filtrado = df_internas_filtrado[
-                df_internas_filtrado['importe_correcto'].between(
-                    factura_final['importe_correcto'].iloc[0] - TOLERANCIA,
-                    factura_final['importe_correcto'].iloc[0] + TOLERANCIA
-                )
-            ]
+            # --- Detectar automáticamente la columna de importe en factura_final ---
+            st.write("📄 Columnas en factura_final:", factura_final.columns.tolist())
+            col_importe_factura = None
+            for posible in ['importe_correcto', 'importe', 'total', 'importe_total']:
+                if posible in factura_final.columns:
+                    col_importe_factura = posible
+                    break
 
-            if df_internas_filtrado.empty:
-                st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+            if not col_importe_factura:
+                st.error("❌ No se encontró ninguna columna de importe en factura_final")
             else:
-                st.success(f"✅ Se han seleccionado {len(df_internas_filtrado)} factura(s) interna(s) que cuadran con la externa")
+                importe_factura_final = factura_final[col_importe_factura].iloc[0]
 
-                df_resultado = df_internas_filtrado.copy()
+                # --- Filtrar por importe ±1€
+                TOLERANCIA = 1.0
+                if 'importe_correcto' not in df_internas_filtrado.columns:
+                    st.error("❌ No se encontró la columna 'importe_correcto' en las facturas internas.")
+                else:
+                    df_internas_filtrado = df_internas_filtrado[
+                        df_internas_filtrado['importe_correcto'].between(
+                            importe_factura_final - TOLERANCIA,
+                            importe_factura_final + TOLERANCIA
+                        )
+                    ]
 
+                    if df_internas_filtrado.empty:
+                        st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+                    else:
+                        st.success(f"✅ Se han seleccionado {len(df_internas_filtrado)} factura(s) interna(s) que cuadran con la externa")
+
+                        df_resultado = df_internas_filtrado.copy()
+                        
                 # --- Carga opcional de pagos ---
                 cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
                 df_cobros = pd.DataFrame()
