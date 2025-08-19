@@ -214,144 +214,152 @@ if archivo:
                 return df_internas.loc[seleccionadas]
             else:
                 return pd.DataFrame()
-            
-cif_seleccionados = st.multiselect(
-    "Selecciona CIF(s) de la UTE (socios)",
-    options=df_internas['cif'].unique() if not df_internas.empty else [],
-    default=[]
-)            
-# ----------- Resultado y descarga -----------
+     # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
-    
-    # --- Filtrado por CIF seleccionado ---
-    
-    if cif_seleccionados:
-        cif_refs = [str(c).upper() for c in cif_seleccionados]
-        df_resultado = df_internas[df_internas['cif'].str.upper().isin(cif_refs)].copy()
+    # --- Normalizar columnas de df_internas ---
+    df_internas.columns = (
+        df_internas.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(r'[^0-9a-z]', '_', regex=True)
+        .str.replace(r'__+', '_', regex=True)
+        .str.strip('_')
+    )
+
+    if 'cif' not in df_internas.columns:
+        st.error("❌ No se encontró la columna 'cif' en el archivo de facturas internas.")
     else:
-        df_resultado = df_internas.copy()
+        # --- Selección de CIF(s) ---
+        cif_seleccionados = st.multiselect(
+            "Selecciona CIF(s) de la UTE (socios)",
+            options=df_internas['cif'].unique()
+        )
 
-    # --- Filtrado por importe ±1€
-    TOLERANCIA = 1.0
-    df_resultado = df_resultado[df_resultado['importe_correcto'].between(
-        factura_final['importe_correcto'] - TOLERANCIA,
-        factura_final['importe_correcto'] + TOLERANCIA
-    )]
+        if cif_seleccionados:
+            # --- Filtrar por CIF ---
+            df_internas_filtrado = df_internas[df_internas['cif'].isin(cif_seleccionados)]
 
-    # --- Crear columna posible_factura si no existe ---
-    if 'posible_factura' not in df_resultado.columns:
-        df_resultado['posible_factura'] = df_resultado.get('factura', '')
-
-    # --- Comprobación de resultados ---
-    if df_resultado.empty:
-        st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
-    else:
-        st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
-
-        # --- Carga opcional de pagos ---
-        cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
-        if cobros_file:
-            try:
-                if cobros_file.name.endswith('.xlsm'):
-                    df_cobros = pd.read_excel(cobros_file, sheet_name='Cruce_Movs', engine='openpyxl')
-                else:
-                    df_cobros = pd.read_csv(cobros_file)
-            except Exception as e:
-                st.error(f"Error al leer el archivo de cobros: {e}")
-                df_cobros = pd.DataFrame()
-
-            if not df_cobros.empty:
-                # --- Normalización robusta de columnas ---
-                df_cobros.columns = (
-                    df_cobros.columns
-                    .str.strip()
-                    .str.lower()
-                    .str.replace(r'[áàäâ]', 'a', regex=True)
-                    .str.replace(r'[éèëê]', 'e', regex=True)
-                    .str.replace(r'[íìïî]', 'i', regex=True)
-                    .str.replace(r'[óòöô]', 'o', regex=True)
-                    .str.replace(r'[úùüû]', 'u', regex=True)
-                    .str.replace(r'[^0-9a-z]', '_', regex=True)
-                    .str.replace(r'__+', '_', regex=True)
-                    .str.strip('_')
+            # --- Filtrar por importe ±1€
+            TOLERANCIA = 1.0
+            df_internas_filtrado = df_internas_filtrado[
+                df_internas_filtrado['importe_correcto'].between(
+                    factura_final['importe_correcto'].iloc[0] - TOLERANCIA,
+                    factura_final['importe_correcto'].iloc[0] + TOLERANCIA
                 )
+            ]
 
-                # --- Mapear columnas críticas ---
-                col_mapping = {
-                    'fec_operacion': ['fec_operacion', 'fecha_operacion'],
-                    'importe': ['importe', 'imp', 'monto'],
-                    'norma_43': ['norma_43', 'norma43'],
-                    'posible_factura': ['posible_factura', 'factura']
-                }
+            if df_internas_filtrado.empty:
+                st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+            else:
+                st.success(f"✅ Se han seleccionado {len(df_internas_filtrado)} factura(s) interna(s) que cuadran con la externa")
 
-                for target, possibles in col_mapping.items():
-                    found = False
-                    for col in possibles:
-                        if col in df_cobros.columns:
-                            df_cobros.rename(columns={col: target}, inplace=True)
-                            found = True
-                            break
-                    if not found:
-                        for col in df_cobros.columns:
-                            if target.split('_')[0] in col:
-                                df_cobros.rename(columns={col: target}, inplace=True)
-                                break
+                df_resultado = df_internas_filtrado.copy()
 
-                # --- Verificar columnas esenciales ---
-                required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
-                missing_cols = [col for col in required_cols if col not in df_cobros.columns]
-                if missing_cols:
-                    st.error(f"❌ Faltan columnas esenciales en el archivo de cobros: {missing_cols}")
-                    df_cobros = pd.DataFrame()
-                else:
-                    # --- Convertir tipos ---
-                    df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
-                    df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
-                    df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
-                    df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
+                # --- Carga opcional de pagos ---
+                cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
+                df_cobros = pd.DataFrame()
+                if cobros_file:
+                    try:
+                        if cobros_file.name.endswith('.xlsm'):
+                            df_cobros = pd.read_excel(cobros_file, sheet_name='Cruce_Movs', engine='openpyxl')
+                        else:
+                            df_cobros = pd.read_csv(cobros_file)
+                    except Exception as e:
+                        st.error(f"Error al leer el archivo de cobros: {e}")
 
-                    # --- Preparar columnas de pagos ---
-                    df_resultado['posible_pago'] = 'No'
-                    df_resultado['pagos_detalle'] = None
+                    if not df_cobros.empty:
+                        # --- Normalización robusta de columnas ---
+                        df_cobros.columns = (
+                            df_cobros.columns
+                            .str.strip()
+                            .str.lower()
+                            .str.replace(r'[áàäâ]', 'a', regex=True)
+                            .str.replace(r'[éèëê]', 'e', regex=True)
+                            .str.replace(r'[íìïî]', 'i', regex=True)
+                            .str.replace(r'[óòöô]', 'o', regex=True)
+                            .str.replace(r'[úùüû]', 'u', regex=True)
+                            .str.replace(r'[^0-9a-z]', '_', regex=True)
+                            .str.replace(r'__+', '_', regex=True)
+                            .str.strip('_')
+                        )
 
-                    def unique_col(df, col_base):
-                        col = col_base
-                        i = 1
-                        while col in df.columns:
-                            col = f"{col_base}_{i}"
-                            i += 1
-                        return col
+                        # --- Mapear columnas críticas ---
+                        col_mapping = {
+                            'fec_operacion': ['fec_operacion', 'fecha_operacion'],
+                            'importe': ['importe', 'imp', 'monto'],
+                            'norma_43': ['norma_43', 'norma43'],
+                            'posible_factura': ['posible_factura', 'factura']
+                        }
 
-                    def buscar_pagos(fila, df_cobros):
-                        posibles = []
+                        for target, possibles in col_mapping.items():
+                            found = False
+                            for col in possibles:
+                                if col in df_cobros.columns:
+                                    df_cobros.rename(columns={col: target}, inplace=True)
+                                    found = True
+                                    break
+                            if not found:
+                                for col in df_cobros.columns:
+                                    if target.split('_')[0] in col:
+                                        df_cobros.rename(columns={col: target}, inplace=True)
+                                        break
 
-                        # 1️⃣ Match exacto Posible Factura
-                        pagos_match = df_cobros[df_cobros['posible_factura'] == str(fila.get('factura', ''))]
-                        for _, p in pagos_match.iterrows():
-                            if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                                posibles.append(p)
+                        # --- Verificar columnas esenciales ---
+                        required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
+                        missing_cols = [col for col in required_cols if col not in df_cobros.columns]
+                        if missing_cols:
+                            st.error(f"❌ Faltan columnas esenciales en el archivo de cobros: {missing_cols}")
+                            df_cobros = pd.DataFrame()
+                        else:
+                            # --- Convertir tipos ---
+                            df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
+                            df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
+                            df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
+                            df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
 
-                        if posibles:
-                            return posibles
+                # --- Preparar columnas de pagos ---
+                df_resultado['posible_pago'] = 'No'
+                df_resultado['pagos_detalle'] = None
 
-                        # 2️⃣ Buscar dentro de Norma 43
-                        pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(str(fila.get('factura', '')), na=False)]
-                        for _, p in pagos_match_norma43.iterrows():
-                            if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                                posibles.append(p)
-                        if posibles:
-                            return posibles
+                def unique_col(df, col_base):
+                    col = col_base
+                    i = 1
+                    while col in df.columns:
+                        col = f"{col_base}_{i}"
+                        i += 1
+                    return col
 
-                        # 3️⃣ Buscar por Fec. Operación a partir de fecha de la factura
-                        fecha_inicio = fila.get('fecha_emision', pd.Timestamp.min)
-                        pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
-                        for _, p in pagos_fecha.iterrows():
-                            if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                                posibles.append(p)
+                def buscar_pagos(fila, df_cobros):
+                    posibles = []
 
+                    # 1️⃣ Match exacto Posible Factura
+                    pagos_match = df_cobros[df_cobros['posible_factura'] == str(fila.get('factura', ''))]
+                    for _, p in pagos_match.iterrows():
+                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
+                            posibles.append(p)
+
+                    if posibles:
                         return posibles
 
-                    # --- Aplicar búsqueda de pagos ---
+                    # 2️⃣ Buscar dentro de Norma 43
+                    pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(str(fila.get('factura', '')), na=False)]
+                    for _, p in pagos_match_norma43.iterrows():
+                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
+                            posibles.append(p)
+                    if posibles:
+                        return posibles
+
+                    # 3️⃣ Buscar por Fec. Operación a partir de fecha de la factura
+                    fecha_inicio = fila.get('fecha_emision', pd.Timestamp.min)
+                    pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
+                    for _, p in pagos_fecha.iterrows():
+                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
+                            posibles.append(p)
+
+                    return posibles
+
+                # --- Aplicar búsqueda de pagos ---
+                if not df_cobros.empty:
                     for idx, fila in df_resultado.iterrows():
                         pagos = buscar_pagos(fila, df_cobros)
                         if pagos:
@@ -367,29 +375,32 @@ if factura_final is not None and not df_internas.empty:
                                 df_resultado.at[idx, col_norma43] = p['norma_43']
                             df_resultado.at[idx, 'pagos_detalle'] = "; ".join(detalles)
 
-        # --- Mostrar tabla final ---
-        columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
-                         'fecha_emision', 'sociedad', 'posible_pago', 'pagos_detalle']
-        columnas_base = [c for c in columnas_base if c in df_resultado.columns]
+                # --- Mostrar tabla final ---
+                columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
+                                 'fecha_emision', 'sociedad', 'posible_pago', 'pagos_detalle']
+                columnas_base = [c for c in columnas_base if c in df_resultado.columns]
+                columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
+                df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
+                columnas_finales = list(dict.fromkeys(columnas_base + columnas_pago))
 
-        columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
+                st.dataframe(df_resultado[columnas_finales])
 
-        df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
-        columnas_finales = list(dict.fromkeys(columnas_base + columnas_pago))
+                # --- Botón de descarga ---
+                from io import BytesIO
+                from datetime import datetime
 
-        st.dataframe(df_resultado[columnas_finales])
+                def to_excel(df_out):
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                        df_out.to_excel(writer, index=False, sheet_name="Resultado")
+                    return output.getvalue()
 
-        # --- Botón de descarga ---
-        def to_excel(df_out):
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df_out.to_excel(writer, index=False, sheet_name="Resultado")
-            return output.getvalue()
+                excel_data = to_excel(df_resultado)
+                st.download_button(
+                    label="📥 Descargar Excel con facturas internas seleccionadas y pagos",
+                    data=excel_data,
+                    file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+       
 
-        excel_data = to_excel(df_resultado)
-        st.download_button(
-            label="📥 Descargar Excel con facturas internas seleccionadas y pagos",
-            data=excel_data,
-            file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
