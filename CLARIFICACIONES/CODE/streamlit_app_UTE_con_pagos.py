@@ -224,18 +224,6 @@ if factura_final is not None and not df_internas.empty:
     else:
         st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
 
-        # --- Evitar columnas duplicadas ---
-        def rename_duplicates(df):
-            cols = pd.Series(df.columns)
-            for dup in df.columns[df.columns.duplicated(keep=False)]:
-                dups_idx = cols[cols == dup].index.tolist()
-                for i, idx in enumerate(dups_idx, start=1):
-                    cols[idx] = f"{dup}_{i}"
-            df.columns = cols
-            return df
-
-        df_resultado = rename_duplicates(df_resultado)
-
         # --- NUEVO: carga opcional de pagos ---
         cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
         if cobros_file:
@@ -248,24 +236,33 @@ if factura_final is not None and not df_internas.empty:
             # Normalizar columnas
             df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
 
-            # Comprobar y crear columnas necesarias para evitar errores
-            for col, dtype in [('fec_operacion', 'datetime'), ('importe', 'numeric'), 
+            # Comprobar columnas esenciales, crear vacías si faltan
+            for col, dtype in [('fec_operacion', 'datetime'), ('importe', 'float'), 
                                ('norma_43', 'str'), ('posible_factura', 'str')]:
                 if col not in df_cobros.columns:
                     st.warning(f"⚠️ No se encontró la columna esperada '{col}' en el archivo de cobros. Se creará vacía.")
-                    df_cobros[col] = pd.NA
-                if dtype == 'datetime':
-                    df_cobros[col] = pd.to_datetime(df_cobros[col], errors='coerce')
-                elif dtype == 'numeric':
-                    df_cobros[col] = pd.to_numeric(df_cobros[col], errors='coerce')
-                else:
-                    df_cobros[col] = df_cobros[col].astype(str).str.strip()
+                    df_cobros[col] = pd.Series(dtype=dtype)
+            
+            # Convertir tipos seguros
+            df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
+            df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
+            df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
+            df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
 
             TOLERANCIA = 1.0  # ±1€
 
             # Crear columnas en df_resultado de forma segura
             df_resultado['posible_pago'] = 'No'
             df_resultado['pagos_detalle'] = None
+
+            # Función para generar nombres únicos de columna
+            def unique_col(df, col_base):
+                col = col_base
+                i = 1
+                while col in df.columns:
+                    col = f"{col_base}_{i}"
+                    i += 1
+                return col
 
             # Función para buscar pagos
             def buscar_pagos(fila, df_cobros):
@@ -305,10 +302,13 @@ if factura_final is not None and not df_internas.empty:
                     detalles = []
                     for i, p in enumerate(pagos, 1):
                         detalles.append(f"Pago{i}: {p['importe']:.2f} € ({p['fec_operacion'].date()}) Norma43: {p['norma_43']}")
-                        # Crear columnas adicionales Pago1, Pago2…
-                        df_resultado.at[idx, f'Pago{i}_Importe'] = p['importe']
-                        df_resultado.at[idx, f'Pago{i}_Fecha'] = p['fec_operacion']
-                        df_resultado.at[idx, f'Pago{i}_Norma43'] = p['norma_43']
+                        # Crear columnas adicionales Pago1, Pago2… asegurando nombres únicos
+                        col_importe = unique_col(df_resultado, f'Pago{i}_Importe')
+                        col_fecha = unique_col(df_resultado, f'Pago{i}_Fecha')
+                        col_norma43 = unique_col(df_resultado, f'Pago{i}_Norma43')
+                        df_resultado.at[idx, col_importe] = p['importe']
+                        df_resultado.at[idx, col_fecha] = p['fec_operacion']
+                        df_resultado.at[idx, col_norma43] = p['norma_43']
                     df_resultado.at[idx, 'pagos_detalle'] = "; ".join(detalles)
 
         # --- Mostrar tabla final ---
@@ -317,6 +317,9 @@ if factura_final is not None and not df_internas.empty:
         columnas_base = [c for c in columnas_base if c in df_resultado.columns]
 
         columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
+
+        # Eliminar duplicados finales por seguridad
+        df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
 
         st.dataframe(df_resultado[columnas_base + columnas_pago])
 
