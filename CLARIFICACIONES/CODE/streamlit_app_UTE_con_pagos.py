@@ -252,10 +252,10 @@ if factura_final is not None and not df_internas.empty:
                     .str.strip('_')
                 )
 
-                # quick debug: muestra columnas detectadas
+                # debug columnas
                 st.write("Columnas normalizadas en el archivo de cobros:", df_cobros.columns.tolist())
 
-                # --- Mapear columnas críticas (fallback fuzzy simple) ---
+                # --- Mapear columnas críticas ---
                 col_mapping = {
                     'fec_operacion': ['fec_operacion', 'fecha_operacion'],
                     'importe': ['importe', 'imp', 'monto', 'amount'],
@@ -263,13 +263,12 @@ if factura_final is not None and not df_internas.empty:
                     'posible_factura': ['posible_factura', 'factura', 'posiblefactura']
                 }
                 for target, possibles in col_mapping.items():
-                    found = False
                     for col in possibles:
                         if col in df_cobros.columns:
                             df_cobros.rename(columns={col: target}, inplace=True)
-                            found = True
                             break
-                    if not found:
+                    else:
+                        # fallback simple: si alguna columna contiene la palabra clave
                         for col in df_cobros.columns:
                             if target.split('_')[0] in col:
                                 df_cobros.rename(columns={col: target}, inplace=True)
@@ -289,146 +288,96 @@ if factura_final is not None and not df_internas.empty:
                     df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
 
                     # parámetros
-                    TOLERANCIA = 1.0            # ±1€
-                    MAX_PAGOS_DETALLE = 5      # cuántos pagos mostrar en la columna resumen
-                    MAX_PAGOS_COLUMNAS = 12    # cuántas columnas Pago{i}_* crear (las primeras)
-                    DP_CANDIDATES = 20         # límite para intentar subset-sum DP
+                    TOLERANCIA = 1.0  # ±1€
 
-                    # inicializar columnas de resultado
-                    df_resultado['posible_pago'] = 'No'
-                    df_resultado['pagos_detalle'] = None
-
-                    # helpers
-                    def find_subset_sum_indices(amounts_cents, target_cents, tol_cents):
-                        """
-                        DP subset-sum over amounts_cents (list of ints). Return indices of a subset whose sum
-                        is within tol_cents of target_cents, or [] if none.
-                        Works ok para n <= ~20.
-                        """
-                        sums = {0: []}  # sum -> list(indices)
-                        for i, a in enumerate(amounts_cents):
-                            # iterate copy to avoid modifying during iteration
-                            for s, subset in list(sums.items()):
-                                new_s = s + a
-                                if new_s not in sums:
-                                    sums[new_s] = subset + [i]
-                        # buscar suma dentro de tolerancia
-                        best = None
-                        best_diff = None
-                        for s, subset in sums.items():
-                            diff = abs(s - target_cents)
-                            if diff <= tol_cents:
-                                if best is None or diff < best_diff:
-                                    best = subset
-                                    best_diff = diff
-                        return best or []
-
-                    def buscar_pagos_factura_final(factura_final, df_cobros):
-                        """
-                        Devuelve lista de pagos (cada pago como dict) que casan con la factura_final.
-                        Estrategia:
-                         1) Pago único con posible_factura exacta o norma_43 exact contain y importe match ±tol
-                         2) Greedy por fecha: acumula pagos posteriores hasta alcanzar importe
-                         3) Si falla, intenta subset-sum DP sobre los primeros DP_CANDIDATES candidatos (por cercanía/fecha)
-                         4) Si todavía falla, devuelve [] (o se pueden devolver top candidatos)
-                        """
-                        factura_ref = str(factura_final.get('factura', '')).strip()
-                        importe_ref = float(factura_final.get('importe_correcto', 0) or 0)
-                        fecha_ref = factura_final.get('fecha_emision', pd.Timestamp.min)
-
-                        # 1) Match exacto por posible_factura
-                        pagos_exact = df_cobros[df_cobros['posible_factura'] == factura_ref]
-                        pagos_exact = pagos_exact.loc[abs(pagos_exact['importe'] - importe_ref) <= TOLERANCIA]
-                        if not pagos_exact.empty:
-                            return [row.to_dict() for _, row in pagos_exact.iterrows()]
-
-                        # 2) Buscar por norma_43 conteniendo la referencia
-                        pagos_norm = df_cobros[df_cobros['norma_43'].str.contains(factura_ref, na=False)]
-                        pagos_norm = pagos_norm.loc[abs(pagos_norm['importe'] - importe_ref) <= TOLERANCIA]
-                        if not pagos_norm.empty:
-                            return [row.to_dict() for _, row in pagos_norm.iterrows()]
-
-                        # 3) Greedy por fecha: acumular pagos posteriores hasta alcanzar importe_ref
-                        candidatos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_ref].sort_values('fec_operacion')
-                        acumulado = 0.0
-                        seleccionados = []
-                        for _, p in candidatos_fecha.iterrows():
-                            seleccionados.append(p)
-                            acumulado += float(p['importe'] or 0)
-                            if abs(acumulado - importe_ref) <= TOLERANCIA:
-                                return [row.to_dict() for row in seleccionados]
-
-                        # 4) Intento subset-sum (DP) sobre candidatos relevantes
-                        # seleccionar candidatos razonables: por fecha asc y por importe menor o igual a importe_ref*1.5
-                        candidatos = candidatos_fecha.copy()
-                        if candidatos.empty:
-                            return []
-
-                        # filtrar importes positivos y no nulos
-                        candidatos = candidatos[candidatos['importe'].notna() & (candidatos['importe'] > 0)]
-                        if candidatos.empty:
-                            return []
-
-                        # limitar a un conjunto manejable para DP
-                        # escoger los DP_CANDIDATES más recientes (puedes cambiar criterio)
-                        candidatos_dp = candidatos.tail(DP_CANDIDATES)
-                        amounts = list((candidatos_dp['importe'] * 100).round().astype(int))  # en céntimos
-                        target_cents = int(round(importe_ref * 100))
-                        tol_cents = int(round(TOLERANCIA * 100))
-
-                        subset_idx = find_subset_sum_indices(amounts, target_cents, tol_cents)
-                        if subset_idx:
-                            rows = [candidatos_dp.iloc[i].to_dict() for i in subset_idx]
-                            return rows
-
-                        # 5) fallback: devolver los N pagos más cercanos por diferencia absoluta de importe (si quieres)
-                        # aquí no devolvemos nada para evitar falsos positivos, pero podríamos devolver top-k candidatos
-                        return []
-
-                    # --- Ejecutar búsqueda de pagos para la factura_final (TSS) ---
-                    pagos = buscar_pagos_factura_final(factura_final, df_cobros)
-
-                    if pagos:
-                        num_pagos = len(pagos)
-                        st.success(f"✅ Se han encontrado {num_pagos} pago(s) que cuadran con la factura final.")
-                        # crear/asegurar columnas Pago1..PagoN hasta MAX_PAGOS_COLUMNAS
-                        for i in range(1, MAX_PAGOS_COLUMNAS + 1):
-                            c_imp = f'Pago{i}_Importe'
-                            c_fec = f'Pago{i}_Fecha'
-                            c_norm = f'Pago{i}_Norma43'
-                            if c_imp not in df_resultado.columns:
-                                df_resultado[c_imp] = pd.NA
-                            if c_fec not in df_resultado.columns:
-                                df_resultado[c_fec] = pd.NaT
-                            if c_norm not in df_resultado.columns:
-                                df_resultado[c_norm] = pd.NA
-
-                        # colocar valores en las columnas (mismas para todas las internas asociadas a la factura final)
-                        for i, p in enumerate(pagos[:MAX_PAGOS_COLUMNAS], start=1):
-                            c_imp = f'Pago{i}_Importe'
-                            c_fec = f'Pago{i}_Fecha'
-                            c_norm = f'Pago{i}_Norma43'
-                            # asignar la columna completa: todas las filas internas muestran estos pagos (porque son pagos de la factura final)
-                            df_resultado.loc[:, c_imp] = p.get('importe')
-                            df_resultado.loc[:, c_fec] = p.get('fec_operacion')
-                            df_resultado.loc[:, c_norm] = p.get('norma_43')
-
-                        # marcar posible_pago = 'Sí' para todas las internas (son parte de la factura final)
-                        df_resultado.loc[:, 'posible_pago'] = 'Sí'
-
-                        # crear resumen limitado en 'pagos_detalle'
-                        detalles = []
-                        for i, p in enumerate(pagos[:MAX_PAGOS_DETALLE], start=1):
-                            fecha_str = pd.to_datetime(p.get('fec_operacion')).date() if p.get('fec_operacion') is not None else ''
-                            detalles.append(f"Pago{i}: {p.get('importe', 0):.2f} € ({fecha_str})")
-                        if num_pagos > MAX_PAGOS_DETALLE:
-                            detalles.append(f"... y {num_pagos - MAX_PAGOS_DETALLE} más")
-                        resumen = "; ".join(detalles)
-                        df_resultado.loc[:, 'pagos_detalle'] = resumen
+                    # Inicializar columnas de resultado (si no existen)
+                    if 'posible_pago' not in df_resultado.columns:
+                        df_resultado['posible_pago'] = 'No'
                     else:
-                        st.info("⚠️ No se han encontrado pagos que cuadren exactamente con la factura final (se intentó match exacto, norma_43, greedy y subset-sum).")
-                        # opcional: podríamos mostrar top candidatos (si se desea)
-                        # df_resultado['posible_pago'] permanece 'No' y 'pagos_detalle' vacío
+                        df_resultado['posible_pago'] = 'No'
+                    if 'pagos_detalle' not in df_resultado.columns:
+                        df_resultado['pagos_detalle'] = None
+                    else:
+                        df_resultado['pagos_detalle'] = None
+
+                    # --- Funciones auxiliares ---
+                    def choose_closest_by_date(candidates_df, fecha_ref):
+                        """Devuelve la fila (as dict) de candidates_df cuya fecha (fec_operacion) esté más cerca de fecha_ref."""
+                        if candidates_df.empty:
+                            return None
+                        # asegurarse fecha_ref tipo datetime
+                        fecha_ref = pd.to_datetime(fecha_ref)
+                        tmp = candidates_df.copy()
+                        tmp['diff'] = (tmp['fec_operacion'] - fecha_ref).abs()
+                        chosen = tmp.sort_values('diff').iloc[0]
+                        return chosen.to_dict()
+
+                    # --- Búsqueda de UN único pago que cuadre con la factura_final ---
+                    factura_ref = str(factura_final.get('factura', '')).strip()
+                    importe_ref = float(factura_final.get('importe_correcto', 0) or 0)
+                    fecha_ref = factura_final.get('fecha_emision', pd.Timestamp.min)
+
+                    pago_encontrado = None
+
+                    # 1) buscar candidato con posible_factura exacto y mismo importe ±TOLERANCIA
+                    candidatos = df_cobros[
+                        (df_cobros['posible_factura'] == factura_ref) &
+                        (df_cobros['importe'].notna()) &
+                        (abs(df_cobros['importe'] - importe_ref) <= TOLERANCIA)
+                    ]
+                    pago = choose_closest_by_date(candidatos, fecha_ref)
+                    if pago is not None:
+                        pago_encontrado = pago
+
+                    # 2) si no, buscar en norma_43 que contenga la referencia y importe ±TOLERANCIA
+                    if pago_encontrado is None:
+                        candidatos = df_cobros[
+                            df_cobros['norma_43'].str.contains(factura_ref, na=False) &
+                            (df_cobros['importe'].notna()) &
+                            (abs(df_cobros['importe'] - importe_ref) <= TOLERANCIA)
+                        ]
+                        pago = choose_closest_by_date(candidatos, fecha_ref)
+                        if pago is not None:
+                            pago_encontrado = pago
+
+                    # 3) si no, buscar cualquier pago con importe ±TOLERANCIA (priorizando cercano a fecha_ref)
+                    if pago_encontrado is None:
+                        candidatos = df_cobros[
+                            (df_cobros['importe'].notna()) &
+                            (abs(df_cobros['importe'] - importe_ref) <= TOLERANCIA)
+                        ]
+                        pago = choose_closest_by_date(candidatos, fecha_ref)
+                        if pago is not None:
+                            pago_encontrado = pago
+
+                    # --- Resultado: un único pago o ninguno ---
+                    if pago_encontrado is None:
+                        st.info("⚠️ No se encontró ningún pago único con el mismo importe que la factura final (dentro de la tolerancia).")
+                        # dejamos posible_pago='No' y pagos_detalle en None
+                    else:
+                        # Crear columnas Pago1_* si no existen y asignar el pago (misma info para todas las filas internas)
+                        c_imp = 'Pago1_Importe'
+                        c_fec = 'Pago1_Fecha'
+                        c_norm = 'Pago1_Norma43'
+                        if c_imp not in df_resultado.columns:
+                            df_resultado[c_imp] = pd.NA
+                        if c_fec not in df_resultado.columns:
+                            df_resultado[c_fec] = pd.NaT
+                        if c_norm not in df_resultado.columns:
+                            df_resultado[c_norm] = pd.NA
+
+                        # asignar (a todas las filas internas; son pagos de la factura final)
+                        df_resultado.loc[:, c_imp] = pago_encontrado.get('importe')
+                        df_resultado.loc[:, c_fec] = pago_encontrado.get('fec_operacion')
+                        df_resultado.loc[:, c_norm] = pago_encontrado.get('norma_43')
+
+                        # marcar pago encontrado
+                        df_resultado.loc[:, 'posible_pago'] = 'Sí'
+                        fecha_str = pd.to_datetime(pago_encontrado.get('fec_operacion')).date() if pago_encontrado.get('fec_operacion') is not None else ''
+                        resumen = f"Pago1: {pago_encontrado.get('importe', 0):.2f} € ({fecha_str}) Norma43: {pago_encontrado.get('norma_43','')}"
+                        df_resultado.loc[:, 'pagos_detalle'] = resumen
+
+                        st.success(f"✅ Pago único encontrado: {pago_encontrado.get('importe', 0):.2f} € ({fecha_str})")
 
         # --- Mostrar tabla final ---
         columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
@@ -459,4 +408,3 @@ if factura_final is not None and not df_internas.empty:
             file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
