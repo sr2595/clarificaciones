@@ -237,7 +237,7 @@ if factura_final is not None and not df_internas.empty:
             df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
 
             # Comprobar columnas esenciales, crear vacías si faltan
-            for col, dtype in [('fec_operacion', 'datetime'), ('importe', 'float'), 
+            for col, dtype in [('fec_operacion', 'datetime64[ns]'), ('importe', 'float'), 
                                ('norma_43', 'str'), ('posible_factura', 'str')]:
                 if col not in df_cobros.columns:
                     st.warning(f"⚠️ No se encontró la columna esperada '{col}' en el archivo de cobros. Se creará vacía.")
