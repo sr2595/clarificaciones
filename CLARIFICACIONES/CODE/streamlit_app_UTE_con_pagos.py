@@ -225,10 +225,10 @@ if factura_final is not None and not df_internas.empty:
         st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
 
         # --- NUEVO: carga opcional de pagos ---
-        cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['xlsx','csv'], key="cobros")
+        cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm'], key="cobros")
         if cobros_file:
-            if cobros_file.name.endswith('.xlsx'):
-                df_cobros = pd.read_excel(cobros_file)
+            if cobros_file.name.endswith('.xlsm'):
+                df_cobros = pd.read_excel(cobros_file, engine='openpyxl')
             else:
                 df_cobros = pd.read_csv(cobros_file)
 
