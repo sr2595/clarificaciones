@@ -237,26 +237,44 @@ if factura_final is not None and not df_internas.empty:
                 df_cobros = pd.DataFrame()
 
             if not df_cobros.empty:
-                # --- Normalizar columnas de forma robusta ---
+                # --- Normalización robusta de columnas ---
                 df_cobros.columns = (
                     df_cobros.columns
                     .str.strip()
                     .str.lower()
-                    .str.replace(r'[^0-9a-z]', '_', regex=True)  # reemplaza cualquier carácter no alfanumérico
+                    .str.replace(r'[áàäâ]', 'a', regex=True)
+                    .str.replace(r'[éèëê]', 'e', regex=True)
+                    .str.replace(r'[íìïî]', 'i', regex=True)
+                    .str.replace(r'[óòöô]', 'o', regex=True)
+                    .str.replace(r'[úùüû]', 'u', regex=True)
+                    .str.replace(r'[^0-9a-z]', '_', regex=True)  # todo carácter no alfanumérico → _
+                    .str.replace(r'__+', '_', regex=True)        # dobles guiones → uno
+                    .str.strip('_')                              # quitar guiones al inicio/final
                 )
+
+                st.write("Columnas normalizadas en el archivo de cobros:", df_cobros.columns.tolist())
 
                 # --- Mapear columnas críticas ---
                 col_mapping = {
-                    'fec_operacion': ['fec_operacion', 'fec__operacion', 'fec._operacion', 'fecha_operacion', 'fecha_de_operacion'],
+                    'fec_operacion': ['fec_operacion', 'fecha_operacion'],
                     'importe': ['importe', 'imp', 'monto'],
                     'norma_43': ['norma_43', 'norma43'],
                     'posible_factura': ['posible_factura', 'factura']
                 }
+
                 for target, possibles in col_mapping.items():
+                    found = False
                     for col in possibles:
                         if col in df_cobros.columns:
                             df_cobros.rename(columns={col: target}, inplace=True)
+                            found = True
                             break
+                    if not found:
+                        # fuzzy simple: buscar columna que contenga la palabra clave
+                        for col in df_cobros.columns:
+                            if target.split('_')[0] in col:
+                                df_cobros.rename(columns={col: target}, inplace=True)
+                                break
 
                 # --- Verificar columnas esenciales ---
                 required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
@@ -273,7 +291,7 @@ if factura_final is not None and not df_internas.empty:
 
                     TOLERANCIA = 1.0  # ±1€
 
-                    # Crear columnas en df_resultado para pagos
+                    # --- Preparar columnas de pagos ---
                     df_resultado['posible_pago'] = 'No'
                     df_resultado['pagos_detalle'] = None
 
@@ -314,7 +332,7 @@ if factura_final is not None and not df_internas.empty:
 
                         return posibles
 
-                    # Aplicar búsqueda de pagos a cada fila
+                    # --- Aplicar búsqueda de pagos ---
                     for idx, fila in df_resultado.iterrows():
                         pagos = buscar_pagos(fila, df_cobros)
                         if pagos:
