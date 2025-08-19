@@ -292,7 +292,7 @@ if factura_final is not None and not df_internas.empty:
                     # --- Mapear columnas críticas ---
                     col_mapping = {
                         'fec_operacion': ['fec_operacion', 'fecha_operacion'],
-                        'importe': ['importe', 'imp', 'monto'],
+                        'importe': ['Importe', 'imp', 'monto'],
                         'norma_43': ['norma_43', 'norma43'],
                         'posible_factura': ['posible_factura', 'factura']
                     }
