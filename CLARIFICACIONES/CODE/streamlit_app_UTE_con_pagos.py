@@ -215,7 +215,7 @@ if archivo:
             else:
                 return pd.DataFrame()
             
-    # ----------- Resultado y descarga -----------
+# ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
     # --- Normalizar columnas de df_internas ---
     df_internas.columns = (
@@ -227,17 +227,22 @@ if factura_final is not None and not df_internas.empty:
         .str.strip('_')
     )
 
-    # Mapear la columna 't_doc_num_doc' a 'cif'
+    # --- Mostrar columnas disponibles para debug ---
+    st.write("🧐 Columnas disponibles en df_internas después de normalizar:")
+    st.write(df_internas.columns.tolist())
+
+    # --- Intentar detectar columna de CIF ---
     col_cif = None
     for col in df_internas.columns:
-        if 't_doc' in col and 'num_doc' in col:   # busca 't_doc_num_doc'
+        if "t_doc" in col and "num" in col:   # búsqueda flexible
             col_cif = col
             break
 
     if col_cif is None:
         st.error("❌ No se encontró la columna de CIF (T.Doc. - Núm.Doc.) en el archivo de facturas internas.")
     else:
-        df_internas.rename(columns={col_cif: 'cif'}, inplace=True)
+        # Renombramos a 'cif' para seguir con el flujo normal
+        df_internas = df_internas.rename(columns={col_cif: "cif"})
 
         # --- Selección de CIF(s) ---
         cif_seleccionados = st.multiselect(
@@ -377,12 +382,15 @@ if factura_final is not None and not df_internas.empty:
                             detalles = []
                             for i, p in enumerate(pagos, 1):
                                 detalles.append(f"Pago{i}: {p['importe']:.2f} € ({p['fec_operacion'].date()}) Norma43: {p['norma_43']}")
+
                                 col_importe = unique_col(df_resultado, f'Pago{i}_Importe')
                                 col_fecha = unique_col(df_resultado, f'Pago{i}_Fecha')
                                 col_norma43 = unique_col(df_resultado, f'Pago{i}_Norma43')
+
                                 df_resultado.at[idx, col_importe] = p['importe']
                                 df_resultado.at[idx, col_fecha] = p['fec_operacion']
                                 df_resultado.at[idx, col_norma43] = p['norma_43']
+
                             df_resultado.at[idx, 'pagos_detalle'] = "; ".join(detalles)
 
                 # --- Mostrar tabla final ---
@@ -412,6 +420,3 @@ if factura_final is not None and not df_internas.empty:
                     file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-
-       
-
