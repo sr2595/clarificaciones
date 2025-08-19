@@ -217,8 +217,25 @@ if archivo:
             
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
-    df_resultado = cuadrar_internas(factura_final, df_internas)
-    
+    # --- Filtrado por CIF seleccionado ---
+    if cif_seleccionados:
+        cif_refs = [str(c).upper() for c in cif_seleccionados]
+        df_resultado = df_internas[df_internas['cif'].str.upper().isin(cif_refs)].copy()
+    else:
+        df_resultado = df_internas.copy()
+
+    # --- Filtrado por importe ±1€
+    TOLERANCIA = 1.0
+    df_resultado = df_resultado[df_resultado['importe_correcto'].between(
+        factura_final['importe_correcto'] - TOLERANCIA,
+        factura_final['importe_correcto'] + TOLERANCIA
+    )]
+
+    # --- Crear columna posible_factura si no existe ---
+    if 'posible_factura' not in df_resultado.columns:
+        df_resultado['posible_factura'] = df_resultado.get('factura', '')
+
+    # --- Comprobación de resultados ---
     if df_resultado.empty:
         st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
     else:
@@ -247,12 +264,10 @@ if factura_final is not None and not df_internas.empty:
                     .str.replace(r'[íìïî]', 'i', regex=True)
                     .str.replace(r'[óòöô]', 'o', regex=True)
                     .str.replace(r'[úùüû]', 'u', regex=True)
-                    .str.replace(r'[^0-9a-z]', '_', regex=True)  # todo carácter no alfanumérico → _
-                    .str.replace(r'__+', '_', regex=True)        # dobles guiones → uno
-                    .str.strip('_')                              # quitar guiones al inicio/final
+                    .str.replace(r'[^0-9a-z]', '_', regex=True)
+                    .str.replace(r'__+', '_', regex=True)
+                    .str.strip('_')
                 )
-
-                st.write("Columnas normalizadas en el archivo de cobros:", df_cobros.columns.tolist())
 
                 # --- Mapear columnas críticas ---
                 col_mapping = {
@@ -270,7 +285,6 @@ if factura_final is not None and not df_internas.empty:
                             found = True
                             break
                     if not found:
-                        # fuzzy simple: buscar columna que contenga la palabra clave
                         for col in df_cobros.columns:
                             if target.split('_')[0] in col:
                                 df_cobros.rename(columns={col: target}, inplace=True)
@@ -288,8 +302,6 @@ if factura_final is not None and not df_internas.empty:
                     df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
                     df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
                     df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
-
-                    TOLERANCIA = 1.0  # ±1€
 
                     # --- Preparar columnas de pagos ---
                     df_resultado['posible_pago'] = 'No'
