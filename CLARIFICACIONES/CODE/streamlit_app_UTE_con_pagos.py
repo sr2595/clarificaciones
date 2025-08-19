@@ -230,7 +230,7 @@ if factura_final is not None and not df_internas.empty:
             # Leer Excel correctamente
             try:
                 if cobros_file.name.endswith('.xlsm'):
-                    df_cobros = pd.read_excel(cobros_file, sheet_name=0, engine='openpyxl')
+                    df_cobros = pd.read_excel(cobros_file, sheet_name='Cruce_Movs', engine='openpyxl')
                 else:
                     df_cobros = pd.read_csv(cobros_file)
             except Exception as e:
