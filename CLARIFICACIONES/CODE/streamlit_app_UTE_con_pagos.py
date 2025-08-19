@@ -229,9 +229,8 @@ if factura_final is not None and not df_internas.empty:
         if cobros_file:
             try:
                 if cobros_file.name.endswith('.xlsm'):
-                    # Leer todas las hojas y concatenarlas
-                    xls = pd.ExcelFile(cobros_file, engine='openpyxl')
-                    df_cobros = pd.concat([pd.read_excel(xls, sheet_name=sheet) for sheet in xls.sheet_names], ignore_index=True)
+                    # Leer solo la hoja correcta
+                    df_cobros = pd.read_excel(cobros_file, sheet_name='Cruce_Movs', engine='openpyxl')
                 else:
                     df_cobros = pd.read_csv(cobros_file)
             except Exception as e:
@@ -240,7 +239,13 @@ if factura_final is not None and not df_internas.empty:
 
             if not df_cobros.empty:
                 # Normalizar nombres de columnas
-                df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
+                df_cobros.columns = (
+                    df_cobros.columns
+                    .str.strip()
+                    .str.lower()
+                    .str.replace(' ', '_')
+                    .str.replace('.', '_')
+                )
 
                 # Comprobar columnas esenciales
                 required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
