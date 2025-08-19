@@ -229,7 +229,6 @@ if factura_final is not None and not df_internas.empty:
         if cobros_file:
             try:
                 if cobros_file.name.endswith('.xlsm'):
-                    # Leer solo la hoja correcta
                     df_cobros = pd.read_excel(cobros_file, sheet_name='Cruce_Movs', engine='openpyxl')
                 else:
                     df_cobros = pd.read_csv(cobros_file)
@@ -238,20 +237,28 @@ if factura_final is not None and not df_internas.empty:
                 df_cobros = pd.DataFrame()
 
             if not df_cobros.empty:
-                # Normalizar nombres de columnas
-                df_cobros.columns = (
-                    df_cobros.columns
-                    .str.strip()
-                    .str.lower()
-                    .str.replace(' ', '_')
-                    .str.replace('.', '_')
-                )
+                # Normalizar columnas
+                df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
+
+                # Mapear columnas críticas
+                col_mapping = {
+                    'fec_operacion': ['fec_operacion', 'fec__operacion', 'fec._operacion', 'fecha_operacion', 'fecha_de_operacion'],
+                    'importe': ['importe', 'imp', 'monto'],
+                    'norma_43': ['norma_43', 'norma43'],
+                    'posible_factura': ['posible_factura', 'factura']
+                }
+                for target, possibles in col_mapping.items():
+                    for col in possibles:
+                        if col in df_cobros.columns:
+                            df_cobros.rename(columns={col: target}, inplace=True)
+                            break
 
                 # Comprobar columnas esenciales
                 required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
                 missing_cols = [col for col in required_cols if col not in df_cobros.columns]
                 if missing_cols:
                     st.error(f"❌ Faltan columnas esenciales en el archivo de cobros: {missing_cols}")
+                    df_cobros = pd.DataFrame()
                 else:
                     # Convertir tipos
                     df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
@@ -266,7 +273,6 @@ if factura_final is not None and not df_internas.empty:
                     df_resultado['pagos_detalle'] = None
 
                     def unique_col(df, col_base):
-                        """Generar nombre de columna único."""
                         col = col_base
                         i = 1
                         while col in df.columns:
@@ -275,7 +281,6 @@ if factura_final is not None and not df_internas.empty:
                         return col
 
                     def buscar_pagos(fila, df_cobros):
-                        """Buscar pagos que cuadren con la factura."""
                         posibles = []
 
                         # 1️⃣ Match exacto Posible Factura
@@ -312,7 +317,6 @@ if factura_final is not None and not df_internas.empty:
                             detalles = []
                             for i, p in enumerate(pagos, 1):
                                 detalles.append(f"Pago{i}: {p['importe']:.2f} € ({p['fec_operacion'].date()}) Norma43: {p['norma_43']}")
-                                # Columnas adicionales Pago1, Pago2…
                                 col_importe = unique_col(df_resultado, f'Pago{i}_Importe')
                                 col_fecha = unique_col(df_resultado, f'Pago{i}_Fecha')
                                 col_norma43 = unique_col(df_resultado, f'Pago{i}_Norma43')
@@ -328,7 +332,6 @@ if factura_final is not None and not df_internas.empty:
 
         columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
 
-        # Evitar duplicados reales en columnas y en df_resultado
         df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
         columnas_finales = list(dict.fromkeys(columnas_base + columnas_pago))
 
