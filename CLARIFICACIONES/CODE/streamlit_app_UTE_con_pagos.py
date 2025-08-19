@@ -237,10 +237,15 @@ if factura_final is not None and not df_internas.empty:
                 df_cobros = pd.DataFrame()
 
             if not df_cobros.empty:
-                # Normalizar columnas
-                df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
+                # --- Normalizar columnas de forma robusta ---
+                df_cobros.columns = (
+                    df_cobros.columns
+                    .str.strip()
+                    .str.lower()
+                    .str.replace(r'[^0-9a-z]', '_', regex=True)  # reemplaza cualquier carácter no alfanumérico
+                )
 
-                # Mapear columnas críticas
+                # --- Mapear columnas críticas ---
                 col_mapping = {
                     'fec_operacion': ['fec_operacion', 'fec__operacion', 'fec._operacion', 'fecha_operacion', 'fecha_de_operacion'],
                     'importe': ['importe', 'imp', 'monto'],
@@ -253,14 +258,14 @@ if factura_final is not None and not df_internas.empty:
                             df_cobros.rename(columns={col: target}, inplace=True)
                             break
 
-                # Comprobar columnas esenciales
+                # --- Verificar columnas esenciales ---
                 required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
                 missing_cols = [col for col in required_cols if col not in df_cobros.columns]
                 if missing_cols:
                     st.error(f"❌ Faltan columnas esenciales en el archivo de cobros: {missing_cols}")
                     df_cobros = pd.DataFrame()
                 else:
-                    # Convertir tipos
+                    # --- Convertir tipos ---
                     df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
                     df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
                     df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
