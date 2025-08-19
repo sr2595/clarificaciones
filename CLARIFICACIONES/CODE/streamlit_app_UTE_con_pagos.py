@@ -232,6 +232,9 @@ if factura_final is not None and not df_internas.empty:
             else:
                 df_cobros = pd.read_csv(cobros_file)
 
+            df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
+
+
             df_cobros['Fec. Operación'] = pd.to_datetime(df_cobros['Fec. Operación'], errors='coerce')
             df_cobros['Importe'] = pd.to_numeric(df_cobros['Importe'], errors='coerce')
             df_cobros['Norma 43'] = df_cobros['Norma 43'].astype(str).str.strip()
