@@ -227,58 +227,58 @@ if factura_final is not None and not df_internas.empty:
         .str.strip('_')
     )
 
-    # --- Mapear columna de CIF ---
-    col_cif = None
-    for posible in ['cif', 't_doc_n_m_doc']:
-        if posible in df_internas.columns:
-            col_cif = posible
-            break
-
-    if not col_cif:
-        st.error("❌ No se encontró la columna de CIF (ej. 'T.Doc. - Núm.Doc.') en el archivo de facturas internas.")
+    # --- Verificar columna de CIF ---
+    if 't_doc_n_m_doc' not in df_internas.columns:
+        st.error("❌ No se encontró la columna de CIF (t_doc_n_m_doc) en el archivo de facturas internas.")
     else:
         # --- Selección de CIF(s) ---
         cif_seleccionados = st.multiselect(
             "Selecciona CIF(s) de la UTE (socios)",
-            options=df_internas[col_cif].unique()
+            options=df_internas['t_doc_n_m_doc'].unique()
         )
 
         if cif_seleccionados:
             # --- Filtrar por CIF ---
-            df_internas_filtrado = df_internas[df_internas[col_cif].isin(cif_seleccionados)]
+            df_internas_filtrado = df_internas[df_internas['t_doc_n_m_doc'].isin(cif_seleccionados)]
 
             # --- Detectar automáticamente la columna de importe en factura_final ---
-            st.write("📄 Columnas en factura_final:", factura_final.columns.tolist())
+            if isinstance(factura_final, pd.Series):
+                cols_factura = factura_final.index.tolist()
+            else:
+                cols_factura = factura_final.columns.tolist()
+
+            st.write("📄 Columnas en factura_final:", cols_factura)
+
             col_importe_factura = None
             for posible in ['importe_correcto', 'importe', 'total', 'importe_total']:
-                if posible in factura_final.columns:
+                if posible in cols_factura:
                     col_importe_factura = posible
                     break
 
             if not col_importe_factura:
                 st.error("❌ No se encontró ninguna columna de importe en factura_final")
             else:
-                importe_factura_final = factura_final[col_importe_factura].iloc[0]
-
-                # --- Filtrar por importe ±1€
-                TOLERANCIA = 1.0
-                if 'importe_correcto' not in df_internas_filtrado.columns:
-                    st.error("❌ No se encontró la columna 'importe_correcto' en las facturas internas.")
+                if isinstance(factura_final, pd.Series):
+                    importe_factura_final = factura_final[col_importe_factura]
                 else:
-                    df_internas_filtrado = df_internas_filtrado[
-                        df_internas_filtrado['importe_correcto'].between(
-                            importe_factura_final - TOLERANCIA,
-                            importe_factura_final + TOLERANCIA
-                        )
-                    ]
+                    importe_factura_final = factura_final[col_importe_factura].iloc[0]
 
-                    if df_internas_filtrado.empty:
-                        st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
-                    else:
-                        st.success(f"✅ Se han seleccionado {len(df_internas_filtrado)} factura(s) interna(s) que cuadran con la externa")
+                # --- Filtrar por importe ±1€ ---
+                TOLERANCIA = 1.0
+                df_internas_filtrado = df_internas_filtrado[
+                    df_internas_filtrado['importe_correcto'].between(
+                        importe_factura_final - TOLERANCIA,
+                        importe_factura_final + TOLERANCIA
+                    )
+                ]
 
-                        df_resultado = df_internas_filtrado.copy()
-                        
+                if df_internas_filtrado.empty:
+                    st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+                else:
+                    st.success(f"✅ Se han seleccionado {len(df_internas_filtrado)} factura(s) interna(s) que cuadran con la externa")
+
+                    df_resultado = df_internas_filtrado.copy()
+                                          
                 # --- Carga opcional de pagos ---
                 cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
                 df_cobros = pd.DataFrame()
