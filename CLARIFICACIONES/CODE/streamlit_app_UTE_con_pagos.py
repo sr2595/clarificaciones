@@ -217,6 +217,24 @@ if archivo:
             
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
+
+    # --- Normalizar columnas de factura_final ---
+    factura_final.columns = (
+        factura_final.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(r'[^0-9a-z]', '_', regex=True)
+        .str.replace(r'__+', '_', regex=True)
+        .str.strip('_')
+    )
+
+    # --- Crear importe_correcto en factura_final ---
+    if 'importe' in factura_final.columns:
+        factura_final['importe_correcto'] = pd.to_numeric(factura_final['importe'], errors='coerce')
+    else:
+        st.error("❌ No se encontró la columna de importe en la factura externa")
+        st.stop()
+
     # --- Normalizar columnas de df_internas ---
     df_internas.columns = (
         df_internas.columns
@@ -230,19 +248,17 @@ if factura_final is not None and not df_internas.empty:
     # --- Verificar columna de CIF ---
     cif_col = 't_doc_n_m_doc'
     if cif_col not in df_internas.columns:
-        st.error(f"❌ No se encontró la columna de CIF ({cif_col}) en facturas internas.")
+        st.error(f"❌ No se encontró la columna de CIF ({cif_col}) en el archivo de facturas internas.")
         st.stop()
 
-    # --- Selector único de CIF(s) ---
-    cif_unicos = df_internas[cif_col].dropna().astype(str).unique().tolist()
+    # --- Selector único de CIF ---
     cif_seleccionados = st.multiselect(
         "Selecciona CIF(s) de la UTE (socios)",
-        options=cif_unicos,
-        default=cif_unicos
+        options=df_internas[cif_col].unique()
     )
 
     if cif_seleccionados:
-        # --- Filtrar df_internas por CIF ---
+        # --- Filtrar por CIF ---
         df_internas_filtrado = df_internas[df_internas[cif_col].isin(cif_seleccionados)]
 
         # --- Filtrar por importe ±1€ ---
@@ -292,23 +308,16 @@ if factura_final is not None and not df_internas.empty:
                     # --- Mapear columnas críticas ---
                     col_mapping = {
                         'fec_operacion': ['fec_operacion', 'fecha_operacion'],
-                        'importe': ['Importe', 'imp', 'monto'],
+                        'importe': ['importe', 'imp', 'monto'],
                         'norma_43': ['norma_43', 'norma43'],
                         'posible_factura': ['posible_factura', 'factura']
                     }
 
                     for target, possibles in col_mapping.items():
-                        found = False
                         for col in possibles:
                             if col in df_cobros.columns:
                                 df_cobros.rename(columns={col: target}, inplace=True)
-                                found = True
                                 break
-                        if not found:
-                            for col in df_cobros.columns:
-                                if target.split('_')[0] in col:
-                                    df_cobros.rename(columns={col: target}, inplace=True)
-                                    break
 
                     # --- Verificar columnas esenciales ---
                     required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
@@ -317,7 +326,6 @@ if factura_final is not None and not df_internas.empty:
                         st.error(f"❌ Faltan columnas esenciales en el archivo de cobros: {missing_cols}")
                         df_cobros = pd.DataFrame()
                     else:
-                        # --- Convertir tipos ---
                         df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
                         df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
                         df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
