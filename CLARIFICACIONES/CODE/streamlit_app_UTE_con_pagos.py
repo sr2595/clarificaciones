@@ -214,7 +214,7 @@ if archivo:
                 return df_internas.loc[seleccionadas]
             else:
                 return pd.DataFrame()
-
+            
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
     df_resultado = cuadrar_internas(factura_final, df_internas)
@@ -233,14 +233,34 @@ if factura_final is not None and not df_internas.empty:
             else:
                 df_cobros = pd.read_csv(cobros_file)
 
-            # Normalizar columnas
-            df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('.', '_')
+            # Normalizar columnas: minúsculas, quitar espacios y caracteres especiales
+            df_cobros.columns = df_cobros.columns.str.strip().str.lower().str.replace(r'\W+', '_', regex=True)
 
-            # Convertir tipos
-            df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
-            df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
-            df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
-            df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
+            # Mapear columnas esperadas a nombres estándar
+            columnas_esperadas = {
+                'fec_operacion': ['fec_operacion', 'fec__operacion', 'fecoperacion'],
+                'importe': ['importe'],
+                'norma_43': ['norma_43', 'norma43'],
+                'posible_factura': ['posible_factura', 'posiblefactura']
+            }
+
+            for col_final, posibles in columnas_esperadas.items():
+                for c in posibles:
+                    if c in df_cobros.columns:
+                        df_cobros.rename(columns={c: col_final}, inplace=True)
+                        break
+                else:
+                    st.warning(f"⚠️ No se encontró la columna esperada '{col_final}' en el archivo de cobros.")
+
+            # Convertir tipos si existen
+            if 'fec_operacion' in df_cobros.columns:
+                df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
+            if 'importe' in df_cobros.columns:
+                df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
+            if 'norma_43' in df_cobros.columns:
+                df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
+            if 'posible_factura' in df_cobros.columns:
+                df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
 
             TOLERANCIA = 1.0  # ±1€
 
@@ -253,28 +273,30 @@ if factura_final is not None and not df_internas.empty:
                 posibles = []
 
                 # 1️⃣ Match exacto Posible Factura
-                pagos_match = df_cobros[df_cobros['posible_factura'] == str(fila.get('factura', ''))]
-                for _, p in pagos_match.iterrows():
-                    if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                        posibles.append(p)
-
-                if posibles:
-                    return posibles
+                if 'posible_factura' in df_cobros.columns:
+                    pagos_match = df_cobros[df_cobros['posible_factura'] == str(fila.get('factura', ''))]
+                    for _, p in pagos_match.iterrows():
+                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
+                            posibles.append(p)
+                    if posibles:
+                        return posibles
 
                 # 2️⃣ Buscar dentro de Norma 43
-                pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(str(fila.get('factura', '')), na=False)]
-                for _, p in pagos_match_norma43.iterrows():
-                    if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                        posibles.append(p)
-                if posibles:
-                    return posibles
+                if 'norma_43' in df_cobros.columns:
+                    pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(str(fila.get('factura', '')), na=False)]
+                    for _, p in pagos_match_norma43.iterrows():
+                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
+                            posibles.append(p)
+                    if posibles:
+                        return posibles
 
                 # 3️⃣ Buscar por Fec. Operación a partir de fecha de la factura
-                fecha_inicio = fila.get('fecha_emision', pd.Timestamp.min)
-                pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
-                for _, p in pagos_fecha.iterrows():
-                    if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                        posibles.append(p)
+                if 'fec_operacion' in df_cobros.columns:
+                    fecha_inicio = fila.get('fecha_emision', pd.Timestamp.min)
+                    pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
+                    for _, p in pagos_fecha.iterrows():
+                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
+                            posibles.append(p)
 
                 return posibles
 
@@ -293,12 +315,10 @@ if factura_final is not None and not df_internas.empty:
                     df_resultado.at[idx, 'pagos_detalle'] = "; ".join(detalles)
 
         # --- Mostrar tabla final ---
-        # Columnas base seguras
         columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
                          'fecha_emision', 'sociedad', 'posible_pago', 'pagos_detalle']
         columnas_base = [c for c in columnas_base if c in df_resultado.columns]
 
-        # Columnas de pagos dinámicas
         columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
 
         st.dataframe(df_resultado[columnas_base + columnas_pago])
