@@ -215,11 +215,6 @@ if archivo:
             else:
                 return pd.DataFrame()
             
-import streamlit as st
-import pandas as pd
-from io import BytesIO
-from datetime import datetime
-
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
     df_resultado = cuadrar_internas(factura_final, df_internas)
@@ -232,16 +227,11 @@ if factura_final is not None and not df_internas.empty:
         # --- Carga opcional de pagos ---
         cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
         if cobros_file:
-            # Leer Excel correctamente
             try:
                 if cobros_file.name.endswith('.xlsm'):
-                    # Intentar leer la hoja 'Cruce_Movs'
                     xls = pd.ExcelFile(cobros_file, engine='openpyxl')
-                    if 'Cruce_Movs' in xls.sheet_names:
-                        df_cobros = pd.read_excel(xls, sheet_name='Cruce_Movs')
-                    else:
-                        st.error(f"❌ No se encontró la hoja 'Cruce_Movs' en el archivo {cobros_file.name}")
-                        df_cobros = pd.DataFrame()
+                    df_list = [pd.read_excel(xls, sheet_name=sheet) for sheet in xls.sheet_names]
+                    df_cobros = pd.concat(df_list, ignore_index=True)
                 else:
                     df_cobros = pd.read_csv(cobros_file)
             except Exception as e:
@@ -292,7 +282,6 @@ if factura_final is not None and not df_internas.empty:
                         for _, p in pagos_match.iterrows():
                             if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
                                 posibles.append(p)
-
                         if posibles:
                             return posibles
 
@@ -304,16 +293,15 @@ if factura_final is not None and not df_internas.empty:
                         if posibles:
                             return posibles
 
-                        # 3️⃣ Buscar por Fec. Operación a partir de fecha de la factura
+                        # 3️⃣ Buscar por Fec. Operación
                         fecha_inicio = fila.get('fecha_emision', pd.Timestamp.min)
                         pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
                         for _, p in pagos_fecha.iterrows():
                             if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
                                 posibles.append(p)
-
                         return posibles
 
-                    # Aplicar búsqueda de pagos a cada fila
+                    # Aplicar búsqueda de pagos
                     for idx, fila in df_resultado.iterrows():
                         pagos = buscar_pagos(fila, df_cobros)
                         if pagos:
@@ -333,7 +321,6 @@ if factura_final is not None and not df_internas.empty:
         columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
                          'fecha_emision', 'sociedad', 'posible_pago', 'pagos_detalle']
         columnas_base = [c for c in columnas_base if c in df_resultado.columns]
-
         columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
 
         # Evitar duplicados
@@ -355,5 +342,3 @@ if factura_final is not None and not df_internas.empty:
             file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-
