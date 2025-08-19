@@ -78,6 +78,19 @@ if archivo:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
 
+    #Resumen del archivo
+        
+    total = df['IMPORTE_CORRECTO'].sum(skipna=True)
+    minimo = df['IMPORTE_CORRECTO'].min(skipna=True)
+    maximo = df['IMPORTE_CORRECTO'].max(skipna=True)
+    
+    st.write("**📊 Resumen del archivo:**")
+    st.write(f"- Número total de facturas: {len(df)}")
+    st.write(f"- Suma total importes: {total:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+    st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+    st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+
+
     # --- Normalizar ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
