@@ -214,7 +214,8 @@ if archivo:
                 return df_internas.loc[seleccionadas]
             else:
                 return pd.DataFrame()
-     # ----------- Resultado y descarga -----------
+            
+    # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
     # --- Normalizar columnas de df_internas ---
     df_internas.columns = (
@@ -226,9 +227,18 @@ if factura_final is not None and not df_internas.empty:
         .str.strip('_')
     )
 
-    if 'cif' not in df_internas.columns:
-        st.error("❌ No se encontró la columna 'cif' en el archivo de facturas internas.")
+    # Mapear la columna 't_doc_num_doc' a 'cif'
+    col_cif = None
+    for col in df_internas.columns:
+        if 't_doc' in col and 'num_doc' in col:   # busca 't_doc_num_doc'
+            col_cif = col
+            break
+
+    if col_cif is None:
+        st.error("❌ No se encontró la columna de CIF (T.Doc. - Núm.Doc.) en el archivo de facturas internas.")
     else:
+        df_internas.rename(columns={col_cif: 'cif'}, inplace=True)
+
         # --- Selección de CIF(s) ---
         cif_seleccionados = st.multiselect(
             "Selecciona CIF(s) de la UTE (socios)",
@@ -402,5 +412,6 @@ if factura_final is not None and not df_internas.empty:
                     file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+
        
 
