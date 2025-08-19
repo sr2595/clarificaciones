@@ -250,7 +250,7 @@ if factura_final is not None and not df_internas.empty:
             st.write("📄 Columnas en factura_final:", cols_factura)
 
             col_importe_factura = None
-            for posible in ['importe_correcto', 'importe', 'total', 'importe_total']:
+            for posible in ['Importe', 'importe_correcto', 'importe', 'total', 'importe_total']:
                 if posible in cols_factura:
                     col_importe_factura = posible
                     break
