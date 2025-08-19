@@ -215,9 +215,16 @@ if archivo:
             else:
                 return pd.DataFrame()
             
+cif_seleccionados = st.multiselect(
+    "Selecciona CIF(s) de la UTE (socios)",
+    options=df_internas['cif'].unique() if not df_internas.empty else [],
+    default=[]
+)            
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
+    
     # --- Filtrado por CIF seleccionado ---
+    
     if cif_seleccionados:
         cif_refs = [str(c).upper() for c in cif_seleccionados]
         df_resultado = df_internas[df_internas['cif'].str.upper().isin(cif_refs)].copy()
