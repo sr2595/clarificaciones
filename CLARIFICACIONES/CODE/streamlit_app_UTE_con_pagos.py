@@ -215,6 +215,13 @@ if archivo:
             else:
                 return pd.DataFrame()
             
+# ----------- Selección de CIFs de la UTE -----------
+cif_seleccionados = st.multiselect(
+    "Selecciona CIF(s) de la UTE (socios)",
+    options=df_internas['cif'].unique().tolist()
+)
+cif_refs = [str(c).upper() for c in cif_seleccionados]
+
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
     df_resultado = cuadrar_internas(factura_final, df_internas)
@@ -237,7 +244,7 @@ if factura_final is not None and not df_internas.empty:
                 df_cobros = pd.DataFrame()
 
             if not df_cobros.empty:
-                # --- Normalización robusta de columnas ---
+                # --- Normalización de columnas ---
                 df_cobros.columns = (
                     df_cobros.columns
                     .str.strip()
@@ -252,12 +259,12 @@ if factura_final is not None and not df_internas.empty:
                     .str.strip('_')
                 )
 
-                # Mapear columnas críticas
+                # --- Mapear columnas críticas ---
                 col_mapping = {
                     'fec_operacion': ['fec_operacion', 'fecha_operacion'],
                     'importe': ['importe', 'imp', 'monto', 'amount'],
                     'posible_factura': ['posible_factura', 'factura', 'posiblefactura'],
-                    'cif': ['cif', 'cif_cliente', 'cif_socio']
+                    'cif': ['cif', 'nif']
                 }
                 for target, possibles in col_mapping.items():
                     for col in possibles:
@@ -265,17 +272,17 @@ if factura_final is not None and not df_internas.empty:
                             df_cobros.rename(columns={col: target}, inplace=True)
                             break
 
-                # Verificar columnas esenciales
+                # --- Verificar columnas esenciales ---
                 required_cols = ['fec_operacion', 'importe', 'posible_factura', 'cif']
-                if not all(col in df_cobros.columns for col in required_cols):
+                if any(col not in df_cobros.columns for col in required_cols):
                     st.error(f"❌ Faltan columnas esenciales en el archivo de cobros")
                     df_cobros = pd.DataFrame()
                 else:
-                    # Convertir tipos
+                    # --- Convertir tipos ---
                     df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
                     df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
                     df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
-                    df_cobros['cif'] = df_cobros['cif'].astype(str).str.upper().str.replace(r'[^0-9A-Z]', '', regex=True)
+                    df_cobros['cif'] = df_cobros['cif'].astype(str).str.upper().str.strip()
 
                     TOLERANCIA = 1.0  # ±1€
 
@@ -283,84 +290,64 @@ if factura_final is not None and not df_internas.empty:
                     df_resultado['posible_pago'] = 'No'
                     df_resultado['pagos_detalle'] = None
 
-                    # --- Función auxiliar ---
                     def choose_closest_by_date(candidates_df, fecha_ref):
                         if candidates_df.empty:
                             return None
                         fecha_ref = pd.to_datetime(fecha_ref)
                         tmp = candidates_df.copy()
                         tmp['diff'] = (tmp['fec_operacion'] - fecha_ref).abs()
-                        chosen = tmp.sort_values('diff').iloc[0]
-                        return chosen.to_dict()
+                        return tmp.sort_values('diff').iloc[0].to_dict()
 
-                    # --- Referencias de la factura final ---
+                    # --- Filtrar pagos ---
                     factura_ref = str(factura_final.get('factura', '')).strip()
                     importe_ref = float(factura_final.get('importe_correcto', 0) or 0)
                     fecha_ref = factura_final.get('fecha_emision', pd.Timestamp.min)
 
-                    # --- CIF(s) seleccionados por el usuario ---
-                    cif_refs = [str(c).upper() for c in cif_seleccionados]
-                    cif_refs = [re.sub(r'[^0-9A-Z]', '', c) for c in cif_refs if c]
+                    # Solo pagos del CIF seleccionado
+                    candidatos = df_cobros[df_cobros['cif'].isin(cif_refs)]
 
-                    # --- Búsqueda de un único pago ---
-                    pago_encontrado = None
-                    candidatos = df_cobros.copy()
+                    # Por importe ± tolerancia
+                    candidatos = candidatos[abs(candidatos['importe'] - importe_ref) <= TOLERANCIA]
 
-                    # 1) Filtrar por CIF
-                    if cif_refs:
-                        candidatos = candidatos[candidatos['cif'].isin(cif_refs)]
+                    # Por posible factura exacta
+                    candidatos = candidatos[candidatos['posible_factura'] == factura_ref]
 
-                    # 2) Filtrar por importe ±TOLERANCIA
-                    candidatos = candidatos[(candidatos['importe'].notna()) & (abs(candidatos['importe'] - importe_ref) <= TOLERANCIA)]
+                    pago_encontrado = choose_closest_by_date(candidatos, fecha_ref)
 
-                    # 3) Filtrar por posible factura exacta
-                    candidatos_pf = candidatos[candidatos['posible_factura'] == factura_ref]
-                    pago_encontrado = choose_closest_by_date(candidatos_pf, fecha_ref)
-
-                    # 4) Si no hay, tomar cualquier candidato por importe
                     if pago_encontrado is None:
-                        pago_encontrado = choose_closest_by_date(candidatos, fecha_ref)
-
-                    # --- Resultado ---
-                    if pago_encontrado is not None:
-                        c_imp, c_fec = 'Pago1_Importe', 'Pago1_Fecha'
-                        c_pf = 'Pago1_PosibleFactura'
-                        for c in [c_imp, c_fec, c_pf]:
-                            if c not in df_resultado.columns:
-                                df_resultado[c] = pd.NA
-
-                        df_resultado.loc[:, c_imp] = pago_encontrado.get('importe')
-                        df_resultado.loc[:, c_fec] = pago_encontrado.get('fec_operacion')
-                        df_resultado.loc[:, c_pf] = pago_encontrado.get('posible_factura')
-                        df_resultado.loc[:, 'posible_pago'] = 'Sí'
-
-                        fecha_str = pd.to_datetime(pago_encontrado.get('fec_operacion')).date() if pago_encontrado.get('fec_operacion') is not None else ''
-                        resumen = f"Pago1: {pago_encontrado.get('importe', 0):.2f} € ({fecha_str}) Factura: {pago_encontrado.get('posible_factura','')}"
-                        df_resultado.loc[:, 'pagos_detalle'] = resumen
-                        st.success(f"✅ Pago único encontrado: {pago_encontrado.get('importe', 0):.2f} € ({fecha_str})")
+                        st.info("⚠️ No se encontró ningún pago único que cuadre con la factura final (CIF + importe + posible factura)")
                     else:
-                        st.info("⚠️ No se encontró ningún pago único con el mismo importe que la factura final (dentro de la tolerancia).")
+                        # Crear columnas Pago1_* y asignar
+                        for c_name, value in {
+                            'Pago1_Importe': pago_encontrado.get('importe'),
+                            'Pago1_Fecha': pago_encontrado.get('fec_operacion'),
+                        }.items():
+                            if c_name not in df_resultado.columns:
+                                df_resultado[c_name] = None
+                            df_resultado.loc[:, c_name] = value
 
-        # --- Mostrar tabla final ---
-        columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
-                         'fecha_emision', 'sociedad', 'posible_pago', 'pagos_detalle']
+                        df_resultado['posible_pago'] = 'Sí'
+                        fecha_str = pd.to_datetime(pago_encontrado.get('fec_operacion')).date()
+                        df_resultado['pagos_detalle'] = f"Pago1: {pago_encontrado.get('importe',0):.2f} € ({fecha_str})"
+
+                        st.success(f"✅ Pago único encontrado: {pago_encontrado.get('importe', 0):.2f} € ({fecha_str})")
+
+        # --- Mostrar tabla y descarga ---
+        columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto', 'fecha_emision',
+                         'sociedad', 'posible_pago', 'pagos_detalle']
         columnas_base = [c for c in columnas_base if c in df_resultado.columns]
         columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago')]
         df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
         columnas_finales = list(dict.fromkeys(columnas_base + columnas_pago))
-
         st.dataframe(df_resultado[columnas_finales], use_container_width=True)
 
-        # --- Botón de descarga ---
         from io import BytesIO
         from datetime import datetime
-
         def to_excel(df_out):
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 df_out.to_excel(writer, index=False, sheet_name="Resultado")
             return output.getvalue()
-
         excel_data = to_excel(df_resultado[columnas_finales])
         st.download_button(
             label="📥 Descargar Excel con facturas internas seleccionadas y pagos",
