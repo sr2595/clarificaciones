@@ -263,8 +263,7 @@ if factura_final is not None and not df_internas.empty:
                 .str.strip('_')
             )
 
-            st.write("DEBUG: columnas df_cobros normalizadas:", df_cobros.columns.tolist())
-
+           
             # Mapeo seguro de columnas que usamos
             col_map = {
                 'fec_operacion': ['fec_operacion', 'fecha_operacion', 'fec_oper'],
@@ -331,8 +330,7 @@ if factura_final is not None and not df_internas.empty:
             except Exception:
                 importe_total_final = 0.0
 
-        st.write(f"DEBUG: fact_final_id={fact_final_id}, fecha_ref={fecha_ref}, importe_total_final={importe_total_final:.2f} €")
-
+        
         # --- 4) normalizar lista de socios CIF que vinieron del selector (socios_cifs) ---
         try:
             socios_list = [s.replace(' ', '').upper() for s in socios_cifs]  # variable creada arriba en tu script
@@ -344,8 +342,7 @@ if factura_final is not None and not df_internas.empty:
                 socios_list = df_resultado[col_cif].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
             else:
                 socios_list = []
-        st.write("DEBUG: socios_list (UTEs seleccionados):", socios_list)
-
+      
         # tolerance en euros
         TOLERANCIA = 1.0
 
