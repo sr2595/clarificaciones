@@ -262,7 +262,7 @@ if factura_final is not None and not df_internas.empty:
             st.write("📄 Columnas en factura_final:", cols_factura)
 
             col_importe_factura = None
-            for posible in ['Importe', 'importe_correcto', 'importe', 'total', 'importe_total']:
+            for posible in ['Importe', 'importe_correcto', 'importe', 'total', 'importe_total', 'IMPORTE_CORRECTO']:
                 if posible in cols_factura:
                     col_importe_factura = posible
                     break
@@ -271,18 +271,31 @@ if factura_final is not None and not df_internas.empty:
                 st.error("❌ No se encontró ninguna columna de importe en factura_final")
             else:
                 if isinstance(factura_final, pd.Series):
-                    importe_factura_final = factura_final[col_importe_factura]
+                    importe_factura_final = float(factura_final[col_importe_factura] or 0)
                 else:
-                    importe_factura_final = factura_final[col_importe_factura].iloc[0]
+                    importe_factura_final = float(factura_final[col_importe_factura].iloc[0] or 0)
 
-                # --- Filtrar por importe ±1€ ---
+                # --- Filtrar por importe ±1€ (opcional para vista previa) ---
                 TOLERANCIA = 1.0
-                df_internas_filtrado = df_internas_filtrado[
-                    df_internas_filtrado['importe_correcto'].between(
-                        importe_factura_final - TOLERANCIA,
-                        importe_factura_final + TOLERANCIA
-                    )
-                ]
+                # NOTA: este filtro es sobre facturas internas individuales si lo quieres mantener para la UI.
+                # Si prefieres que el solver considere todas las internas para sumar, elimina/reduce este filtro.
+                try:
+                    df_internas_filtrado = df_internas_filtrado[
+                        df_internas_filtrado['importe_correcto'].between(
+                            importe_factura_final - TOLERANCIA,
+                            importe_factura_final + TOLERANCIA
+                        )
+                    ]
+                except Exception:
+                    # si no existe columna 'importe_correcto', intentamos otras opciones
+                    for cand in ['IMPORTE_CORRECTO', 'importe', 'total']:
+                        if cand in df_internas_filtrado.columns:
+                            df_internas_filtrado[cand] = pd.to_numeric(df_internas_filtrado[cand], errors='coerce')
+                            df_internas_filtrado = df_internas_filtrado[
+                                df_internas_filtrado[cand].between(importe_factura_final - TOLERANCIA,
+                                                                   importe_factura_final + TOLERANCIA)
+                            ]
+                            break
 
                 # --- Carga opcional de pagos ---
                 cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
@@ -315,78 +328,141 @@ if factura_final is not None and not df_internas.empty:
                         # --- Mapear columnas críticas ---
                         col_mapping = {
                             'fec_operacion': ['fec_operacion', 'fecha_operacion'],
-                            'importe': ['importe', 'imp', 'monto'],
+                            'importe': ['importe', 'imp', 'monto', 'amount'],
                             'norma_43': ['norma_43', 'norma43'],
                             'posible_factura': ['posible_factura', 'factura']
                         }
 
                         for target, possibles in col_mapping.items():
-                            found = False
                             for col in possibles:
                                 if col in df_cobros.columns:
                                     df_cobros.rename(columns={col: target}, inplace=True)
-                                    found = True
                                     break
-                            if not found:
-                                for col in df_cobros.columns:
-                                    if target.split('_')[0] in col:
-                                        df_cobros.rename(columns={col: target}, inplace=True)
-                                        break
 
-                        # --- Verificar columnas esenciales ---
-                        required_cols = ['fec_operacion', 'importe', 'norma_43', 'posible_factura']
-                        missing_cols = [col for col in required_cols if col not in df_cobros.columns]
-                        if missing_cols:
-                            st.error(f"❌ Faltan columnas esenciales en el archivo de cobros: {missing_cols}")
-                            df_cobros = pd.DataFrame()
-                        else:
-                            # --- Convertir tipos ---
+                        # --- Convertir tipos ---
+                        if 'fec_operacion' in df_cobros.columns:
                             df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
+                        if 'importe' in df_cobros.columns:
                             df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
-                            df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
-                            df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
+                        df_cobros['norma_43'] = df_cobros.get('norma_43', pd.Series([''] * len(df_cobros))).astype(str).str.strip()
+                        df_cobros['posible_factura'] = df_cobros.get('posible_factura', pd.Series([''] * len(df_cobros))).astype(str).str.strip()
 
-                # --- Preparar columnas de pagos ---
+                # --- Preparar columnas de pagos (BUSCAR UN ÚNICO PAGO PARA LA FACTURA FINAL) ---
                 df_resultado['posible_pago'] = 'No'
                 df_resultado['pagos_detalle'] = None
 
-                # --- Buscar un único pago que cuadre con el TOTAL ---
-                if not df_cobros.empty:
-                    importe_total_final = df_resultado['importe_correcto'].sum()
-                    posibles = []
+                def choose_closest_by_date(candidates_df, fecha_ref):
+                    if candidates_df.empty:
+                        return None
+                    fecha_ref = pd.to_datetime(fecha_ref, errors='coerce')
+                    tmp = candidates_df.copy()
+                    tmp['fec_operacion'] = pd.to_datetime(tmp['fec_operacion'], errors='coerce')
+                    # prefer entries with dates; si no hay fechas válidas, devolvemos la primera
+                    if tmp['fec_operacion'].notna().any():
+                        tmp = tmp[tmp['fec_operacion'].notna()].copy()
+                        tmp['diff_days'] = (tmp['fec_operacion'] - fecha_ref).abs().dt.total_seconds().fillna(1e18)
+                        chosen = tmp.sort_values('diff_days').iloc[0]
+                    else:
+                        chosen = tmp.iloc[0]
+                    return chosen.to_dict()
 
-                    # Match exacto posible_factura
-                    fact_final_id = str(factura_final[col_factura]) if isinstance(factura_final, pd.Series) else str(factura_final.iloc[0][col_factura])
-                    pagos_match = df_cobros[df_cobros['posible_factura'] == fact_final_id]
-                    for _, p in pagos_match.iterrows():
-                        if abs(p['importe'] - importe_total_final) <= TOLERANCIA:
-                            posibles.append(p)
+                if not df_cobros.empty and not df_resultado.empty:
+                    # 1) obtener importe total de las internas seleccionadas (preferimos columna 'IMPORTE_CORRECTO' o 'importe_correcto')
+                    importe_total_final = None
+                    for cand in ['IMPORTE_CORRECTO', 'importe_correcto', 'importe', 'total']:
+                        if cand in df_resultado.columns:
+                            importe_total_final = pd.to_numeric(df_resultado[cand].sum(), errors='coerce')
+                            break
+                    if importe_total_final is None or pd.isna(importe_total_final):
+                        # fallback al importe de la factura_final seleccionada
+                        try:
+                            importe_total_final = float(importe_factura_final)
+                        except Exception:
+                            importe_total_final = 0.0
 
-                    # Match por norma_43
-                    if not posibles:
-                        pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(fact_final_id, na=False)]
-                        for _, p in pagos_match_norma43.iterrows():
-                            if abs(p['importe'] - importe_total_final) <= TOLERANCIA:
-                                posibles.append(p)
+                    # 2) identificar id de factura final y fecha de referencia
+                    fact_final_id = None
+                    try:
+                        if isinstance(factura_final, pd.Series):
+                            fact_final_id = str(factura_final[col_factura])
+                            fecha_ref = factura_final[col_fecha_emision]
+                        else:
+                            fact_final_id = str(factura_final.iloc[0][col_factura])
+                            fecha_ref = factura_final.iloc[0][col_fecha_emision]
+                    except Exception:
+                        fact_final_id = str(factura_final.get(col_factura, ''))
+                        fecha_ref = factura_final.get(col_fecha_emision, pd.NaT)
 
-                    # Match por fecha
-                    if not posibles:
-                        fecha_inicio = factura_final[col_fecha_emision] if isinstance(factura_final, pd.Series) else factura_final.iloc[0][col_fecha_emision]
-                        pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
-                        for _, p in pagos_fecha.iterrows():
-                            if abs(p['importe'] - importe_total_final) <= TOLERANCIA:
-                                posibles.append(p)
+                    # 3) construir lista de CIFs a buscar (limpios)
+                    cif_vals = []
+                    if col_cif in df_resultado.columns:
+                        cif_vals = df_resultado[col_cif].astype(str).fillna('').apply(lambda x: x.replace(' ', '').upper()).unique().tolist()
+                    elif 't_doc_n_m_doc' in df_resultado.columns:
+                        cif_vals = df_resultado['t_doc_n_m_doc'].astype(str).fillna('').apply(lambda x: x.replace(' ', '').upper()).unique().tolist()
 
-                    # Asignar a todas las internas
-                    if posibles:
-                        pago = posibles[0]
-                        detalles = f"Pago: {pago['importe']:.2f} € ({pago['fec_operacion'].date()}) Norma43: {pago['norma_43']}"
+                    # 4) detectar columna CIF en df_cobros (si existe)
+                    cif_col_cobros = None
+                    if not df_cobros.empty:
+                        for c in df_cobros.columns:
+                            if any(k in c for k in ['cif', 'nif', 'titular', 'benef', 'beneficiario', 'cliente']):
+                                cif_col_cobros = c
+                                break
 
-                        df_resultado['posible_pago'] = 'Sí'
-                        df_resultado['pagos_detalle'] = detalles
-                        df_resultado['Pago_Importe'] = pago['importe']
-                        df_resultado['Pago_Fecha'] = pago['fec_operacion']
-                        df_resultado['Pago_Norma43'] = pago['norma_43']
+                    # 5) buscar candidatos aplicando primero CIF (si existe) y luego importe
+                    candidatos = df_cobros.copy()
+                    if cif_col_cobros and cif_vals:
+                        candidatos = candidatos[candidatos[cif_col_cobros].astype(str).fillna('').str.replace(' ', '').str.upper().isin(cif_vals)]
+
+                    # aplicar filtro por importe ±TOLERANCIA
+                    candidatos = candidatos[candidatos['importe'].notna()].copy()
+                    candidatos = candidatos[(candidatos['importe'] >= (importe_total_final - TOLERANCIA)) &
+                                            (candidatos['importe'] <= (importe_total_final + TOLERANCIA))]
+
+                    elegido = None
+
+                    # 6) dentro de candidatos, priorizar posible_factura exacto
+                    if not candidatos.empty:
+                        pf_match = candidatos[candidatos['posible_factura'] == fact_final_id]
+                        if not pf_match.empty:
+                            elegido = choose_closest_by_date(pf_match, fecha_ref)
+                        else:
+                            # 7) buscar en norma_43
+                            norma_match = candidatos[candidatos['norma_43'].str.contains(fact_final_id, na=False)]
+                            if not norma_match.empty:
+                                elegido = choose_closest_by_date(norma_match, fecha_ref)
+
+                    # 8) si no encontramos con CIF+importe, ampliamos búsqueda: solo por importe en todo df_cobros
+                    if elegido is None:
+                        candidatos_broad = df_cobros[df_cobros['importe'].notna()].copy()
+                        candidatos_broad = candidatos_broad[(candidatos_broad['importe'] >= (importe_total_final - TOLERANCIA)) &
+                                                            (candidatos_broad['importe'] <= (importe_total_final + TOLERANCIA))]
+                        if not candidatos_broad.empty:
+                            pf_match = candidatos_broad[candidatos_broad['posible_factura'] == fact_final_id]
+                            if not pf_match.empty:
+                                elegido = choose_closest_by_date(pf_match, fecha_ref)
+                            else:
+                                norma_match = candidatos_broad[candidatos_broad['norma_43'].str.contains(fact_final_id, na=False)]
+                                if not norma_match.empty:
+                                    elegido = choose_closest_by_date(norma_match, fecha_ref)
+
+                    # 9) asignar pago único (si lo hay) a todas las filas de df_resultado
+                    if elegido is not None:
+                        pago = elegido
+                        detalles = f"Pago: {pago.get('importe', 0):.2f} € ({pd.to_datetime(pago.get('fec_operacion', pd.NaT)).date() if pd.notna(pago.get('fec_operacion')) else ''}) Norma43: {pago.get('norma_43','')}"
+                        df_resultado.loc[:, 'posible_pago'] = 'Sí'
+                        df_resultado.loc[:, 'pagos_detalle'] = detalles
+                        df_resultado.loc[:, 'Pago_Importe'] = pago.get('importe')
+                        df_resultado.loc[:, 'Pago_Fecha'] = pago.get('fec_operacion')
+                        df_resultado.loc[:, 'Pago_Norma43'] = pago.get('norma_43')
+                        st.success(f"✅ Pago encontrado y asignado al total: {pago.get('importe', 0):.2f} €")
+                    else:
+                        st.info("⚠️ No se encontró un pago único que cuadre con el total de la factura final según CIF+importe+posible_factura/norma_43.")
+
+                else:
+                    if df_cobros.empty:
+                        st.info("ℹ️ No se subió archivo de cobros o está vacío: no se intentó asignar pagos.")
+                    elif df_resultado.empty:
+                        st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
 
                 # --- Mostrar tabla final ---
                 columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
@@ -415,3 +491,4 @@ if factura_final is not None and not df_internas.empty:
                     file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+
