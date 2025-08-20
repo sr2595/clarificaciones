@@ -217,6 +217,17 @@ if archivo:
             
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
+
+    df_resultado = cuadrar_internas(factura_final, df_internas)
+    if df_resultado.empty:
+        st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+    else:
+        st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
+
+        # --- Mostrar tabla final ---
+        st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente,
+                                   'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]])
+
     # --- Normalizar columnas de df_internas ---
     df_internas.columns = (
         df_internas.columns
