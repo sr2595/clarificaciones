@@ -218,6 +218,7 @@ if archivo:
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
 
+#PARTE NUEVA
     df_resultado = cuadrar_internas(factura_final, df_internas)
     if df_resultado.empty:
         st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
@@ -283,13 +284,7 @@ if factura_final is not None and not df_internas.empty:
                     )
                 ]
 
-                if df_internas_filtrado.empty:
-                    st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
-                else:
-                    st.success(f"✅ Se han seleccionado {len(df_internas_filtrado)} factura(s) interna(s) que cuadran con la externa")
-
-                    df_resultado = df_internas_filtrado.copy()
-                                          
+                             
                 # --- Carga opcional de pagos ---
                 cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
                 df_cobros = pd.DataFrame()
