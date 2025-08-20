@@ -403,6 +403,8 @@ if factura_final is not None and not df_internas.empty:
         if cif_col and socios_list:
             candidatos[cif_col] = candidatos[cif_col].astype(str).fillna('').str.replace(' ', '').str.upper()
             candidatos_por_cif = candidatos[candidatos[cif_col].isin(socios_list)].copy()
+            
+            st.write(candidatos.columns.tolist())
 
             if not candidatos_por_cif.empty:
                 # --- Paso A: priorizamos posible_factura dentro de este subset
@@ -427,8 +429,8 @@ if factura_final is not None and not df_internas.empty:
             else:
                 candidatos_filtrados = candidatos[pd.to_datetime(candidatos['fecha_pago']) >= pd.to_datetime(fecha_ref)]
                 if not candidatos_filtrados.empty:
-                    pago_elegido = choose_closest_by_date(candidatos_filtrados, fecha_ref)
-   
+                    pago_elegido = choose_closest_by_date(candidatos_filtrados, fecha_ref) 
+
         # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
         # inicializamos columnas de pago en df_resultado
         df_resultado.loc[:, 'posible_pago'] = 'No'
