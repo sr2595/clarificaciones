@@ -347,24 +347,36 @@ if factura_final is not None and not df_internas.empty:
         TOLERANCIA = 1.0
 
         # --- auxiliar: elegir candidato más cercano por fecha ---
+        # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
         def choose_closest_by_date(cand_df, fecha_ref_local):
             if cand_df is None or cand_df.empty:
                 return None
+
             tmp = cand_df.copy()
+            fecha_ref_dt = pd.to_datetime(fecha_ref_local, errors='coerce')
+
             if 'fec_operacion' in tmp.columns:
                 tmp['fec_operacion'] = pd.to_datetime(tmp['fec_operacion'], errors='coerce')
-            fecha_ref_dt = pd.to_datetime(fecha_ref_local, errors='coerce')
-            # keep only rows with importe notna
+                # Filtrar solo pagos posteriores o iguales a fecha_ref
+                tmp = tmp[tmp['fec_operacion'] >= fecha_ref_dt]
+
+            # Filtrar solo filas con importe válido
             if 'importe' in tmp.columns:
                 tmp = tmp[tmp['importe'].notna()]
-            # prefer those with valid date
+
+            if tmp.empty:
+                return None
+
+            # Elegir pago más cercano posterior (min diferencia)
             if 'fec_operacion' in tmp.columns and tmp['fec_operacion'].notna().any():
-                tmp = tmp[tmp['fec_operacion'].notna()].copy()
-                tmp['diff'] = (tmp['fec_operacion'] - fecha_ref_dt).abs().dt.total_seconds().fillna(1e18)
+                tmp['diff'] = (tmp['fec_operacion'] - fecha_ref_dt).dt.total_seconds()
                 chosen = tmp.sort_values('diff').iloc[0]
             else:
+                # Si no hay fechas, coger el primero disponible
                 chosen = tmp.iloc[0]
+
             return chosen.to_dict()
+
 
         pago_elegido = None
 
