@@ -214,18 +214,18 @@ if archivo:
                 return df_internas.loc[seleccionadas]
             else:
                 return pd.DataFrame()
-            
+
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
 
-#PARTE NUEVA
+    #PARTE NUEVA
     df_resultado = cuadrar_internas(factura_final, df_internas)
     if df_resultado.empty:
         st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
     else:
         st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
 
-        # --- Mostrar tabla final ---
+        # --- Mostrar tabla preliminar ---
         st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente,
                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]])
 
@@ -284,7 +284,6 @@ if factura_final is not None and not df_internas.empty:
                     )
                 ]
 
-                             
                 # --- Carga opcional de pagos ---
                 cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
                 df_cobros = pd.DataFrame()
@@ -351,59 +350,43 @@ if factura_final is not None and not df_internas.empty:
                 df_resultado['posible_pago'] = 'No'
                 df_resultado['pagos_detalle'] = None
 
-                def unique_col(df, col_base):
-                    col = col_base
-                    i = 1
-                    while col in df.columns:
-                        col = f"{col_base}_{i}"
-                        i += 1
-                    return col
-
-                def buscar_pagos(fila, df_cobros):
+                # --- Buscar un único pago que cuadre con el TOTAL ---
+                if not df_cobros.empty:
+                    importe_total_final = df_resultado['importe_correcto'].sum()
                     posibles = []
 
-                    # 1️⃣ Match exacto Posible Factura
-                    pagos_match = df_cobros[df_cobros['posible_factura'] == str(fila.get('factura', ''))]
+                    # Match exacto posible_factura
+                    fact_final_id = str(factura_final[col_factura]) if isinstance(factura_final, pd.Series) else str(factura_final.iloc[0][col_factura])
+                    pagos_match = df_cobros[df_cobros['posible_factura'] == fact_final_id]
                     for _, p in pagos_match.iterrows():
-                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
+                        if abs(p['importe'] - importe_total_final) <= TOLERANCIA:
                             posibles.append(p)
 
+                    # Match por norma_43
+                    if not posibles:
+                        pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(fact_final_id, na=False)]
+                        for _, p in pagos_match_norma43.iterrows():
+                            if abs(p['importe'] - importe_total_final) <= TOLERANCIA:
+                                posibles.append(p)
+
+                    # Match por fecha
+                    if not posibles:
+                        fecha_inicio = factura_final[col_fecha_emision] if isinstance(factura_final, pd.Series) else factura_final.iloc[0][col_fecha_emision]
+                        pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
+                        for _, p in pagos_fecha.iterrows():
+                            if abs(p['importe'] - importe_total_final) <= TOLERANCIA:
+                                posibles.append(p)
+
+                    # Asignar a todas las internas
                     if posibles:
-                        return posibles
+                        pago = posibles[0]
+                        detalles = f"Pago: {pago['importe']:.2f} € ({pago['fec_operacion'].date()}) Norma43: {pago['norma_43']}"
 
-                    # 2️⃣ Buscar dentro de Norma 43
-                    pagos_match_norma43 = df_cobros[df_cobros['norma_43'].str.contains(str(fila.get('factura', '')), na=False)]
-                    for _, p in pagos_match_norma43.iterrows():
-                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                            posibles.append(p)
-                    if posibles:
-                        return posibles
-
-                    # 3️⃣ Buscar por Fec. Operación a partir de fecha de la factura
-                    fecha_inicio = fila.get('fecha_emision', pd.Timestamp.min)
-                    pagos_fecha = df_cobros[df_cobros['fec_operacion'] >= fecha_inicio].sort_values('fec_operacion')
-                    for _, p in pagos_fecha.iterrows():
-                        if abs(p['importe'] - fila.get('importe_correcto', 0)) <= TOLERANCIA:
-                            posibles.append(p)
-
-                    return posibles
-
-                # --- Aplicar búsqueda de pagos ---
-                if not df_cobros.empty:
-                    for idx, fila in df_resultado.iterrows():
-                        pagos = buscar_pagos(fila, df_cobros)
-                        if pagos:
-                            df_resultado.at[idx, 'posible_pago'] = 'Sí'
-                            detalles = []
-                            for i, p in enumerate(pagos, 1):
-                                detalles.append(f"Pago{i}: {p['importe']:.2f} € ({p['fec_operacion'].date()}) Norma43: {p['norma_43']}")
-                                col_importe = unique_col(df_resultado, f'Pago{i}_Importe')
-                                col_fecha = unique_col(df_resultado, f'Pago{i}_Fecha')
-                                col_norma43 = unique_col(df_resultado, f'Pago{i}_Norma43')
-                                df_resultado.at[idx, col_importe] = p['importe']
-                                df_resultado.at[idx, col_fecha] = p['fec_operacion']
-                                df_resultado.at[idx, col_norma43] = p['norma_43']
-                            df_resultado.at[idx, 'pagos_detalle'] = "; ".join(detalles)
+                        df_resultado['posible_pago'] = 'Sí'
+                        df_resultado['pagos_detalle'] = detalles
+                        df_resultado['Pago_Importe'] = pago['importe']
+                        df_resultado['Pago_Fecha'] = pago['fec_operacion']
+                        df_resultado['Pago_Norma43'] = pago['norma_43']
 
                 # --- Mostrar tabla final ---
                 columnas_base = ['factura', 'cif', 'nombre_cliente', 'importe_correcto',
@@ -432,5 +415,3 @@ if factura_final is not None and not df_internas.empty:
                     file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-
-
