@@ -396,24 +396,35 @@ if factura_final is not None and not df_internas.empty:
                 candidatos = candidatos.iloc[0:0]
 
             if cif_col and socios_list:
+
                 candidatos[cif_col] = candidatos[cif_col].astype(str).fillna('').str.replace(' ', '').str.upper()
                 candidatos_por_cif = candidatos[candidatos[cif_col].isin(socios_list)].copy()
-                if not candidatos_por_cif.empty:
-                    # priorizamos posible_factura dentro de este subset
-                    pf_match = candidatos_por_cif[candidatos_por_cif.get('posible_factura','').astype(str) == fact_final_id]
-                    if not pf_match.empty:
-                        pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
-                    else:
-                        # fallback: por fecha
-                        pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
 
-            # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF)
-            if pago_elegido is None and not candidatos.empty:
-                pf_match = candidatos[candidatos.get('posible_factura','').astype(str) == fact_final_id]
+            # filtramos solo pagos posteriores o iguales a la fecha de la factura
+            candidatos_por_cif = candidatos_por_cif[pd.to_datetime(candidatos_por_cif['fecha_pago']) >= pd.to_datetime(fecha_ref)]
+
+            if not candidatos_por_cif.empty:
+                # priorizamos posible_factura dentro de este subset
+                pf_match = candidatos_por_cif[candidatos_por_cif.get('posible_factura','').astype(str) == fact_final_id]
                 if not pf_match.empty:
                     pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
                 else:
-                    pago_elegido = choose_closest_by_date(candidatos, fecha_ref)
+                    # fallback: por fecha
+                    pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
+
+        # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF)
+        if pago_elegido is None and not candidatos.empty:
+            # filtramos pagos posteriores o iguales a la fecha de la factura
+            candidatos_validos = candidatos[pd.to_datetime(candidatos['fecha_pago']) >= pd.to_datetime(fecha_ref)]
+
+            pf_match = candidatos_validos[candidatos_validos.get('posible_factura','').astype(str) == fact_final_id]
+            if not pf_match.empty:
+                pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
+            elif not candidatos_validos.empty:
+                pago_elegido = choose_closest_by_date(candidatos_validos, fecha_ref)
+            else:
+                pago_elegido = None  # no hay pagos válidos posteriores a la factura
+
 
         # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
         # inicializamos columnas de pago en df_resultado
