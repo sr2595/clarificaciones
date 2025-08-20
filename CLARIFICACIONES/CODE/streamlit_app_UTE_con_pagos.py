@@ -451,11 +451,39 @@ if factura_final is not None and not df_internas.empty:
             st.info("⚠️ No se encontró un pago único que cuadre con la factura final según la lógica solicitada.")
 
         # --- 6) mostrar tabla final con info de pago ---
+       
+
+        # Detectar columnas relevantes si no existen ya
+        col_factura = 'Núm.Doc.Deuda' if 'Núm.Doc.Deuda' in df_resultado.columns else None
+        col_cif = 't_doc_n_m_doc' if 't_doc_n_m_doc' in df_resultado.columns else None
+        col_nombre_cliente = 'Nombre Cliente' if 'Nombre Cliente' in df_resultado.columns else None
+        col_fecha_emision = 'Fecha Emisión' if 'Fecha Emisión' in df_resultado.columns else None
+        col_sociedad = 'Sociedad' if 'Sociedad' in df_resultado.columns else None
+
+        # Factura final
+        factura_id = factura_final[col_factura].iloc[0] if col_factura and col_factura in factura_final else 'FACTURA FINAL'
+        factura_fecha = factura_final[col_fecha_emision].iloc[0] if col_fecha_emision and col_fecha_emision in factura_final else ''
+        factura_importe = importe_total_final if 'importe_total_final' in locals() else 0.0
+
+        # Añadir columnas de factura final a todas las filas
+        df_resultado['Factura_Final'] = factura_id
+        df_resultado['Fecha_Factura_Final'] = factura_fecha
+        df_resultado['Importe_Factura_Final'] = factura_importe
+
+        # Columnas internas
         columnas_base = [col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]
         columnas_base = [c for c in columnas_base if c in df_resultado.columns]
+
+        # Columnas de pagos
         columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago') or c in ['posible_pago', 'pagos_detalle']]
+
+        # Evitar duplicados
         df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
-        columnas_finales = list(dict.fromkeys(columnas_base + columnas_pago))
+
+        # Orden final: Factura final primero, luego base, luego pagos
+        columnas_finales = ['Factura_Final', 'Fecha_Factura_Final', 'Importe_Factura_Final'] + columnas_base + columnas_pago
+
+        # Mostrar tabla final en Streamlit
         st.dataframe(df_resultado[columnas_finales], use_container_width=True)
 
         # --- 7) descargar ---
