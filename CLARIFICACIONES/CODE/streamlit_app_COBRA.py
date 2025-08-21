@@ -51,9 +51,9 @@ def convertir_importe_europeo(valor):
 archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
 if archivo:
     try:
-        df = pd.read_excel(archivo, engine="openpyxl")
+        df = pd.read_excel(archivo, engine="openpyxl", skiprows=5)
     except Exception:
-        df = pd.read_excel(archivo)
+        df = pd.read_excel(archivo, skiprows=5)
 
     # --- Mostrar columnas originales para depuración rápida ---
     with st.expander("🔎 Ver columnas detectadas en el Excel"):
