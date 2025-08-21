@@ -44,6 +44,19 @@ def convertir_importe_europeo(valor):
     except Exception:
         return None
 
+# --------- Función para cargar Excel flexible ---------
+def cargar_excel(archivo):
+    try:
+        # Intentar con 5 filas saltadas (formato oficial de Sistemas)
+        df = pd.read_excel(archivo, engine="openpyxl", skiprows=5)
+        # Si solo trae 1 columna, probablemente no correspondía -> reintentar sin skiprows
+        if df.shape[1] <= 1:
+            df = pd.read_excel(archivo, engine="openpyxl")
+    except Exception:
+        # fallback: cargar normal
+        df = pd.read_excel(archivo, engine="openpyxl")
+    return df
+
 # --------- Inicializar variables globales ---------
 factura_final = None
 df_internas = pd.DataFrame()
@@ -51,10 +64,7 @@ df_internas = pd.DataFrame()
 # --------- App ---------
 archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
 if archivo:
-    try:
-        df = pd.read_excel(archivo, engine="openpyxl")
-    except Exception:
-        df = pd.read_excel(archivo)
+    df = cargar_excel(archivo)
 
     with st.expander("🔎 Ver columnas detectadas en el Excel"):
         st.write(list(df.columns))
@@ -78,7 +88,6 @@ if archivo:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
 
-    
     # --- Normalizar ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
@@ -87,7 +96,6 @@ if archivo:
     df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
 
     #Resumen del archivo
-        
     total = df['IMPORTE_CORRECTO'].sum(skipna=True)
     minimo = df['IMPORTE_CORRECTO'].min(skipna=True)
     maximo = df['IMPORTE_CORRECTO'].max(skipna=True)
@@ -97,7 +105,6 @@ if archivo:
     st.write(f"- Suma total importes: {total:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
     st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
     st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-
 
     # --- Detectar UTES ---
     df['ES_UTE'] = df[col_cif].str.replace(" ", "").str.contains(r"L-00U")
