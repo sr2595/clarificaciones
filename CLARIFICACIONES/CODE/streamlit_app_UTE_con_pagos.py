@@ -5,8 +5,8 @@ from io import BytesIO
 from datetime import datetime
 import unicodedata, re
 
-st.set_page_config(page_title="Clarificador UTE", page_icon="📄", layout="wide")
-st.title("📄 Clarificador UTE")
+st.set_page_config(page_title="Clarificador UTE con pagos", page_icon="📄", layout="wide")
+st.title("📄 Clarificador UTE con pagos")
 
 # --------- Helpers ---------
 def _norm(texto):

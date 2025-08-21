@@ -47,10 +47,23 @@ def convertir_importe_europeo(valor):
 # --------- App ---------
 archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
 if archivo:
+    # --- Detección flexible de fila de cabecera ---
+    df_raw = pd.read_excel(archivo, engine="openpyxl", header=None)
+    header_row = None
+    keywords = ["fecha", "factura", "importe", "cif", "sociedad"]
+    for i, row in df_raw.iterrows():
+        valores = " ".join(str(x) for x in row.tolist())
+        norm = _norm(valores)
+        if sum(1 for k in keywords if k in norm) >= 2:
+            header_row = i
+            break
+    if header_row is None:
+        header_row = 0  # fallback
+
     try:
-        df = pd.read_excel(archivo, engine="openpyxl", skiprows=5)
+        df = pd.read_excel(archivo, engine="openpyxl", skiprows=header_row)
     except Exception:
-        df = pd.read_excel(archivo, skiprows=5)
+        df = pd.read_excel(archivo, skiprows=header_row)
 
     # --- Mostrar columnas originales ---
     with st.expander("🔎 Ver columnas detectadas en el Excel"):
