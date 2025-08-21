@@ -263,8 +263,7 @@ if factura_final is not None and not df_internas.empty:
                 .str.strip('_')
             )
 
-            st.write("DEBUG: columnas df_cobros normalizadas:", df_cobros.columns.tolist())
-
+           
             # Mapeo seguro de columnas que usamos
             col_map = {
                 'fec_operacion': ['fec_operacion', 'fecha_operacion', 'fec_oper'],
@@ -331,8 +330,7 @@ if factura_final is not None and not df_internas.empty:
             except Exception:
                 importe_total_final = 0.0
 
-        st.write(f"DEBUG: fact_final_id={fact_final_id}, fecha_ref={fecha_ref}, importe_total_final={importe_total_final:.2f} €")
-
+        
         # --- 4) normalizar lista de socios CIF que vinieron del selector (socios_cifs) ---
         try:
             socios_list = [s.replace(' ', '').upper() for s in socios_cifs]  # variable creada arriba en tu script
@@ -344,30 +342,41 @@ if factura_final is not None and not df_internas.empty:
                 socios_list = df_resultado[col_cif].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
             else:
                 socios_list = []
-        st.write("DEBUG: socios_list (UTEs seleccionados):", socios_list)
-
+      
         # tolerance en euros
         TOLERANCIA = 1.0
 
         # --- auxiliar: elegir candidato más cercano por fecha ---
+        # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
         def choose_closest_by_date(cand_df, fecha_ref_local):
             if cand_df is None or cand_df.empty:
                 return None
+
             tmp = cand_df.copy()
+            fecha_ref_dt = pd.to_datetime(fecha_ref_local, errors='coerce')
+
             if 'fec_operacion' in tmp.columns:
                 tmp['fec_operacion'] = pd.to_datetime(tmp['fec_operacion'], errors='coerce')
-            fecha_ref_dt = pd.to_datetime(fecha_ref_local, errors='coerce')
-            # keep only rows with importe notna
+                # Filtrar solo pagos posteriores o iguales a fecha_ref
+                tmp = tmp[tmp['fec_operacion'] >= fecha_ref_dt]
+
+            # Filtrar solo filas con importe válido
             if 'importe' in tmp.columns:
                 tmp = tmp[tmp['importe'].notna()]
-            # prefer those with valid date
+
+            if tmp.empty:
+                return None
+
+            # Elegir pago más cercano posterior (min diferencia)
             if 'fec_operacion' in tmp.columns and tmp['fec_operacion'].notna().any():
-                tmp = tmp[tmp['fec_operacion'].notna()].copy()
-                tmp['diff'] = (tmp['fec_operacion'] - fecha_ref_dt).abs().dt.total_seconds().fillna(1e18)
+                tmp['diff'] = (tmp['fec_operacion'] - fecha_ref_dt).dt.total_seconds()
                 chosen = tmp.sort_values('diff').iloc[0]
             else:
+                # Si no hay fechas, coger el primero disponible
                 chosen = tmp.iloc[0]
+
             return chosen.to_dict()
+
 
         pago_elegido = None
 
@@ -454,11 +463,28 @@ if factura_final is not None and not df_internas.empty:
             st.info("⚠️ No se encontró un pago único que cuadre con la factura final según la lógica solicitada.")
 
         # --- 6) mostrar tabla final con info de pago ---
+
+        # --- columnas base de df_resultado ---
         columnas_base = [col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]
         columnas_base = [c for c in columnas_base if c in df_resultado.columns]
+
+        # --- columnas de pago ---
         columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago') or c in ['posible_pago', 'pagos_detalle']]
+
+        # --- añadir info de factura final ---
+        df_resultado['Factura_Final'] = fact_final_id
+        df_resultado['Fecha_Factura_Final'] = fecha_ref
+        df_resultado['Importe_Factura_Final'] = importe_total_final
+
+        # --- quitar duplicados ---
         df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
-        columnas_finales = list(dict.fromkeys(columnas_base + columnas_pago))
+
+        # --- definir columnas finales con factura final primero ---
+        columnas_finales = ['Factura_Final', 'Fecha_Factura_Final', 'Importe_Factura_Final'] + columnas_base + columnas_pago
+        # eliminar posibles duplicados conservando el orden
+        columnas_finales = list(dict.fromkeys(columnas_finales))
+
+        # --- mostrar en Streamlit ---
         st.dataframe(df_resultado[columnas_finales], use_container_width=True)
 
         # --- 7) descargar ---
@@ -473,5 +499,7 @@ if factura_final is not None and not df_internas.empty:
             label="📥 Descargar Excel con facturas internas seleccionadas y pagos",
             data=excel_data,
             file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+

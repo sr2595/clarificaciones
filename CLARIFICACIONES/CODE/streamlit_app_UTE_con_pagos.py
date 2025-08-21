@@ -49,7 +49,7 @@ factura_final = None
 df_internas = pd.DataFrame()
 
 # --------- App ---------
-archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
+archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
 if archivo:
     try:
         df = pd.read_excel(archivo, engine="openpyxl")
@@ -230,7 +230,7 @@ if factura_final is not None and not df_internas.empty:
                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]], use_container_width=True)
 
     # --- 2) leer/normalizar cobros ---
-    cobros_file = st.file_uploader("Sube el Excel de Gestor de Cobros (opcional)", type=['.xlsm', '.csv'], key="cobros")
+    cobros_file = st.file_uploader("Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025", type=['.xlsm', '.csv'], key="cobros")
     df_cobros = pd.DataFrame()
     if cobros_file:
         try:
@@ -239,7 +239,7 @@ if factura_final is not None and not df_internas.empty:
             else:
                 df_cobros = pd.read_csv(cobros_file)
         except Exception as e:
-            st.error(f"Error al leer el archivo de cobros: {e}")
+            st.error(f"Error al leer el archivo de pagos: {e}")
             df_cobros = pd.DataFrame()
 
     # Si no hay resultado interno, paramos aquí (nada que asignar)
