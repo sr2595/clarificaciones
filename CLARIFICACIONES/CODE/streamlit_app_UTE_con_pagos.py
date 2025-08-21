@@ -51,10 +51,29 @@ df_internas = pd.DataFrame()
 # --------- App ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
 if archivo:
+    # --- Lectura flexible para detectar cabecera ---
     try:
-        df = pd.read_excel(archivo, engine="openpyxl")
+        df_raw = pd.read_excel(archivo, engine="openpyxl", header=None)
     except Exception:
-        df = pd.read_excel(archivo)
+        df_raw = pd.read_excel(archivo, header=None)
+
+    # Buscar fila que contiene la cabecera
+    header_row = None
+    for i in range(min(20, len(df_raw))):
+        vals = [str(x).lower() for x in df_raw.iloc[i].tolist()]
+        if any("factura" in v or "fecha" in v or "importe" in v for v in vals):
+            header_row = i
+            break
+
+    if header_row is None:
+        st.error("❌ No se encontró cabecera reconocible en el archivo Excel")
+        st.stop()
+
+    # Releer usando esa fila como cabecera
+    try:
+        df = pd.read_excel(archivo, engine="openpyxl", header=header_row)
+    except Exception:
+        df = pd.read_excel(archivo, header=header_row)
 
     with st.expander("🔎 Ver columnas detectadas en el Excel"):
         st.write(list(df.columns))
@@ -78,7 +97,6 @@ if archivo:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
 
-    
     # --- Normalizar ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
@@ -87,7 +105,6 @@ if archivo:
     df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
 
     #Resumen del archivo
-        
     total = df['IMPORTE_CORRECTO'].sum(skipna=True)
     minimo = df['IMPORTE_CORRECTO'].min(skipna=True)
     maximo = df['IMPORTE_CORRECTO'].max(skipna=True)
@@ -146,13 +163,11 @@ if archivo:
         (df[col_grupo] == cliente_final_grupo) & (df['ES_UTE'])
     ].copy()
 
-    # Eliminar importes negativos o cero
     df_utes_grupo = df_utes_grupo[df_utes_grupo['IMPORTE_CORRECTO'].fillna(0) > 0]
 
     if df_utes_grupo.empty:
         st.warning("⚠️ No hay UTES válidas (positivas) para este cliente final")
     else:
-        # Crear lista de socios únicos para el selector
         df_utes_unicos = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
         opciones_utes = [
             f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
@@ -163,19 +178,16 @@ if archivo:
         socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
         socios_cifs = [mapping_utes_cif[s] for s in socios_display]
 
-        # Filtrar DataFrame interno final para el solver
         df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
 
         # --- Solver ---
         def cuadrar_internas(externa, df_internas, tol=100):
-            """tol en céntimos, default 1€ = 100 céntimos"""
             if externa is None or df_internas.empty:
                 return pd.DataFrame()
 
             objetivo = int(externa['IMPORTE_CENT'])
             fecha_ref = externa[col_fecha_emision]
 
-            # Preparar datos
             data = list(zip(
                 df_internas.index.tolist(),
                 df_internas['IMPORTE_CENT'].astype(int).tolist(),
@@ -190,18 +202,15 @@ if archivo:
             model = cp_model.CpModel()
             x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-            # Suma con tolerancia
             model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
             model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
 
-            # Restricción: solo una factura por sociedad
             sociedades = set(d[3] for d in data)
             for s in sociedades:
                 indices = [i for i, d in enumerate(data) if d[3] == s]
                 if indices:
                     model.Add(sum(x[i] for i in indices) <= 1)
 
-            # Minimizar número de facturas y diferencia de fechas
             costs = [abs(d[2]) for d in data]
             model.Minimize(sum(x) + sum(x[i] * costs[i] for i in range(n)))
 
@@ -214,7 +223,6 @@ if archivo:
                 return df_internas.loc[seleccionadas]
             else:
                 return pd.DataFrame()
-
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
 
