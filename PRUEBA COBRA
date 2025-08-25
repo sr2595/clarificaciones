@@ -21,14 +21,11 @@ def _norm(texto):
     return s
 
 def find_col(df, candidates):
-    # Mapa de columna normalizada -> original
     norm_map = { _norm(c): c for c in df.columns }
-    # 1) match exacto normalizado
     for cand in candidates:
         key = _norm(cand)
         if key in norm_map:
             return norm_map[key]
-    # 2) match por "contiene" normalizado (más flexible)
     cand_norms = [_norm(c) for c in candidates]
     for orig in df.columns:
         n = _norm(orig)
@@ -51,16 +48,15 @@ def convertir_importe_europeo(valor):
 archivo = st.file_uploader("Sube el archivo Excel", type=["xlsx", "xls"])
 if archivo:
     try:
-        df = pd.read_excel(archivo, engine="openpyxl")
+        df = pd.read_excel(archivo, engine="openpyxl", skiprows=5)
     except Exception:
-        df = pd.read_excel(archivo)
+        df = pd.read_excel(archivo, skiprows=5)
 
-    # --- Mostrar columnas originales para depuración rápida ---
+    # --- Mostrar columnas originales ---
     with st.expander("🔎 Ver columnas detectadas en el Excel"):
         st.write(list(df.columns))
 
-    # --- Detectar columnas de forma robusta ---
-    # IMPORTANTE: el CIF lo queremos de 'T.Doc. - Núm.Doc.'
+    # --- Detectar columnas ---
     col_fecha_emision = find_col(df, ['FECHA', 'Fecha', 'fecha', 'Fecha Emision', 'FECHA_EMISION', 'Fecha Emisión', 'FX_EMISION'])
     col_factura       = find_col(df, ['FACTURA', 'Factura', 'factura', 'Nº Factura', 'NRO_FACTURA', 'Núm.Doc.Deuda'])
     col_importe       = find_col(df, ['IMPORTE', 'Importe', 'importe', 'TOTAL', 'TOTAL_FACTURA'])
@@ -69,8 +65,7 @@ if archivo:
                                       'NOMBRE_CLIENTE', 'RAZON_SOCIAL', 'Nombre Cliente'])
     col_sociedad       = find_col(df, ['SOCIEDAD', 'Sociedad', 'sociedad'])
 
-
-    # --- Validación y feedback útil ---
+    # --- Validación ---
     faltan = []
     if not col_fecha_emision: faltan.append("fecha emisión")
     if not col_factura:       faltan.append("nº factura")
@@ -100,7 +95,7 @@ if archivo:
     st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
     st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    # --- Desplegable: CIF (de T.Doc. - Núm.Doc.) + Nombre Cliente si existe ---
+    # --- Desplegable de clientes ---
     if col_nombre_cliente:
         df_clientes_unicos = df[[col_cif, col_nombre_cliente]].drop_duplicates()
         df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
@@ -116,7 +111,7 @@ if archivo:
     cliente_seleccionado_display = st.selectbox("Selecciona cliente (CIF - Nombre)", opciones_clientes)
     cliente_cif = mapping_cif[cliente_seleccionado_display]
 
-     # --- Filtro por sociedad ---
+    # --- Filtro por sociedad ---
     if col_sociedad:
         sociedades_unicas = sorted(df[col_sociedad].dropna().astype(str).str.strip().unique())
         sociedad_seleccionada = st.selectbox("Selecciona Sociedad", sociedades_unicas)
@@ -124,7 +119,7 @@ if archivo:
     else:
         st.warning("⚠ No se detectó columna 'SOCIEDAD'. No se filtrará por sociedad.")
 
-    # --- Inputs adicionales ---
+    # --- Inputs ---
     importe_objetivo = st.text_input("Introduce importe objetivo (ej: 295.206,63)")
     fecha_pago = st.date_input("Fecha de pago")
 
@@ -132,7 +127,6 @@ if archivo:
     df_cliente = df[df[col_cif] == cliente_cif].copy()
 
     if importe_objetivo:
-        # Validación e interpretación del importe
         try:
             importe_objetivo_eur = float(importe_objetivo.replace('.', '').replace(',', '.'))
             importe_objetivo_cent = int(round(importe_objetivo_eur * 100))
@@ -140,7 +134,6 @@ if archivo:
             st.error("Formato de importe no válido.")
             st.stop()
 
-        # Fechas base para desempate
         fecha_base = df_cliente[col_fecha_emision].min()
         if pd.isna(fecha_base):
             st.error("❌ La columna de fechas no contiene valores válidos para este cliente.")
@@ -149,7 +142,6 @@ if archivo:
         df_cliente['DAYS_FROM_BASE'] = (df_cliente[col_fecha_emision] - fecha_base).dt.days.fillna(0).astype(int)
         df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype('Int64')
 
-        # Filtrar facturas positivas y válidas
         df_positivas = df_cliente[(df_cliente['IMPORTE_CORRECTO'] > 0) & df_cliente['IMPORTE_CENT'].notna()].copy()
         if df_positivas.empty:
             st.warning("No hay facturas positivas con importes válidos para este cliente.")
@@ -164,10 +156,8 @@ if archivo:
             model = cp_model.CpModel()
             x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-            # Suma exacta
             model.Add(sum(x[i] * data[i][1] for i in range(n)) == int(objetivo_cent))
 
-            # Objetivo: primero nº facturas, luego cercanía a la fecha objetivo
             if target_days is not None:
                 costs = [abs(data[i][2] - target_days) for i in range(n)]
                 max_cost = (max(costs) if costs else 0) * n
