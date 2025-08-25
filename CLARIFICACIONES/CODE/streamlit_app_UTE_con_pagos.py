@@ -254,7 +254,7 @@ if factura_final is not None and not df_internas.empty:
 
                 # 1) Detectar hojas
                 xls = pd.ExcelFile(data, engine="openpyxl")
-                st.write("🔎 Hojas detectadas en el Excel:", xls.sheet_names)
+                
 
                 # 2) Seleccionar la hoja
                 sheet = "Cruce_Movs" if "Cruce_Movs" in xls.sheet_names else xls.sheet_names[0]
@@ -266,9 +266,7 @@ if factura_final is not None and not df_internas.empty:
             else:  # CSV
                 df_cobros = pd.read_csv(cobros_file, sep=None, engine="python")
 
-            st.success(f"✅ Archivo de pagos leído correctamente ({df_cobros.shape[0]} filas)")
-            st.dataframe(df_cobros.head())
-
+           
         except Exception as e:
             st.error(f"Error al leer el archivo de pagos: {e}")
             df_cobros = pd.DataFrame()
