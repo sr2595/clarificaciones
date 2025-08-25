@@ -238,7 +238,7 @@ if factura_final is not None and not df_internas.empty:
                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]], use_container_width=True)
 
 
-    # --- 2) leer/normalizar cobros ---
+   # --- 2) leer/normalizar cobros ---
     cobros_file = st.file_uploader(
         "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
         type=['xlsm', 'xlsx', 'csv'],
@@ -250,7 +250,7 @@ if factura_final is not None and not df_internas.empty:
         try:
             if cobros_file.name.endswith(('.xlsm', '.xlsx')):
                 # Guardamos en BytesIO para poder leer varias veces
-                data = io.BytesIO(cobros_file.read())
+                data = BytesIO(cobros_file.read())
 
                 # 1) Detectar hojas
                 xls = pd.ExcelFile(data, engine="openpyxl")
@@ -259,7 +259,7 @@ if factura_final is not None and not df_internas.empty:
                 # 2) Seleccionar la hoja
                 sheet = "Cruce_Movs" if "Cruce_Movs" in xls.sheet_names else xls.sheet_names[0]
 
-                # OJO: volver a crear BytesIO porque el puntero se consumió
+                # resetear puntero y leer la hoja
                 data.seek(0)
                 df_cobros = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
 
