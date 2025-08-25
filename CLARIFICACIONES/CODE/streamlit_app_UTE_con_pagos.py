@@ -238,11 +238,11 @@ if factura_final is not None and not df_internas.empty:
                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]], use_container_width=True)
 
     # --- 2) leer/normalizar cobros ---
-    cobros_file = st.file_uploader("Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025", type=['.xlsm', '.csv'], key="cobros")
+    cobros_file = st.file_uploader("Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025", type=['xlsm', 'xlsx'], key="cobros")
     df_cobros = pd.DataFrame()
     if cobros_file:
         try:
-            if cobros_file.name.endswith('.xlsm', '.xlsx'):
+            if cobros_file.name.endswith('xlsm','xlsx'):
                 df_cobros = pd.read_excel(cobros_file, sheet_name='Cruce_Movs', engine='openpyxl')
             else:
                 df_cobros = pd.read_csv(cobros_file)
