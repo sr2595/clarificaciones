@@ -237,18 +237,42 @@ if factura_final is not None and not df_internas.empty:
         st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente,
                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]], use_container_width=True)
 
+
     # --- 2) leer/normalizar cobros ---
-    cobros_file = st.file_uploader("Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025", type=['xlsm', 'xlsx'], key="cobros")
+    cobros_file = st.file_uploader(
+        "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
+        type=['xlsm', 'xlsx', 'csv'],
+        key="cobros"
+    )
+
     df_cobros = pd.DataFrame()
     if cobros_file:
         try:
-            if cobros_file.name.endswith('xlsm','xlsx'):
-                df_cobros = pd.read_excel(cobros_file, sheet_name='Cruce_Movs', engine='openpyxl')
-            else:
-                df_cobros = pd.read_csv(cobros_file)
+            if cobros_file.name.endswith(('.xlsm', '.xlsx')):
+                # Guardamos en BytesIO para poder leer varias veces
+                data = io.BytesIO(cobros_file.read())
+
+                # 1) Detectar hojas
+                xls = pd.ExcelFile(data, engine="openpyxl")
+                st.write("🔎 Hojas detectadas en el Excel:", xls.sheet_names)
+
+                # 2) Seleccionar la hoja
+                sheet = "Cruce_Movs" if "Cruce_Movs" in xls.sheet_names else xls.sheet_names[0]
+
+                # OJO: volver a crear BytesIO porque el puntero se consumió
+                data.seek(0)
+                df_cobros = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
+
+            else:  # CSV
+                df_cobros = pd.read_csv(cobros_file, sep=None, engine="python")
+
+            st.success(f"✅ Archivo de pagos leído correctamente ({df_cobros.shape[0]} filas)")
+            st.dataframe(df_cobros.head())
+
         except Exception as e:
             st.error(f"Error al leer el archivo de pagos: {e}")
             df_cobros = pd.DataFrame()
+
 
     # Si no hay resultado interno, paramos aquí (nada que asignar)
     if df_resultado.empty:
