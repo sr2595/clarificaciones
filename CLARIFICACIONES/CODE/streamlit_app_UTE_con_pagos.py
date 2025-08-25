@@ -144,6 +144,7 @@ if archivo:
     # --- Selección de factura final (TSS) ---
     facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
     if not facturas_cliente.empty:
+        facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
         opciones_facturas = [
             f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
             for _, row in facturas_cliente.iterrows()
