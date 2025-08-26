@@ -226,15 +226,19 @@ if archivo:
 
 
     # --- Filtrar UTES del mismo grupo y eliminar negativas ---
+    
+    grupo_filtrado = str(grupo_seleccionado).replace(" ", "")
+    df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
+
     df_utes_grupo = df[
-        (df[col_grupo] == grupo_seleccionado) & (df['ES_UTE'])
+        (df[col_grupo] == grupo_filtrado) &
+        (df['ES_UTE'])
     ].copy()
 
-    
     df_utes_grupo = df_utes_grupo[df_utes_grupo['IMPORTE_CORRECTO'].fillna(0) > 0]
 
     if df_utes_grupo.empty:
-        st.warning("⚠️ No hay UTES válidas (positivas) para este cliente final")
+        st.warning("⚠️ No hay UTES válidas (positivas) para esta selección")
     else:
         df_utes_unicos = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
         opciones_utes = [
@@ -247,6 +251,7 @@ if archivo:
         socios_cifs = [mapping_utes_cif[s] for s in socios_display]
 
         df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
+
 
         # --- Solver ---
         def cuadrar_internas(externa, df_internas, tol=100):
