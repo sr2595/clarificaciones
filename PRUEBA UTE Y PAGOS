@@ -123,48 +123,57 @@ if archivo:
     # --- Detectar UTES ---
     df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
 
-    # --- Input alternativo: buscar directamente por factura TSS (90) ---
-    factura_input = st.text_input("🔎 Buscar por nº de factura TSS (90) (opcional)").strip()
+    # --- Selección de modo de búsqueda ---
+    modo_busqueda = st.radio(
+        "🔹 Selecciona el modo de búsqueda:",
+        ("Por factura TSS (90)", "Por cliente/grupo")
+    )
 
-    if factura_input:
-        # Buscar esa factura en TSS
-        df_tss_all = df[df[col_sociedad].astype(str).str.upper().str.strip() == "TSS"].copy()
-        
-        # Normalizamos el nº de factura
-        factura_input_norm = str(factura_input).strip()
-        
-        mask_fact = df_tss_all[col_factura].astype(str).str.strip() == factura_input_norm
-        
-        if mask_fact.any():
-            # Seleccionamos la factura encontrada
-            factura_final = df_tss_all.loc[mask_fact].iloc[0]
-            grupo_seleccionado = str(factura_final[col_grupo]).replace(" ", "")
-            
-            st.success(
-                f"Factura encontrada: **{factura_final[col_factura]}** "
-                f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Grupo: {grupo_seleccionado}"
-            )
-            
-            # Filtramos todo el grupo asociado a esa factura
-            df_filtrado = df[df[col_grupo].astype(str).str.replace(" ", "") == grupo_seleccionado].copy()
+    # Inicializar variables para que existan en todo el scope
+    grupo_seleccionado = None
+    factura_final = None
+    df_filtrado = pd.DataFrame()
+    df_tss = pd.DataFrame()
 
-            # Filtramos facturas TSS de ese grupo
-            df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == 'TSS']
+    if modo_busqueda == "Por factura TSS (90)":
+        # --- Input alternativo: buscar directamente por factura TSS (90) ---
+        factura_input = st.text_input("🔎 Buscar por nº de factura TSS (90)").strip()
 
-            # Seleccionamos como factura final la que buscó el usuario (con check de seguridad)
-            df_factura_final = df_tss[df_tss[col_factura].astype(str).str.strip() == factura_input_norm]
-            if not df_factura_final.empty:
-                factura_final = df_factura_final.iloc[0]
+        if factura_input:
+            # Buscar esa factura en TSS
+            df_tss_all = df[df[col_sociedad].astype(str).str.upper().str.strip() == "TSS"].copy()
+            factura_input_norm = str(factura_input).strip()
+            mask_fact = df_tss_all[col_factura].astype(str).str.strip() == factura_input_norm
+
+            if mask_fact.any():
+                # Seleccionamos la factura encontrada
+                factura_final = df_tss_all.loc[mask_fact].iloc[0]
+                grupo_seleccionado = str(factura_final[col_grupo]).replace(" ", "")
+                cliente_final_nombre = factura_final[col_nombre_cliente] if col_nombre_cliente else ""
+                
+                st.success(
+                    f"Factura encontrada: **{factura_final[col_factura]}** "
+                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Fecha emisión: {factura_final[col_fecha_emision].date()} | Grupo: {grupo_seleccionado} | Cliente: {cliente_final_nombre}"
+                )
+
+                # Filtramos todo el grupo asociado a esa factura
+                df_filtrado = df[df[col_grupo].astype(str).str.replace(" ", "") == grupo_seleccionado].copy()
+
+                # Filtramos facturas TSS de ese grupo
+                df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == 'TSS']
+
+                # Seleccionamos como factura final la que buscó el usuario
+                df_factura_final = df_tss[df_tss[col_factura].astype(str).str.strip() == factura_input_norm]
+                if not df_factura_final.empty:
+                    factura_final = df_factura_final.iloc[0]
+                else:
+                    st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
+                    st.stop()
             else:
-                st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
+                st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
                 st.stop()
 
-        else:
-            st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
-            st.stop()
-
-
-    else:
+    elif modo_busqueda == "Por cliente/grupo":
         # --- Opciones de grupos ---
         df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
         df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
