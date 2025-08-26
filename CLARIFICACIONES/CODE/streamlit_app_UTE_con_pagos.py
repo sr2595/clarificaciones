@@ -123,19 +123,23 @@ if archivo:
     # --- Detectar UTES ---
     df['ES_UTE'] = df[col_cif].str.replace(" ", "").str.contains(r"L-00U")
 
+    # --- Normalizar col_grupo eliminando espacios ---
+    df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
+    df[col_nombre_grupo] = df[col_nombre_grupo].astype(str).fillna("").str.strip()
+
     # --- Opciones de grupos ---
     df_grupos_unicos = df[[col_grupo, col_nombre_grupo]].drop_duplicates().sort_values(col_grupo)
-    df_grupos_unicos[col_nombre_grupo] = df_grupos_unicos[col_nombre_grupo].fillna("").str.strip()
     opciones_grupos = [
         f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"
         for _, row in df_grupos_unicos.iterrows()
     ]
 
     grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
-    # extraemos solo el CIF para usarlo en los filtros
-    grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]
+
+    # Extraemos solo el CIF y quitamos espacios
+    grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0].replace(" ", "")
+
     st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
-    st.write("Valores únicos en col_grupo:", df[col_grupo].unique())
 
     # --- Opciones de clientes finales del grupo ---
     df_clientes_unicos = df[
@@ -157,7 +161,7 @@ if archivo:
     if cliente_final_display == "(Todos los clientes del grupo)":
         df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
     else:
-        cliente_final_cif = cliente_final_display.split(" - ")[0]
+        cliente_final_cif = cliente_final_display.split(" - ")[0].replace(" ", "")
         df_filtrado = df[df[col_cif] == cliente_final_cif].copy()
 
     # --- Filtrar solo facturas de TSS ---
