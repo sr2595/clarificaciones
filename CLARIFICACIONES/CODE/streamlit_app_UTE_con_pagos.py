@@ -121,27 +121,25 @@ if archivo:
     st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
     # --- Detectar UTES ---
-    df['ES_UTE'] = df[col_cif].str.replace(" ", "").str.contains(r"L-00U")
-
-    # --- Normalizar col_grupo eliminando espacios ---
-    df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
-    df[col_nombre_grupo] = df[col_nombre_grupo].astype(str).fillna("").str.strip()
+    df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
 
     # --- Opciones de grupos ---
+    df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
+    df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
     df_grupos_unicos = df[[col_grupo, col_nombre_grupo]].drop_duplicates().sort_values(col_grupo)
+
     opciones_grupos = [
         f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"
         for _, row in df_grupos_unicos.iterrows()
     ]
 
     grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
-
-    # Extraemos solo el CIF y quitamos espacios
-    grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0].replace(" ", "")
+    grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]  # solo CIF
 
     st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
 
     # --- Opciones de clientes finales del grupo ---
+    df[col_cif] = df[col_cif].astype(str).str.replace(" ", "")  # normalizar CIF de clientes
     df_clientes_unicos = df[
         (~df['ES_UTE']) & (df[col_grupo] == grupo_seleccionado)
     ][[col_cif, col_nombre_cliente]].drop_duplicates()
@@ -169,7 +167,6 @@ if archivo:
     if df_tss.empty:
         st.warning("⚠️ No se encontraron facturas de TSS (90) en la selección")
     else:
-        # --- Selección de factura final (TSS) ---
         facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
         facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
 
