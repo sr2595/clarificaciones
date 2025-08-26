@@ -131,6 +131,9 @@ if archivo:
         for _, row in df_grupos_unicos.iterrows()
     ]
 
+    st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
+    st.write("Valores únicos en col_grupo:", df[col_grupo].unique())
+
     grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
     # extraemos solo el CIF para usarlo en los filtros
     grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]
