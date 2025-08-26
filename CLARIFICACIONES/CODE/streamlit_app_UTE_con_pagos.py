@@ -129,26 +129,40 @@ if archivo:
     if factura_input:
         # Buscar esa factura en TSS
         df_tss_all = df[df[col_sociedad].astype(str).str.upper().str.strip() == "TSS"].copy()
-        mask_fact = df_tss_all[col_factura].astype(str).str.strip() == factura_input
+        
+        # Normalizamos el nº de factura
+        factura_input_norm = str(factura_input).strip()
+        
+        mask_fact = df_tss_all[col_factura].astype(str).str.strip() == factura_input_norm
+        
         if mask_fact.any():
+            # Seleccionamos la factura encontrada
             factura_final = df_tss_all.loc[mask_fact].iloc[0]
             grupo_seleccionado = str(factura_final[col_grupo]).replace(" ", "")
+            
             st.success(
                 f"Factura encontrada: **{factura_final[col_factura]}** "
                 f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Grupo: {grupo_seleccionado}"
             )
+            
             # Filtramos todo el grupo asociado a esa factura
-            df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
+            df_filtrado = df[df[col_grupo].astype(str).str.replace(" ", "") == grupo_seleccionado].copy()
 
-            # 🔑 Aquí está el cambio:
-            df_tss = df_filtrado[df_filtrado[col_sociedad] == 'TSS']
+            # Filtramos facturas TSS de ese grupo
+            df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == 'TSS']
 
-            # Y seleccionamos como factura final la que buscó el usuario
-            factura_final = df_tss[df_tss[col_factura] == factura_input].iloc[0]
+            # Seleccionamos como factura final la que buscó el usuario (con check de seguridad)
+            df_factura_final = df_tss[df_tss[col_factura].astype(str).str.strip() == factura_input_norm]
+            if not df_factura_final.empty:
+                factura_final = df_factura_final.iloc[0]
+            else:
+                st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
+                st.stop()
 
         else:
-            st.error(f"❌ No se encontró la factura TSS nº {factura_input}")
+            st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
             st.stop()
+
 
     else:
         # --- Opciones de grupos ---
