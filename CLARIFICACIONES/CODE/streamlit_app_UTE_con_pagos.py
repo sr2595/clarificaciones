@@ -174,10 +174,9 @@ if archivo:
     # --- Filtrar UTES del mismo grupo y eliminar negativas ---
     df_utes_grupo = df[
         (df[col_grupo] == grupo_seleccionado) & (df['ES_UTE'])
-    ].copy()
+    ].copy(
 
-    ##aqui falla
-
+    
     df_utes_grupo = df_utes_grupo[df_utes_grupo['IMPORTE_CORRECTO'].fillna(0) > 0]
 
     if df_utes_grupo.empty:
