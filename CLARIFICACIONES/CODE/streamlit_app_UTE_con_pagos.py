@@ -153,7 +153,7 @@ if archivo:
                 
                 st.success(
                     f"Factura encontrada: **{factura_final[col_factura]}** "
-                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Grupo: {grupo_seleccionado} | Cliente: {cliente_final_nombre}"
+                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Fecha emisión: {factura_final[col_fecha_emision].date()} | Grupo: {grupo_seleccionado} | Cliente: {cliente_final_nombre}"
                 )
 
                 # Filtramos todo el grupo asociado a esa factura
