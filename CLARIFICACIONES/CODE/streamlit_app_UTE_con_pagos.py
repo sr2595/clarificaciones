@@ -129,6 +129,12 @@ if archivo:
         ("Por factura TSS (90)", "Por cliente/grupo")
     )
 
+    # Inicializar variables para que existan en todo el scope
+    grupo_seleccionado = None
+    factura_final = None
+    df_filtrado = pd.DataFrame()
+    df_tss = pd.DataFrame()
+
     if modo_busqueda == "Por factura TSS (90)":
         # --- Input alternativo: buscar directamente por factura TSS (90) ---
         factura_input = st.text_input("🔎 Buscar por nº de factura TSS (90)").strip()
