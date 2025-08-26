@@ -124,10 +124,16 @@ if archivo:
     df['ES_UTE'] = df[col_cif].str.replace(" ", "").str.contains(r"L-00U")
 
     # --- Opciones de grupos ---
-    df_grupos_unicos = df[[col_grupo]].drop_duplicates().sort_values(col_grupo)
-    opciones_grupos = df_grupos_unicos[col_grupo].dropna().astype(str).tolist()
+    df_grupos_unicos = df[[col_grupo, col_nombre_grupo]].drop_duplicates().sort_values(col_grupo)
+    df_grupos_unicos[col_nombre_grupo] = df_grupos_unicos[col_nombre_grupo].fillna("").str.strip()
+    opciones_grupos = [
+        f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"
+        for _, row in df_grupos_unicos.iterrows()
+    ]
 
-    grupo_seleccionado = st.selectbox("Selecciona CIF grupal", opciones_grupos)
+    grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
+    # extraemos solo el CIF para usarlo en los filtros
+    grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]
 
     # --- Opciones de clientes finales del grupo ---
     df_clientes_unicos = df[
