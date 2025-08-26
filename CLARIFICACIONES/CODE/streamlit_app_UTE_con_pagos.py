@@ -130,7 +130,6 @@ if archivo:
         # Buscar esa factura en TSS
         df_tss_all = df[df[col_sociedad].astype(str).str.upper().str.strip() == "TSS"].copy()
         mask_fact = df_tss_all[col_factura].astype(str).str.strip() == factura_input
-
         if mask_fact.any():
             factura_final = df_tss_all.loc[mask_fact].iloc[0]
             grupo_seleccionado = str(factura_final[col_grupo]).replace(" ", "")
@@ -140,7 +139,13 @@ if archivo:
             )
             # Filtramos todo el grupo asociado a esa factura
             df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
-            df_tss = df_tss_all[mask_fact]  # la factura encontrada como TSS
+
+            # 🔑 Aquí está el cambio:
+            df_tss = df_filtrado[df_filtrado[col_sociedad] == 'TSS']
+
+            # Y seleccionamos como factura final la que buscó el usuario
+            factura_final = df_tss[df_tss[col_factura] == factura_input].iloc[0]
+
         else:
             st.error(f"❌ No se encontró la factura TSS nº {factura_input}")
             st.stop()
