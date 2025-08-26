@@ -122,13 +122,34 @@ if archivo:
 
     # --- Detectar UTES ---
     df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
-    # --- Modo de selección ---
-    modo = st.radio("¿Cómo quieres buscar?", ["Por cliente", "Por nº factura TSS (90)"])
 
-    if modo == "Por cliente":
-        # --- Selección normal (grupo + cliente final) ---
+    # --- Input alternativo: buscar directamente por factura TSS (90) ---
+    factura_input = st.text_input("🔎 Buscar por nº de factura TSS (90) (opcional)").strip()
+
+    if factura_input:
+        # Buscar esa factura en TSS
+        df_tss_all = df[df[col_sociedad].astype(str).str.upper().str.strip() == "TSS"].copy()
+        mask_fact = df_tss_all[col_factura].astype(str).str.strip() == factura_input
+
+        if mask_fact.any():
+            factura_final = df_tss_all.loc[mask_fact].iloc[0]
+            grupo_seleccionado = str(factura_final[col_grupo]).replace(" ", "")
+            st.success(
+                f"Factura encontrada: **{factura_final[col_factura]}** "
+                f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Grupo: {grupo_seleccionado}"
+            )
+            # Filtramos todo el grupo asociado a esa factura
+            df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
+            df_tss = df_tss_all[mask_fact]  # la factura encontrada como TSS
+        else:
+            st.error(f"❌ No se encontró la factura TSS nº {factura_input}")
+            st.stop()
+
+    else:
+        # --- Opciones de grupos ---
+        df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
+        df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
         df_grupos_unicos = df[[col_grupo, col_nombre_grupo]].drop_duplicates().sort_values(col_grupo)
-        df_grupos_unicos[col_nombre_grupo] = df_grupos_unicos[col_nombre_grupo].fillna("").str.strip()
 
         opciones_grupos = [
             f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"
@@ -136,26 +157,12 @@ if archivo:
         ]
 
         grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
-        grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]
+        grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]  # solo CIF
 
-    elif modo == "Por nº factura TSS (90)":
-        factura_input = st.text_input("Introduce el nº de factura TSS (90):").strip()
-        grupo_seleccionado = None
+        st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
 
-        if factura_input:
-            df_tss_all = df[df[col_sociedad] == "TSS"].copy()
-            if factura_input in df_tss_all[col_factura].astype(str).values:
-                factura_final = df_tss_all[df_tss_all[col_factura].astype(str) == factura_input].iloc[0]
-                grupo_seleccionado = factura_final[col_grupo]
-                st.success(
-                    f"Factura encontrada: **{factura_final[col_factura]}** "
-                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Grupo: {grupo_seleccionado}"
-                )
-            else:
-                st.error(f"❌ No se encontró la factura TSS nº {factura_input}")
-
-    # --- Si tenemos grupo (venga de A o de B), mostramos selector de clientes ---
-    if grupo_seleccionado:
+        # --- Opciones de clientes finales del grupo ---
+        df[col_cif] = df[col_cif].astype(str).str.replace(" ", "")  # normalizar CIF de clientes
         df_clientes_unicos = df[
             (~df['ES_UTE']) & (df[col_grupo] == grupo_seleccionado)
         ][[col_cif, col_nombre_cliente]].drop_duplicates()
@@ -175,29 +182,28 @@ if archivo:
         if cliente_final_display == "(Todos los clientes del grupo)":
             df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
         else:
-            cliente_final_cif = cliente_final_display.split(" - ")[0]
+            cliente_final_cif = cliente_final_display.split(" - ")[0].replace(" ", "")
             df_filtrado = df[df[col_cif] == cliente_final_cif].copy()
 
+        # --- Filtrar solo facturas de TSS ---
+        df_tss = df_filtrado[df_filtrado[col_sociedad] == 'TSS']
+        if df_tss.empty:
+            st.warning("⚠️ No se encontraron facturas de TSS (90) en la selección")
+        else:
+            facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
+            facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
 
-    # --- Filtrar solo facturas de TSS ---
-    df_tss = df_filtrado[df_filtrado[col_sociedad] == 'TSS']
-    if df_tss.empty:
-        st.warning("⚠️ No se encontraron facturas de TSS (90) en la selección")
-    else:
-        facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
-        facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
+            opciones_facturas = [
+                f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
+                for _, row in facturas_cliente.iterrows()
+            ]
 
-        opciones_facturas = [
-            f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
-            for _, row in facturas_cliente.iterrows()
-        ]
+            factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
+            factura_final_id = factura_final_display.split(" - ")[0]
+            factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
 
-        factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
-        factura_final_id = factura_final_display.split(" - ")[0]
-        factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
-
-        st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
-                f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+            st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
+                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
 
 
     # --- Filtrar UTES del mismo grupo y eliminar negativas ---
