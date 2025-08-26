@@ -142,9 +142,9 @@ if archivo:
             
             st.success(
                 f"Factura encontrada: **{factura_final[col_factura]}** "
-                f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Grupo: {grupo_seleccionado}"
+                f"({factura_final['IMPORTE_CORRECTO']:,.2f} €) | Grupo: {grupo_seleccionado} | Cliente: {factura_final[col_nombre_cliente]}"
             )
-            
+
             # Filtramos todo el grupo asociado a esa factura
             df_filtrado = df[df[col_grupo].astype(str).str.replace(" ", "") == grupo_seleccionado].copy()
 
