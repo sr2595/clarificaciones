@@ -86,6 +86,7 @@ if archivo:
     col_nombre_cliente= find_col(df, ['NOMBRE', 'CLIENTE', 'RAZON_SOCIAL'])
     col_sociedad      = find_col(df, ['SOCIEDAD', 'Sociedad', 'SOC', 'EMPRESA'])
     col_grupo         = find_col(df, ['CIF_GRUPO', 'GRUPO', 'CIF Grupo'])
+    col_nombre_grupo  = find_col(df, ['Nombre Grupo', 'GRUPO_NOMBRE', 'RAZON_SOCIAL_GRUPO'])
 
     faltan = []
     if not col_fecha_emision: faltan.append("fecha emisión")
@@ -93,6 +94,7 @@ if archivo:
     if not col_importe:       faltan.append("importe")
     if not col_cif:           faltan.append("CIF")
     if not col_grupo:         faltan.append("CIF grupo")
+    if not col_nombre_grupo:    faltan.append("Nombre grupo")
     if faltan:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
