@@ -208,9 +208,7 @@ if archivo:
                     return None
 
             importe_pago = parse_importe_europeo(importe_pago_str)
-            if importe_pago is not None:
-                st.write(f"Importe leído: {importe_pago:,.2f} €")
-
+            
             if importe_pago > 0 and not df_tss.empty:
                 # Solver previo por importe de pago
                 df_tss_selec = solver_tss_pago(df_tss, importe_pago)
