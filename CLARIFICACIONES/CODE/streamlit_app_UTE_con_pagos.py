@@ -196,7 +196,20 @@ if archivo:
             df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS"]
 
             # --- Input opcional: importe de pago para solver de TSS ---
-            importe_pago = st.number_input("💶 Introduce importe de pago (opcional)", min_value=0.0, step=100.0)
+            importe_pago_str = st.text_input("💶 Introduce importe de pago (opcional, formato europeo: 96.893,65)")
+
+            def parse_importe_europeo(texto):
+                if not texto:
+                    return None
+                texto = str(texto).replace(" ", "").replace(".", "").replace(",", ".")
+                try:
+                    return float(texto)
+                except:
+                    return None
+
+            importe_pago = parse_importe_europeo(importe_pago_str)
+            if importe_pago is not None:
+                st.write(f"Importe leído: {importe_pago:,.2f} €")
 
             if importe_pago > 0 and not df_tss.empty:
                 # Solver previo por importe de pago
