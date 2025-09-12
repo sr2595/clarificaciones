@@ -390,6 +390,13 @@ if archivo:
         st.success("✅ Se cuadraron las TSS con las internas")
         st.dataframe(df_resultado_final, use_container_width=True)
     
+    
+    # --- 2) leer/normalizar cobros ---
+        cobros_file = st.file_uploader(
+            "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
+            type=['xlsm', 'xlsx', 'csv'],
+            key="cobros"
+        )
 
     # ----------- Resultado y descarga -----------
     if factura_final is not None and not df_internas.empty:
