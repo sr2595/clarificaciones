@@ -195,6 +195,16 @@ if archivo:
             df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
             df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS"]
 
+            # --- Filtrar UTES y definir df_internas ---
+            df_utes_grupo = df[(df[col_grupo] == grupo_seleccionado) & df['ES_UTE'] & (df['IMPORTE_CORRECTO'] > 0)]
+            if not df_utes_grupo.empty:
+                df_utes_unicos = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
+                opciones_utes = [f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}" for _, row in df_utes_unicos.iterrows()]
+                mapping_utes_cif = dict(zip(opciones_utes, df_utes_unicos[col_cif]))
+                socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
+                socios_cifs = [mapping_utes_cif[s] for s in socios_display]
+                df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
+
             # --- Input opcional: importe de pago para solver de TSS ---
             importe_pago_str = st.text_input("💶 Introduce importe de pago (opcional, formato europeo: 96.893,65)")
 
