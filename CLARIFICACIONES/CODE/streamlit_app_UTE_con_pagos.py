@@ -137,6 +137,7 @@ if archivo:
     df_internas = pd.DataFrame()
     df_tss_selec = pd.DataFrame()
     df_resultado_final = pd.DataFrame()
+    df_resultado = pd.DataFrame()   
 
     if modo_busqueda == "Por factura TSS (90)":
         # --- Input alternativo: buscar directamente por factura TSS (90) ---
@@ -387,6 +388,7 @@ if archivo:
 
     if resultados_internas:
         df_resultado_final = pd.concat(resultados_internas)
+        df_resultado = df_resultado_final.copy()
         st.success("✅ Se cuadraron las TSS con las internas")
         st.dataframe(df_resultado_final, use_container_width=True)
     
