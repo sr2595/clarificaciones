@@ -408,7 +408,7 @@ if archivo:
         ]
         mapping_utes_cif = dict(zip(opciones_utes, df_utes_unicos[col_cif]))
 
-        socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
+        socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes,  key="multiselect_socios_utes")
         socios_cifs = [mapping_utes_cif[s] for s in socios_display]
 
         df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
