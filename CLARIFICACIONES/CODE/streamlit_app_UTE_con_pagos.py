@@ -386,8 +386,7 @@ if archivo:
         df_resultado_final = pd.concat(resultados_internas)
         st.success("✅ Se cuadraron las TSS con las internas")
         st.dataframe(df_resultado_final, use_container_width=True)
-    else:
-        st.warning("⚠️ No se pudo cuadrar ninguna TSS seleccionada con las internas")    
+    
 
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
