@@ -253,17 +253,15 @@ if archivo:
                 # --- 2) Llamada al solver previo ---
                 df_tss_selec = solver_tss_pago(df_tss, importe_pago)
                 if not df_tss_selec.empty:
-                    # Reordenar columnas: primero CIF y nombre del cliente final
-                    cols_ordenadas = [col_cif, col_nombre_cliente] + \
-                                    [c for c in df_tss_selec.columns if c not in [col_cif, col_nombre_cliente]]
-                    
-                    df_tss_selec = df_tss_selec[cols_ordenadas]
-
-                    st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} factura(s) del cliente {df_tss_selec[col_cif].iloc[0]}")
-                    st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
+                    st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
+                    st.dataframe(df_tss_selec[[col_cif,col_nombre_cliente,col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
+                    # Definir factura_final compuesta
+                    factura_final = df_tss_selec.iloc[0]
+                    factura_final["IMPORTE_CORRECTO"] = df_tss_selec["IMPORTE_CORRECTO"].sum()
+                    factura_final["FACTURAS_COMPUESTAS"] = ", ".join(df_tss_selec[col_factura].astype(str))
                 else:
-                    st.warning("❌ No se encontró ninguna combinación válida de 90 para el importe introducido")
-
+                    st.error("❌ No se encontró combinación de facturas TSS que cuadre con el importe introducido")
+                    factura_final = None
             else:
                 # Flujo normal: selección de cliente final y filtrado de TSS
                 # --- Opciones de clientes finales del grupo ---
