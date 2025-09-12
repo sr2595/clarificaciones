@@ -134,6 +134,7 @@ if archivo:
     factura_final = None
     df_filtrado = pd.DataFrame()
     df_tss = pd.DataFrame()
+    df_internas = pd.DataFrame()
 
     if modo_busqueda == "Por factura TSS (90)":
         # --- Input alternativo: buscar directamente por factura TSS (90) ---
