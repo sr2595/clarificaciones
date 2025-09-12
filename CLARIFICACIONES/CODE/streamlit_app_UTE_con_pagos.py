@@ -196,25 +196,7 @@ if archivo:
             df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
             df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS"]
 
-            # --- Filtrar UTES y definir df_internas ---
-            df_utes_grupo = df[(df[col_grupo] == grupo_seleccionado) & df['ES_UTE'] & (df['IMPORTE_CORRECTO'] > 0)]
-
-            if not df_utes_grupo.empty:
-                df_utes_unicos = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
-                opciones_utes = [f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}" for _, row in df_utes_unicos.iterrows()]
-                mapping_utes_cif = dict(zip(opciones_utes, df_utes_unicos[col_cif]))
-                socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes)
-
-                # --- Definir df_internas seguro ---
-                if socios_display:  # si hay socios seleccionados
-                    socios_cifs = [mapping_utes_cif[s] for s in socios_display]
-                    df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
-                else:  # si no hay selección de socios, tomamos todas las UTES del grupo
-                    df_internas = df_utes_grupo.copy()
-            else:
-                df_internas = pd.DataFrame()
-
-
+            
             # --- Input opcional: importe de pago para solver de TSS ---
             importe_pago_str = st.text_input("💶 Introduce importe de pago (opcional, formato europeo: 96.893,65)")
 
@@ -277,7 +259,37 @@ if archivo:
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
 
-                
+                    # --- Para cada 90 seleccionada, cuadrar con internas ---
+                    resultados_internas = []
+                    for idx, factura_90 in df_tss_selec.iterrows():
+                        cliente_final_cif = str(factura_90[col_cif]).replace(" ", "")
+                        # Filtrar internas por cliente y solo positivas
+                        if not df_internas.empty and col_cif in df_internas.columns:
+                            df_internas_cliente = df_internas[
+                                (df_internas[col_cif].astype(str).str.replace(" ", "") == cliente_final_cif) &
+                                (df_internas['IMPORTE_CORRECTO'] > 0)
+                            ].copy()
+                        else:
+                            df_internas_cliente = pd.DataFrame()
+
+                        df_internas_selec = cuadrar_internas(factura_90, df_internas_cliente)
+                        if not df_internas_selec.empty:
+                            df_internas_selec['Factura_90'] = factura_90[col_factura]
+                            df_internas_selec['Importe_90'] = factura_90['IMPORTE_CORRECTO']
+                            df_internas_selec['Cliente_CIF'] = cliente_final_cif
+                            df_internas_selec['Cliente_Nombre'] = factura_90[col_nombre_cliente]
+                            resultados_internas.append(df_internas_selec)
+
+                    if resultados_internas:
+                        df_resultado_final = pd.concat(resultados_internas, ignore_index=True)
+                        st.success(f"✅ Se han seleccionado {len(df_resultado_final)} factura(s) interna(s) correspondientes a las 90 encontradas")
+                        st.dataframe(df_resultado_final, use_container_width=True)
+                    else:
+                        st.warning("⚠️ No se encontraron internas que cuadren con las facturas 90 seleccionadas")
+                else:
+                    st.error("❌ No se encontró combinación de facturas TSS que cuadre con el importe introducido")
+                    df_resultado_final = pd.DataFrame()
+
             else:
                 # Flujo normal: selección de cliente final y filtrado de TSS
                 # --- Opciones de clientes finales del grupo ---
