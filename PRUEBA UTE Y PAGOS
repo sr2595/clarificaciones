@@ -174,10 +174,15 @@ if archivo:
                 st.stop()
 
     elif modo_busqueda == "Por cliente/grupo":
-        # --- Opciones de grupos ---
+            # --- Opciones de grupos ---
         df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
         df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
-        df_grupos_unicos = df[[col_grupo, col_nombre_grupo]].drop_duplicates().sort_values(col_grupo)
+
+        df_grupos_unicos = (
+            df[[col_grupo, col_nombre_grupo]]
+            .drop_duplicates()
+            .sort_values([col_nombre_grupo, col_grupo])  # ordena primero por nombre, luego por CIF
+        )
 
         opciones_grupos = [
             f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"

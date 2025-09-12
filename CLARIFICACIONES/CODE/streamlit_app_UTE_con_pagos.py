@@ -174,72 +174,88 @@ if archivo:
                 st.stop()
 
     elif modo_busqueda == "Por cliente/grupo":
+     
             # --- Opciones de grupos ---
-        df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
-        df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
-
-        df_grupos_unicos = (
-            df[[col_grupo, col_nombre_grupo]]
-            .drop_duplicates()
-            .sort_values([col_nombre_grupo, col_grupo])  # ordena primero por nombre, luego por CIF
-        )
-
-        opciones_grupos = [
-            f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"
-            for _, row in df_grupos_unicos.iterrows()
-        ]
-
-        grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
-        grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]  # solo CIF
-
-        st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
-
-        # --- Opciones de clientes finales del grupo ---
-        df[col_cif] = df[col_cif].astype(str).str.replace(" ", "")  # normalizar CIF de clientes
-        df_clientes_unicos = df[
-            (~df['ES_UTE']) & (df[col_grupo] == grupo_seleccionado)
-        ][[col_cif, col_nombre_cliente]].drop_duplicates()
-
-        df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
-        df_clientes_unicos[col_cif] = df_clientes_unicos[col_cif].fillna("").str.strip()
-        df_clientes_unicos = df_clientes_unicos.sort_values(col_nombre_cliente)
-
-        opciones_clientes = ["(Todos los clientes del grupo)"] + [
-            f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
-            for _, row in df_clientes_unicos.iterrows()
-        ]
-
-        cliente_final_display = st.selectbox("Selecciona cliente final (opcional)", opciones_clientes)
-
-        # --- Filtrar facturas según selección ---
-        if cliente_final_display == "(Todos los clientes del grupo)":
-            df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
-        else:
-            cliente_final_cif = cliente_final_display.split(" - ")[0].replace(" ", "")
-            df_filtrado = df[df[col_cif] == cliente_final_cif].copy()
-
-        # --- Filtrar solo facturas de TSS ---
-        df_tss = df_filtrado[df_filtrado[col_sociedad] == 'TSS']
-        if df_tss.empty:
-            st.warning("⚠️ No se encontraron facturas de TSS (90) en la selección")
-        else:
-            facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
-            facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
-
-            opciones_facturas = [
-                f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
-                for _, row in facturas_cliente.iterrows()
+            df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
+            df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
+            df_grupos_unicos = (
+                df[[col_grupo, col_nombre_grupo]]
+                .drop_duplicates()
+                .sort_values([col_nombre_grupo, col_grupo])
+            )
+            opciones_grupos = [
+                f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"
+                for _, row in df_grupos_unicos.iterrows()
             ]
+            grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
+            grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]
+            st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
 
-            factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
-            factura_final_id = factura_final_display.split(" - ")[0]
-            factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
+            # --- Filtrar TSS del grupo ---
+            df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
+            df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS"]
 
-            st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
-                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+            # --- Input opcional: importe de pago para solver de TSS ---
+            importe_pago = st.number_input("💶 Introduce importe de pago (opcional)", min_value=0.0, step=100.0)
 
+            if importe_pago > 0 and not df_tss.empty:
+                # Solver previo por importe de pago
+                df_tss_selec = solver_tss_pago(df_tss, importe_pago)
+                if not df_tss_selec.empty:
+                    st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
+                    st.dataframe(df_tss_selec[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
+                    # Definir factura_final compuesta
+                    factura_final = df_tss_selec.iloc[0]
+                    factura_final["IMPORTE_CORRECTO"] = df_tss_selec["IMPORTE_CORRECTO"].sum()
+                    factura_final["FACTURAS_COMPUESTAS"] = ", ".join(df_tss_selec[col_factura].astype(str))
+                else:
+                    st.error("❌ No se encontró combinación de facturas TSS que cuadre con el importe introducido")
+                    factura_final = None
+            else:
+                # Flujo normal: selección de cliente final y filtrado de TSS
+                # --- Opciones de clientes finales del grupo ---
+                df[col_cif] = df[col_cif].astype(str).str.replace(" ", "")
+                df_clientes_unicos = df[(~df['ES_UTE']) & (df[col_grupo] == grupo_seleccionado)][[col_cif, col_nombre_cliente]].drop_duplicates()
+                df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
+                df_clientes_unicos[col_cif] = df_clientes_unicos[col_cif].fillna("").str.strip()
+                df_clientes_unicos = df_clientes_unicos.sort_values(col_nombre_cliente)
 
-    # --- Filtrar UTES del mismo grupo y eliminar negativas ---
+                opciones_clientes = ["(Todos los clientes del grupo)"] + [
+                    f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
+                    for _, row in df_clientes_unicos.iterrows()
+                ]
+
+                cliente_final_display = st.selectbox("Selecciona cliente final (opcional)", opciones_clientes)
+
+                # Filtrar facturas según selección
+                if cliente_final_display == "(Todos los clientes del grupo)":
+                    df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
+                else:
+                    cliente_final_cif = cliente_final_display.split(" - ")[0].replace(" ", "")
+                    df_filtrado = df[df[col_cif] == cliente_final_cif].copy()
+
+         # Filtrar solo facturas de TSS
+                df_tss = df_filtrado[df_filtrado[col_sociedad] == 'TSS']
+                if df_tss.empty:
+                    st.warning("⚠️ No se encontraron facturas de TSS (90) en la selección")
+
+                else:
+                    facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
+                    facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
+
+                    opciones_facturas = [
+                        f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
+                        for _, row in facturas_cliente.iterrows()
+                    ]
+
+                    factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
+                    factura_final_id = factura_final_display.split(" - ")[0]
+                    factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
+
+                    st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
+                            f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+
+# --- Filtrar UTES del mismo grupo y eliminar negativas ---
     
     grupo_filtrado = str(grupo_seleccionado).replace(" ", "")
     df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
@@ -558,6 +574,7 @@ if factura_final is not None and not df_internas.empty:
             importe_pago = p.get('importe') if p.get('importe') is not None else 0.0
             fecha_pago = p.get('fec_operacion') if 'fec_operacion' in p else None
             norma_pago = p.get('norma_43') if 'norma_43' in p else ''
+
             # intentar extraer cif si detectamos columna cif_col
             cif_pago_text = ''
             try:
