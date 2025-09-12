@@ -380,6 +380,8 @@ if archivo:
     for _, tss_row in df_tss_selec.iterrows():
         df_cuadras = cuadrar_internas(tss_row, df_internas)
         if not df_cuadras.empty:
+            idx_col_doc = df_cuadras.columns.get_loc(col_factura)
+            df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
             resultados_internas.append(df_cuadras)
 
     if resultados_internas:
@@ -698,5 +700,4 @@ if factura_final is not None and not df_internas.empty:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-#### QUIERO QUE ME FILTRE SOLO LAS INTERNAS POSTERIORES O IGUALES A LA FECHA DE LA EXTERNA??
-#### QUIERO QUE LOS PAGOS SELECCIONADOS ADEMAS DE POSTERIORES A LA EXTERNA SEAN POSTERIORES O IGUALES A LAS INTERNAS??
+
