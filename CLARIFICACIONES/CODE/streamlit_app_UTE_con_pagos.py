@@ -376,20 +376,6 @@ if archivo:
         else:
             return pd.DataFrame() 
 
-    # ----------- Resultado y descarga -----------
-    if factura_final is not None and not df_internas.empty:
-
-        # --- 1) obtener combinacion interna con el solver (tu función existente) ---
-        df_resultado = cuadrar_internas(factura_final, df_internas)
-        if df_resultado.empty:
-            st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
-            # mostramos nada más
-        else:
-            st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
-            # mostramos sin columnas de pago todavía
-            st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente,
-                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]], use_container_width=True)
-
     # 🔹 Ahora cuadrar con internas
     resultados_internas = []
     for _, tss_row in df_tss_selec.iterrows():
@@ -404,6 +390,20 @@ if archivo:
         st.success("✅ Se cuadraron las TSS con las internas")
         st.dataframe(df_resultado_final, use_container_width=True)
     
+
+    # ----------- Resultado y descarga -----------
+    if factura_final is not None and not df_internas.empty:
+
+        # --- 1) obtener combinacion interna con el solver (tu función existente) ---
+        df_resultado = cuadrar_internas(factura_final, df_internas)
+        if df_resultado.empty:
+            st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+            # mostramos nada más
+        else:
+            st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
+            # mostramos sin columnas de pago todavía
+            st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente,
+                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]], use_container_width=True)
 
 
     # --- 2) leer/normalizar cobros ---
