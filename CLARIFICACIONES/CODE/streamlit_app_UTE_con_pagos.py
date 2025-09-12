@@ -376,37 +376,52 @@ if archivo:
             return df_internas.loc[seleccionadas]
         else:
             return pd.DataFrame() 
+    # ==========================================
+    # 🔹 1) Cuadrar TSS con internas (opcional)
+    # ==========================================
+    df_resultado_tss = pd.DataFrame()
+    if not df_tss_selec.empty:
+        resultados_internas = []
+        for _, tss_row in df_tss_selec.iterrows():
+            df_cuadras = cuadrar_internas(tss_row, df_internas)
+            if not df_cuadras.empty:
+                idx_col_doc = df_cuadras.columns.get_loc(col_factura)
+                df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
+                resultados_internas.append(df_cuadras)
 
-    # 🔹 Ahora cuadrar con internas
-    resultados_internas = []
-    for _, tss_row in df_tss_selec.iterrows():
-        df_cuadras = cuadrar_internas(tss_row, df_internas)
-        if not df_cuadras.empty:
-            idx_col_doc = df_cuadras.columns.get_loc(col_factura)
-            df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
-            resultados_internas.append(df_cuadras)
+        if resultados_internas:
+            df_resultado_tss = pd.concat(resultados_internas)
+            st.success("✅ Se cuadraron las TSS con las internas")
+            st.dataframe(df_resultado_tss, use_container_width=True)
 
-    if resultados_internas:
-        df_resultado_final = pd.concat(resultados_internas)
-        df_resultado = df_resultado_final.copy()
-        st.success("✅ Se cuadraron las TSS con las internas")
-        st.dataframe(df_resultado_final, use_container_width=True)
-   
-    # ----------- Resultado y descarga -----------
+    # ==========================================
+    # 🔹 2) Cuadrar factura final con internas
+    # ==========================================
+    df_resultado_factura = pd.DataFrame()
     if factura_final is not None and not df_internas.empty:
-
-        # --- 1) obtener combinacion interna con el solver (tu función existente) ---
-        df_resultado = cuadrar_internas(factura_final, df_internas)
-        if df_resultado.empty:
+        df_resultado_factura = cuadrar_internas(factura_final, df_internas)
+        if df_resultado_factura.empty:
             st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
-            # mostramos nada más
         else:
-            st.success(f"✅ Se han seleccionado {len(df_resultado)} factura(s) interna(s) que cuadran con la externa")
-            # mostramos sin columnas de pago todavía
-            st.dataframe(df_resultado[[col_factura, col_cif, col_nombre_cliente,
-                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]], use_container_width=True)
+            st.success(f"✅ Se han seleccionado {len(df_resultado_factura)} factura(s) interna(s) que cuadran con la externa")
+            st.dataframe(df_resultado_factura[[col_factura, col_cif, col_nombre_cliente,
+                                            'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]],
+                        use_container_width=True)
 
+    # ==========================================
+    # 🔹 3) Determinar el DataFrame final a usar
+    # ==========================================
+    if not df_resultado_tss.empty:
+        df_resultado = df_resultado_tss.copy()
+    elif not df_resultado_factura.empty:
+        df_resultado = df_resultado_factura.copy()
+    else:
+        df_resultado = pd.DataFrame()
 
+    # Si no hay resultado, salir
+    if df_resultado.empty:
+        st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
+    else:
     # --- 2) leer/normalizar cobros ---
         cobros_file = st.file_uploader(
             "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
