@@ -698,4 +698,5 @@ if factura_final is not None and not df_internas.empty:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-
+#### QUIERO QUE ME FILTRE SOLO LAS INTERNAS POSTERIORES O IGUALES A LA FECHA DE LA EXTERNA??
+#### QUIERO QUE LOS PAGOS SELECCIONADOS ADEMAS DE POSTERIORES A LA EXTERNA SEAN POSTERIORES O IGUALES A LAS INTERNAS??
