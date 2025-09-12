@@ -135,6 +135,7 @@ if archivo:
     df_filtrado = pd.DataFrame()
     df_tss = pd.DataFrame()
     df_internas = pd.DataFrame()
+    df_tss_selec = pd.DataFrame()
 
     if modo_busqueda == "Por factura TSS (90)":
         # --- Input alternativo: buscar directamente por factura TSS (90) ---
@@ -286,7 +287,6 @@ if archivo:
                 df_tss = df_filtrado[df_filtrado[col_sociedad] == 'TSS']
                 if df_tss.empty:
                     st.warning("⚠️ No se encontraron facturas de TSS (90) en la selección")
-
                 else:
                     facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']].dropna()
                     facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
