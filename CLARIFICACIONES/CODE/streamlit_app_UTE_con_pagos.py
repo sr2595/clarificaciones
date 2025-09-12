@@ -259,33 +259,6 @@ if archivo:
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
 
-                    # --- Para cada 90 seleccionada, cuadrar con internas ---
-                    resultados_internas = []
-                    for idx, factura_90 in df_tss_selec.iterrows():
-                        cliente_final_cif = str(factura_90[col_cif]).replace(" ", "")
-                        # Filtrar internas por cliente y solo positivas
-                        if not df_internas.empty and col_cif in df_internas.columns:
-                            df_internas_cliente = df_internas[
-                                (df_internas[col_cif].astype(str).str.replace(" ", "") == cliente_final_cif) &
-                                (df_internas['IMPORTE_CORRECTO'] > 0)
-                            ].copy()
-                        else:
-                            df_internas_cliente = pd.DataFrame()
-
-                        df_internas_selec = cuadrar_internas(factura_90, df_internas_cliente)
-                        if not df_internas_selec.empty:
-                            df_internas_selec['Factura_90'] = factura_90[col_factura]
-                            df_internas_selec['Importe_90'] = factura_90['IMPORTE_CORRECTO']
-                            df_internas_selec['Cliente_CIF'] = cliente_final_cif
-                            df_internas_selec['Cliente_Nombre'] = factura_90[col_nombre_cliente]
-                            resultados_internas.append(df_internas_selec)
-
-                    if resultados_internas:
-                        df_resultado_final = pd.concat(resultados_internas, ignore_index=True)
-                        st.success(f"✅ Se han seleccionado {len(df_resultado_final)} factura(s) interna(s) correspondientes a las 90 encontradas")
-                        st.dataframe(df_resultado_final, use_container_width=True)
-                    else:
-                        st.warning("⚠️ No se encontraron internas que cuadren con las facturas 90 seleccionadas")
                 else:
                     st.error("❌ No se encontró combinación de facturas TSS que cuadre con el importe introducido")
                     df_resultado_final = pd.DataFrame()
