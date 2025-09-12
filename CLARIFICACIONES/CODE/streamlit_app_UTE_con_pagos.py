@@ -135,6 +135,33 @@ if archivo:
     df_filtrado = pd.DataFrame()
     df_tss = pd.DataFrame()
 
+    # --- Filtrar UTES del mismo grupo y eliminar negativas ---
+    
+    grupo_filtrado = str(grupo_seleccionado).replace(" ", "")
+    df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
+
+    df_utes_grupo = df[
+        (df[col_grupo] == grupo_filtrado) &
+        (df['ES_UTE'])
+    ].copy()
+
+    df_utes_grupo = df_utes_grupo[df_utes_grupo['IMPORTE_CORRECTO'].fillna(0) > 0]
+
+    if df_utes_grupo.empty:
+        st.warning("⚠️ No hay UTES válidas (positivas) para esta selección")
+    else:
+        df_utes_unicos = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
+        opciones_utes = [
+            f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
+            for _, row in df_utes_unicos.iterrows()
+        ]
+        mapping_utes_cif = dict(zip(opciones_utes, df_utes_unicos[col_cif]))
+
+        socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes,  key="multiselect_socios_utes")
+        socios_cifs = [mapping_utes_cif[s] for s in socios_display]
+
+        df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
+
      # --- Solver ---
   
     def cuadrar_internas(externa, df_internas, tol=100):
@@ -385,33 +412,6 @@ if archivo:
 
                     st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
                             f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
-
-# --- Filtrar UTES del mismo grupo y eliminar negativas ---
-    
-    grupo_filtrado = str(grupo_seleccionado).replace(" ", "")
-    df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
-
-    df_utes_grupo = df[
-        (df[col_grupo] == grupo_filtrado) &
-        (df['ES_UTE'])
-    ].copy()
-
-    df_utes_grupo = df_utes_grupo[df_utes_grupo['IMPORTE_CORRECTO'].fillna(0) > 0]
-
-    if df_utes_grupo.empty:
-        st.warning("⚠️ No hay UTES válidas (positivas) para esta selección")
-    else:
-        df_utes_unicos = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
-        opciones_utes = [
-            f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
-            for _, row in df_utes_unicos.iterrows()
-        ]
-        mapping_utes_cif = dict(zip(opciones_utes, df_utes_unicos[col_cif]))
-
-        socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes,  key="multiselect_socios_utes")
-        socios_cifs = [mapping_utes_cif[s] for s in socios_display]
-
-        df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
 
 
 # ----------- Resultado y descarga -----------
