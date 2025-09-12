@@ -259,10 +259,6 @@ if archivo:
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
 
-                else:
-                    st.error("❌ No se encontró combinación de facturas TSS que cuadre con el importe introducido")
-                    df_resultado_final = pd.DataFrame()
-
             else:
                 # Flujo normal: selección de cliente final y filtrado de TSS
                 # --- Opciones de clientes finales del grupo ---
@@ -377,7 +373,22 @@ if archivo:
             seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
             return df_internas.loc[seleccionadas]
         else:
-            return pd.DataFrame()     
+            return pd.DataFrame() 
+
+        
+# 🔹 Ahora cuadrar con internas
+resultados_internas = []
+for _, tss_row in df_tss_selec.iterrows():
+    df_cuadras = cuadrar_internas(tss_row, df_internas)
+    if not df_cuadras.empty:
+        resultados_internas.append(df_cuadras)
+
+if resultados_internas:
+    df_resultado_final = pd.concat(resultados_internas)
+    st.success("✅ Se cuadraron las TSS con las internas")
+    st.dataframe(df_resultado_final, use_container_width=True)
+else:
+    st.warning("⚠️ No se pudo cuadrar ninguna TSS seleccionada con las internas")    
 
 # ----------- Resultado y descarga -----------
 if factura_final is not None and not df_internas.empty:
