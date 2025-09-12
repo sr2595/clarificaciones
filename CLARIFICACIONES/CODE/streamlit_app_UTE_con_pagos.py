@@ -210,7 +210,38 @@ if archivo:
             importe_pago = parse_importe_europeo(importe_pago_str)
             
             if importe_pago > 0 and not df_tss.empty:
-                # Solver previo por importe de pago
+
+                                # --- 1) Definir el solver previo para facturas TSS según importe ---
+                def solver_tss_pago(df_tss, importe_pago, tol=100):
+                    from ortools.sat.python import cp_model
+                    
+                    if df_tss.empty or importe_pago is None:
+                        return pd.DataFrame()
+                    
+                    df_tss = df_tss.copy()
+                    df_tss['IMPORTE_CENT'] = (df_tss['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
+                    objetivo = int(importe_pago * 100)
+                    
+                    data = list(zip(df_tss.index.tolist(), df_tss['IMPORTE_CENT'].tolist()))
+                    n = len(data)
+                    
+                    model = cp_model.CpModel()
+                    x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
+                    
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+                    
+                    solver = cp_model.CpSolver()
+                    solver.parameters.max_time_in_seconds = 10
+                    status = solver.Solve(model)
+                    
+                    if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                        seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
+                        return df_tss.loc[seleccionadas]
+                    else:
+                        return pd.DataFrame()
+
+                # --- 2) Llamada al solver previo ---
                 df_tss_selec = solver_tss_pago(df_tss, importe_pago)
                 if not df_tss_selec.empty:
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
