@@ -380,6 +380,7 @@ if archivo:
     for _, tss_row in df_tss_selec.iterrows():
         df_cuadras = cuadrar_internas(tss_row, df_internas)
         if not df_cuadras.empty:
+            idx_col_doc = df_cuadras.columns.get_loc(col_factura)
             df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
             resultados_internas.append(df_cuadras)
 
