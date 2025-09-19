@@ -769,7 +769,7 @@ if archivo:
 
             # --- Botón de descarga ---
             output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
 
             st.download_button(
