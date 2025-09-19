@@ -764,6 +764,7 @@ if archivo:
                     "CIF CLIENTE": factura_final[col_cif],
                     "NOMBRE CLIENTE": factura_final[col_nombre_cliente],
                     "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(factura_final[col_fecha_emision]).date(),
+                    "Nº FRA. UTE (de la ute a cliente final) ": factura_final[col_factura],
                     "IMPORTE FRA. UTE (de la ute a cliente final)": factura_final["IMPORTE_CORRECTO"],
                     "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio[col_fecha_emision]).date(),
                     "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio[col_factura],
