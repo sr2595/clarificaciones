@@ -259,7 +259,7 @@ if archivo:
                 # --- 2) Llamada al solver si se introduce importe de pago ---
                 df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
                 if not df_tss_selec.empty:
-                    st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():.,2f} €")
+                    st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
                     if df_internas.empty:
                         df_resultado = df_tss_selec.copy()
