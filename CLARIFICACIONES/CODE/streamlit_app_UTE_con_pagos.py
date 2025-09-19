@@ -257,15 +257,22 @@ if archivo:
                 
                 
                 # --- 2) Llamada al solver si se introduce importe de pago ---
+                solver_used = False
                 df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
+
                 if not df_tss_selec.empty:
+                    solver_used = True
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
+
+                # --- Si el solver se usó, solo entonces creamos la factura agrupada como fallback
+                if solver_used:
+                    # Si NO hay facturas internas seleccionadas por el usuario, usamos las TSS encontradas
+                    # como df_resultado y creamos una factura_final "agrupada" con la suma total.
                     if df_internas.empty:
                         df_resultado = df_tss_selec.copy()
 
-                        # 🔹 Creamos una "factura final" ficticia con la suma de todas las TSS seleccionadas
-                        total_importe = df_tss_selec["IMPORTE_CORRECTO"].sum()
+                        total_importe = float(df_tss_selec["IMPORTE_CORRECTO"].sum())
                         fecha_min = df_tss_selec[col_fecha_emision].min()
 
                         factura_final = pd.Series({
@@ -274,11 +281,15 @@ if archivo:
                             col_factura: "AGRUPADO",
                             col_fecha_emision: fecha_min,
                             "IMPORTE_CORRECTO": total_importe,
-                            "IMPORTE_CENT": int(round(total_importe * 100))  # ⚡ clave para cuadrar_internas
+                            "IMPORTE_CENT": int(round(total_importe * 100))
                         })
                     else:
+                        # Si hay internas, no sobrescribimos factura_final aquí: dejamos que
+                        # el flujo normal (cuadrado de cada TSS con internas) actúe más abajo.
+                        # Importante: no pongas factura_final = pd.Series() aquí porque puede borrar
+                        # la selección hecha en flujos distintos al solver.
                         df_resultado = pd.DataFrame()
-                        factura_final = pd.Series()  # vacío
+
 
 
             else:
