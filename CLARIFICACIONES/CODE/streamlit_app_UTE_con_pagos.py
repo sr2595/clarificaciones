@@ -273,11 +273,13 @@ if archivo:
                             col_nombre_cliente: "Facturas TSS agrupadas",
                             col_factura: "AGRUPADO",
                             col_fecha_emision: fecha_min,
-                            "IMPORTE_CORRECTO": total_importe
+                            "IMPORTE_CORRECTO": total_importe,
+                            "IMPORTE_CENT": int(round(total_importe * 100))  # ⚡ clave para cuadrar_internas
                         })
                     else:
                         df_resultado = pd.DataFrame()
                         factura_final = pd.Series()  # vacío
+
 
             else:
                 # Flujo normal: selección de cliente final y filtrado de TSS
