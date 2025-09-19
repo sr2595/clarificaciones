@@ -752,15 +752,15 @@ if archivo:
             # Asegúrate de que df_cobros ya está filtrado al pago seleccionado
             # y df_resultado son las facturas de los socios cuadradas con la UTE.
             st.write("Columnas disponibles en df_cobros:", df_cobros.columns.tolist())
-
+            
             rows = []
             for _, socio in df_resultado.iterrows():
                 rows.append({
-                    "GESTOR DE COBROS": df_cobros["Gestor de Cobros"].iloc[0],
+                    "GESTOR DE COBROS": df_cobros["gestor_de_cobros"].iloc[0],
                     "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()),
                     "CIF UTE": " - ".join(df_resultado[col_cif].unique()),
-                    "FECHA COBRO": pd.to_datetime(df_cobros["FECHA COBRO"].iloc[0]).date(),
-                    "IMPORTE TOTAL COBRADO": df_cobros["IMPORTE TOTAL COBRADO"].iloc[0],
+                    "FECHA COBRO": pd.to_datetime(df_cobros["fec_valor"].iloc[0]).date(),
+                    "IMPORTE TOTAL COBRADO": df_cobros["importe"].iloc[0],
                     "CIF CLIENTE": factura_final[col_cif],
                     "NOMBRE CLIENTE": factura_final[col_nombre_cliente],
                     "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(factura_final[col_fecha_emision]).date(),
@@ -769,7 +769,7 @@ if archivo:
                     "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio[col_factura],
                     "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio["IMPORTE_CORRECTO"],
                     "SOCIO A PAGAR": socio[col_nombre_cliente],
-                    "ID MOVIMIENTO": df_cobros["ID MOVIMIENTO"].iloc[0],
+                    "ID MOVIMIENTO": df_cobros["id_movimiento"].iloc[0],
                 })
 
             df_carta_pago = pd.DataFrame(rows)
