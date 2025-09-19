@@ -769,7 +769,7 @@ if archivo:
                     "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio[col_fecha_emision]).date(),
                     "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio[col_factura],
                     "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio["IMPORTE_CORRECTO"],
-                    "SOCIO A PAGAR": socio[col_nombre_cliente],
+                    "SOCIO A PAGAR": socio[col_sociedad],
                     "ID MOVIMIENTO": df_cobros["id_movimiento"].iloc[0],
                 })
 
