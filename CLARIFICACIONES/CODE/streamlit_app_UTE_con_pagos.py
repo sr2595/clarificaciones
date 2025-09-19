@@ -4,8 +4,9 @@ from ortools.sat.python import cp_model
 from io import BytesIO
 from datetime import datetime
 import unicodedata, re
-
+import io
 import os
+
 st.write("DEBUG archivo en ejecución:", os.path.abspath(__file__))
 
 st.set_page_config(page_title="Clarificador UTE con pagos", page_icon="📄", layout="wide")
@@ -747,4 +748,34 @@ if archivo:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+            # --- 8) generar Carta de Pago ---
+            ## --- Construcción del DataFrame "Carta de Pago" ---
+            df_carta_pago = pd.DataFrame([{
+                "GESTOR DE COBROS": "TSS",  # o el nombre que corresponda
+                "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()),
+                "CIF UTE": " - ".join(df_resultado[col_cif].unique()),
+                "FECHA COBRO": df_cobros["FECHA COBRO"].iloc[0] if "FECHA COBRO" in df_cobros else None,
+                "IMPORTE TOTAL COBRADO": df_cobros["IMPORTE"].iloc[0] if "IMPORTE" in df_cobros else None,
+                "CIF CLIENTE": factura_final[col_cif],
+                "NOMBRE CLIENTE": factura_final[col_nombre_cliente],
+                "FECHA FRA. UTE (de la ute a cliente final)": factura_final[col_fecha_emision],
+                "IMPORTE FRA. UTE (de la ute a cliente final)": factura_final["IMPORTE_CORRECTO"],
+                "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": " | ".join(df_resultado[col_fecha_emision].astype(str)),
+                "NºFRA. DEL SOCIO (RR,ADM,TSOL)": " | ".join(df_resultado[col_factura].astype(str)),
+                "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": " | ".join(df_resultado["IMPORTE_CORRECTO"].astype(str)),
+                "SOCIO A PAGAR": " | ".join(df_resultado[col_nombre_cliente].astype(str)),
+                "ID MOVIMIENTO": df_cobros["ID MOVIMIENTO"].iloc[0] if "ID MOVIMIENTO" in df_cobros else None,
+            }])
+
+            # --- Botón de descarga ---
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
+
+            st.download_button(
+                label="📥 Descargar Carta de Pago",
+                data=output.getvalue(),
+                file_name="Carta_de_Pago.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
