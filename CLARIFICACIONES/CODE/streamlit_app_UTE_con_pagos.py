@@ -261,6 +261,23 @@ if archivo:
                 if not df_tss_selec.empty:
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
+                    if df_internas.empty:
+                        df_resultado = df_tss_selec.copy()
+
+                        # 🔹 Creamos una "factura final" ficticia con la suma de todas las TSS seleccionadas
+                        total_importe = df_tss_selec["IMPORTE_CORRECTO"].sum()
+                        fecha_min = df_tss_selec[col_fecha_emision].min()
+
+                        factura_final = pd.Series({
+                            col_cif: "AGRUPADO",
+                            col_nombre_cliente: "Facturas TSS agrupadas",
+                            col_factura: "AGRUPADO",
+                            col_fecha_emision: fecha_min,
+                            "IMPORTE_CORRECTO": total_importe
+                        })
+                    else:
+                        df_resultado = pd.DataFrame()
+                        factura_final = pd.Series()  # vacío
 
             else:
                 # Flujo normal: selección de cliente final y filtrado de TSS
