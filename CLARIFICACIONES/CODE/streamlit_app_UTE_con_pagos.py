@@ -749,11 +749,9 @@ if archivo:
             )
 
             # --- 8) generar Carta de Pago ---
-            ## --- Construcción del DataFrame "Carta de Pago" ---
-            import io
-
             # Asegúrate de que df_cobros ya está filtrado al pago seleccionado
             # y df_resultado son las facturas de los socios cuadradas con la UTE.
+            st.write("Columnas disponibles en df_cobros:", df_cobros.columns.tolist())
 
             rows = []
             for _, socio in df_resultado.iterrows():
