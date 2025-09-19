@@ -754,62 +754,37 @@ if archivo:
             st.write("Columnas disponibles en df_cobros:", df_cobros.columns.tolist())
                         
             if pago_elegido is not None:
-                # aquí va todo el bloque que genera df_carta_pago
                 rows = []
                 for _, socio in df_resultado.iterrows():
-                    gestor_cobros = pago_elegido.get("gestor_de_cobros", "")
-                    fecha_cobro   = pd.to_datetime(pago_elegido.get("fec_operacion")).date() if pago_elegido.get("fec_operacion") is not None else None
-                    importe_cobro = pago_elegido.get("importe", 0.0)
-                    id_mov       = pago_elegido.get("id_movimiento", "")
-
-                    nombre_ute = " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else ""
-                    cif_ute    = " - ".join(df_resultado[col_cif].unique()) if col_cif in df_resultado.columns else ""
-                    fecha_fra_ute = pd.to_datetime(socio[col_fecha_emision]).date() if col_fecha_emision in socio else None
-                    importe_fra_ute = socio["IMPORTE_CORRECTO"] if "IMPORTE_CORRECTO" in socio else 0.0
-
-                    if isinstance(factura_final, pd.Series):
-                        cif_cliente_final  = factura_final.get(col_cif, "")
-                        nombre_cliente_final = factura_final.get(col_nombre_cliente, "")
-                        fecha_fra_ute_final = pd.to_datetime(factura_final.get(col_fecha_emision)).date() if pd.notna(factura_final.get(col_fecha_emision)) else None
-                        nro_fra_ute_final  = factura_final.get(col_factura, "")
-                        importe_fra_ute_final = factura_final.get("IMPORTE_CORRECTO", 0.0)
-                    else:
-                        cif_cliente_final  = ""
-                        nombre_cliente_final = ""
-                        fecha_fra_ute_final = None
-                        nro_fra_ute_final  = ""
-                        importe_fra_ute_final = 0.0
-
                     rows.append({
-                        "GESTOR DE COBROS": gestor_cobros,
-                        "NOMBRE UTE": nombre_ute,
-                        "CIF UTE": cif_ute,
-                        "FECHA COBRO": fecha_cobro,
-                        "IMPORTE TOTAL COBRADO": importe_cobro,
-                        "CIF CLIENTE": cif_cliente_final,
-                        "NOMBRE CLIENTE": nombre_cliente_final,
-                        "FECHA FRA. UTE (de la ute a cliente final)": fecha_fra_ute_final,
-                        "Nº FRA. UTE (de la ute a cliente final)": nro_fra_ute_final,
-                        "IMPORTE FRA. UTE (de la ute a cliente final)": importe_fra_ute_final,
-                        "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": fecha_fra_ute,
-                        "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio[col_factura] if col_factura in socio else "",
-                        "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": importe_fra_ute,
-                        "SOCIO A PAGAR": socio[col_sociedad] if col_sociedad in socio else "",
-                        "ID MOVIMIENTO": id_mov,
+                        "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),  # <- aquí
+                        "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()),
+                        "CIF UTE": " - ".join(df_resultado[col_cif].unique()),
+                        "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).date() if pago_elegido.get("fec_operacion") is not None else None,
+                        "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
+                        "CIF CLIENTE": factura_final[col_cif],
+                        "NOMBRE CLIENTE": factura_final[col_nombre_cliente],
+                        "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(factura_final[col_fecha_emision]).date(),
+                        "Nº FRA. UTE (de la ute a cliente final)": factura_final[col_factura],
+                        "IMPORTE FRA. UTE (de la ute a cliente final)": factura_final["IMPORTE_CORRECTO"],
+                        "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio[col_fecha_emision]).date(),
+                        "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio[col_factura],
+                        "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio["IMPORTE_CORRECTO"],
+                        "SOCIO A PAGAR": socio[col_sociedad],
+                        "ID MOVIMIENTO": pago_elegido.get("id_movimiento", ""),  # <- si existe
                     })
 
                 df_carta_pago = pd.DataFrame(rows)
+            
+            # --- Exportación a Excel ---
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
 
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
-
-                st.download_button(
-                    label="📥 Descargar Carta de Pago",
-                    data=output.getvalue(),
-                    file_name="Carta_de_Pago.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.info("⚠️ No se encontró un pago único que cuadre con la factura final, no se generará Carta de Pago.")  
+            st.download_button(
+                label="📥 Descargar Carta de Pago",
+                data=output.getvalue(),
+                file_name="Carta_de_Pago.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
