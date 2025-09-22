@@ -757,6 +757,7 @@ if archivo:
             if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
                 for _, tss_row in df_tss_selec.iterrows():
                     socios_factura = df_resultado[df_resultado[col_factura] == tss_row[col_factura]]
+                    socios_unicos = socios_factura.drop_duplicates(subset=[col_factura, col_sociedad])
                     for _, socio in df_resultado.iterrows():
                         rows.append({
                             "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
