@@ -821,18 +821,7 @@ if archivo:
 
                 df_carta_pago = pd.DataFrame(rows)
 
-                # --- Exportación a Excel ---
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
-
-                st.download_button(
-                    label="📥 Descargar Carta de Pago",
-                    data=output.getvalue(),
-                    file_name="Carta_de_Pago.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            
+                  
             # --- 8) generar carta de pago ---
                 if pago_elegido is not None:
                     rows = []
