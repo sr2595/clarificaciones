@@ -832,12 +832,8 @@ if archivo:
                     file_name="Carta_de_Pago.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-                # --- Helper para limpiar CIF ---
-                def limpiar_cif(valor):
-                    if pd.isna(valor):
-                        return ""
-                    return str(valor).replace("L-00", "").strip()
-
+            
+            # --- 8) generar carta de pago ---
                 if pago_elegido is not None:
                     rows = []
 
@@ -866,11 +862,11 @@ if archivo:
                                 rows.append({
                                     "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
                                     "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
-                                    "CIF UTE": " - ".join([limpiar_cif(c) for c in df_resultado[col_cif].unique()]) if col_cif in df_resultado.columns else "",
+                                    "CIF UTE": " - ".join([cif.replace("L-00", "") for cif in df_resultado[col_cif].unique()]) if col_cif in df_resultado.columns else "",
                                     "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
                                                 if pago_elegido.get("fec_operacion") is not None else "",
                                     "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
-                                    "CIF CLIENTE": limpiar_cif(tss_row.get(col_cif, "")),
+                                    "CIF CLIENTE": tss_row.get(col_cif, "").replace("L-00", ""),
                                     "NOMBRE CLIENTE": tss_row.get(col_nombre_cliente, ""),
                                     "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(tss_row.get(col_fecha_emision)).strftime("%d/%m/%Y")
                                                                         if pd.notna(tss_row.get(col_fecha_emision)) else "",
@@ -890,12 +886,12 @@ if archivo:
                             rows.append({
                                 "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
                                 "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
-                                "CIF UTE": " - ".join([limpiar_cif(c) for c in df_resultado[col_cif].unique()]) if col_cif in df_resultado.columns else "",
+                                "CIF UTE": " - ".join([cif.replace("L-00", "") for cif in df_resultado[col_cif].unique()]) if col_cif in df_resultado.columns else "",
                                 "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
                                             if pago_elegido.get("fec_operacion") is not None else "",
                                 "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
-                                "CIF CLIENTE": limpiar_cif(factura_final.get(col_cif, "")) if isinstance(factura_final, pd.Series) else limpiar_cif(factura_final[col_cif]),
-                                "NOMBRE CLIENTE": factura_final.get(col_nombre_cliente, "") if isinstance(factura_final, pd.Series) else factura_final[col_nombre_cliente],
+                                "CIF CLIENTE": (factura_final.get(col_cif, "") if isinstance(factura_final, pd.Series) else factura_final.iloc[0][col_cif]).replace("L-00", ""),
+                                "NOMBRE CLIENTE": factura_final.get(col_nombre_cliente, "") if isinstance(factura_final, pd.Series) else factura_final.iloc[0][col_nombre_cliente],
                                 "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(factura_final.get(col_fecha_emision)).strftime("%d/%m/%Y")
                                                                     if isinstance(factura_final, pd.Series) and pd.notna(factura_final.get(col_fecha_emision))
                                                                     else (pd.to_datetime(factura_final.iloc[0][col_fecha_emision]).strftime("%d/%m/%Y") if not isinstance(factura_final, pd.Series) else ""),
@@ -916,9 +912,11 @@ if archivo:
                     with pd.ExcelWriter(output, engine="openpyxl") as writer:
                         df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
 
+                    # Botón de descarga con key único
                     st.download_button(
                         label="📥 Descargar Carta de Pago",
                         data=output.getvalue(),
                         file_name="Carta_de_Pago.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"carta_pago_{pago_elegido.get('id_movimiento','')}"
                     )
