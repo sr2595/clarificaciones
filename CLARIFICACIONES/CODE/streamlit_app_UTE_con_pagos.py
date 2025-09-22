@@ -749,17 +749,16 @@ if archivo:
             )
 
             # --- 8) generar Carta de Pago ---
-            # Asegúrate de que df_cobros ya está filtrado al pago seleccionado
-            # y df_resultado son las facturas de los socios cuadradas con la UTE.
-                                    
+                                            
             if pago_elegido is not None:
                 rows = []
-
                 # --- Caso AGRUPADO: varias facturas TSS seleccionadas ---
                 if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
                     for _, tss_row in df_tss_selec.iterrows():
+                        # 🔑 socios relacionados solo con esta factura TSS
                         socios_factura = df_resultado[df_resultado[col_factura] == tss_row[col_factura]]
-                        for _, socio in df_resultado.iterrows():
+
+                        for _, socio in socios_factura.iterrows():
                             rows.append({
                                 "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
                                 "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()),
@@ -773,7 +772,7 @@ if archivo:
                                 "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(tss_row[col_fecha_emision]).date(),
                                 "Nº FRA. UTE (de la ute a cliente final)": tss_row[col_factura],
                                 "IMPORTE FRA. UTE (de la ute a cliente final)": tss_row["IMPORTE_CORRECTO"],
-                                # datos del socio
+                                # datos del socio vinculado a esa 90
                                 "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio[col_fecha_emision]).date(),
                                 "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio[col_factura],
                                 "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio["IMPORTE_CORRECTO"],
@@ -805,6 +804,7 @@ if archivo:
                         })
 
                 df_carta_pago = pd.DataFrame(rows)
+
 
                 # --- Exportación a Excel ---
                 output = io.BytesIO()
