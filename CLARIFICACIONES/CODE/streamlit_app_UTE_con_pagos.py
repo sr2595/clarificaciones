@@ -748,6 +748,12 @@ if archivo:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+            # --- Helper para limpiar CIF ---
+            def limpiar_cif(valor):
+                if pd.isna(valor):
+                    return ""
+                return str(valor).replace("L-00", "").strip()
+
             # --- 8) generar Carta de Pago ---
                                             
             if pago_elegido is not None:
