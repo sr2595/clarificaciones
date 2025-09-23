@@ -228,6 +228,11 @@ if archivo:
                     df_tss = df_tss[df_tss['IMPORTE_CORRECTO'] > 0].copy()
                     if df_tss.empty:
                         return pd.DataFrame()
+                    
+                    # 🚨 Deduplicar por socio + factura interna (evita dobles usos)
+                    if col_sociedad in df_tss.columns and col_factura in df_tss.columns:
+                        df_tss = df_tss.drop_duplicates(subset=[col_sociedad, col_factura])
+
 
                     # 🔹 Probar solver cliente por cliente
                     for cif, df_cliente in df_tss.groupby(col_cif):
