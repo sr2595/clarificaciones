@@ -224,19 +224,25 @@ if archivo:
                     if df_tss.empty or importe_pago is None:
                         return pd.DataFrame()
 
-                    # 🔹 Filtramos solo facturas positivas
                     df_tss = df_tss[df_tss['IMPORTE_CORRECTO'] > 0].copy()
                     if df_tss.empty:
                         return pd.DataFrame()
-                    
-                    # 🚨 Deduplicar por socio + factura interna (evita dobles usos)
+
+                    # 🚨 Deduplicar por socio + factura interna (evita dobles filas idénticas)
                     if col_sociedad in df_tss.columns and col_factura in df_tss.columns:
                         df_tss = df_tss.drop_duplicates(subset=[col_sociedad, col_factura])
 
+                    # Llevar control de socios ya usados
+                    socios_usados = set()
+                    seleccion_total = []
 
-                    # 🔹 Probar solver cliente por cliente
                     for cif, df_cliente in df_tss.groupby(col_cif):
                         df_cliente = df_cliente.copy()
+                        # excluir internos ya usados
+                        df_cliente = df_cliente[~df_cliente[col_sociedad].isin(socios_usados)]
+                        if df_cliente.empty:
+                            continue
+
                         df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
                         objetivo = int(importe_pago * 100)
 
@@ -246,11 +252,10 @@ if archivo:
                         model = cp_model.CpModel()
                         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-                        # Restricción: suma ≈ objetivo
                         model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
                         model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
 
-                        # 🚨 Restricción extra: una interna/socio no puede asignarse a varias 90
+                        # Restricción: una interna/socio no puede asignarse a varias 90
                         if col_sociedad in df_cliente.columns:
                             for (soc, fac), g in df_cliente.groupby([col_sociedad, col_factura]):
                                 idxs = [i for i, idx in enumerate(df_cliente.index) if idx in g.index]
@@ -263,12 +268,16 @@ if archivo:
 
                         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
                             seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
-                            return df_cliente.loc[seleccionadas]
+                            df_selec_cliente = df_cliente.loc[seleccionadas]
+                            seleccion_total.append(df_selec_cliente)
+                            # marcar socios usados
+                            socios_usados.update(df_selec_cliente[col_sociedad].tolist())
 
-                    # si ningún cliente da combinación
+                    if seleccion_total:
+                        return pd.concat(seleccion_total)
+
                     return pd.DataFrame()
-                
-                
+
                 # --- 2) Llamada al solver si se introduce importe de pago ---
                 solver_used = False
                 df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
