@@ -277,9 +277,11 @@ if archivo:
                             socios_facturas_usadas.update(
                                 df_selec_cliente[[col_sociedad, col_factura]].itertuples(index=False, name=None)
                             )
-
                     if seleccion_total:
-                        return pd.concat(seleccion_total)
+                        df_out = pd.concat(seleccion_total)
+                        df_out = df_out.drop_duplicates(subset=[col_sociedad, col_factura])
+                        return df_out
+
 
                     return pd.DataFrame()
 
