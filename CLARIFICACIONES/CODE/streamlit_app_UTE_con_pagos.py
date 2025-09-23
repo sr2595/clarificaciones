@@ -251,10 +251,11 @@ if archivo:
                         model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
 
                         # 🚨 Restricción extra: una interna/socio no puede asignarse a varias 90
-                        if col_sociedad in df_cliente.columns and col_factura in df_cliente.columns:
-                            for _, g in df_cliente.groupby([col_sociedad, col_factura]):
-                                idxs = [list(df_cliente.index).index(idx) for idx in g.index]
-                                model.Add(sum(x[i] for i in idxs) <= 1)
+                        if col_sociedad in df_cliente.columns:
+                            for (soc, fac), g in df_cliente.groupby([col_sociedad, col_factura]):
+                                idxs = [i for i, idx in enumerate(df_cliente.index) if idx in g.index]
+                                if idxs:
+                                    model.Add(sum(x[i] for i in idxs) <= 1)
 
                         solver = cp_model.CpSolver()
                         solver.parameters.max_time_in_seconds = 10
