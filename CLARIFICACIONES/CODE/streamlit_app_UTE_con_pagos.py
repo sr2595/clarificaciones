@@ -241,16 +241,16 @@ if archivo:
                     for cif, df_cliente in df_tss.groupby(col_cif):
                         df_cliente = df_cliente.copy()
 
-                        # 🔹 Excluir facturas ya usadas GLOBALMENTE
+                            # 🔹 Excluir filas globalmente usadas antes de resolver
                         df_cliente = df_cliente[
                             ~df_cliente.apply(
-                                lambda row: (row[col_sociedad], row[col_factura]) in socios_facturas_usadas, 
+                                lambda row: (row[col_sociedad], row[col_factura]) in socios_facturas_usadas,
                                 axis=1
                             )
                         ]
-                        
                         if df_cliente.empty:
                             continue
+
 
                         df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
                         objetivo = int(importe_pago * 100)
