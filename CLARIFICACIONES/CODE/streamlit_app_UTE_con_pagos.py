@@ -217,7 +217,6 @@ if archivo:
 
             if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
 
-                # --- Solver TSS por importe, solo positivas y por cliente final ---
                 def solver_tss_pago(df_tss, importe_pago, tol=100):
                     from ortools.sat.python import cp_model
 
@@ -228,30 +227,18 @@ if archivo:
                     if df_tss.empty:
                         return pd.DataFrame()
 
-                    # 🔹 Deduplicar por (sociedad + factura) ANTES del solver
+                    # Deduplicar por sociedad+factura
                     if col_sociedad in df_tss.columns and col_factura in df_tss.columns:
                         df_tss['_clave_unica'] = df_tss[col_sociedad].astype(str) + "_" + df_tss[col_factura].astype(str)
                         df_tss = df_tss.drop_duplicates(subset=['_clave_unica'])
 
-                    # Control GLOBAL de facturas usadas (compartido entre todos los clientes)
+                    # Control global de facturas usadas
                     socios_facturas_usadas = set()
                     seleccion_total = []
 
-                    # Probar cliente por cliente
+                    # Resolver cliente por cliente
                     for cif, df_cliente in df_tss.groupby(col_cif):
                         df_cliente = df_cliente.copy()
-
-                            # 🔹 Excluir filas globalmente usadas antes de resolver
-                        df_cliente = df_cliente[
-                            ~df_cliente.apply(
-                                lambda row: (row[col_sociedad], row[col_factura]) in socios_facturas_usadas,
-                                axis=1
-                            )
-                        ]
-                        if df_cliente.empty:
-                            continue
-
-
                         df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
                         objetivo = int(importe_pago * 100)
 
@@ -261,10 +248,17 @@ if archivo:
                         model = cp_model.CpModel()
                         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
+                        # Suma ≈ objetivo
                         model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
                         model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
 
-                        # 🔹 Una factura (sociedad+numero) solo una vez por cliente
+                        # Restricción: cada factura (sociedad+numero) solo una vez en TODO el flujo
+                        for i, idx in enumerate(df_cliente.index):
+                            clave = (df_cliente.at[idx, col_sociedad], df_cliente.at[idx, col_factura])
+                            if clave in socios_facturas_usadas:
+                                model.Add(x[i] == 0)  # ❌ No se puede seleccionar si ya fue usada
+
+                        # Restricción: no repetir factura dentro del mismo cliente
                         for (soc, fac), g in df_cliente.groupby([col_sociedad, col_factura]):
                             idxs = [i for i, idx in enumerate(df_cliente.index) if idx in g.index]
                             if len(idxs) > 1:
@@ -279,7 +273,7 @@ if archivo:
                             df_selec_cliente = df_cliente.loc[seleccionadas]
                             seleccion_total.append(df_selec_cliente)
 
-                            # 🔹 CLAVE: Marcar facturas como usadas GLOBALMENTE
+                            # Marcar facturas globalmente usadas
                             socios_facturas_usadas.update(
                                 df_selec_cliente[[col_sociedad, col_factura]].itertuples(index=False, name=None)
                             )
@@ -288,6 +282,7 @@ if archivo:
                         return pd.concat(seleccion_total)
 
                     return pd.DataFrame()
+
 
                 # --- 2) Llamada al solver si se introduce importe de pago ---
                 solver_used = False
