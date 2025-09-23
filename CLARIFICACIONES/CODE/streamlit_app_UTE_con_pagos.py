@@ -273,6 +273,9 @@ if archivo:
                     if df_internas.empty:
                         df_resultado = df_tss_selec.copy()
 
+                        if not df_resultado.empty and col_factura in df_resultado and col_sociedad in df_resultado:
+                            df_resultado = df_resultado.drop_duplicates(subset=[col_factura, col_sociedad])
+
                         total_importe = float(df_tss_selec["IMPORTE_CORRECTO"].sum())
                         fecha_min = df_tss_selec[col_fecha_emision].min()
 
