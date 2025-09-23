@@ -217,78 +217,7 @@ if archivo:
 
             if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
 
-                # --- Solver TSS por importe, solo positivas y por cliente final ---
-                def solver_tss_pago(df_tss, importe_pago, tol=100):
-                    from ortools.sat.python import cp_model
-
-                    if df_tss.empty or importe_pago is None:
-                        return pd.DataFrame()
-
-                    df_tss = df_tss[df_tss['IMPORTE_CORRECTO'] > 0].copy()
-                    if df_tss.empty:
-                        return pd.DataFrame()
-
-                    # 🚨 Deduplicar por socio + factura interna (evita dobles filas idénticas)
-                    if col_sociedad in df_tss.columns and col_factura in df_tss.columns:
-                        df_tss = df_tss.drop_duplicates(subset=[col_sociedad, col_factura])
-
-                    # Llevar control de socios ya usados
-                    socios_usados = set()
-                    seleccion_total = []
-
-                    for cif, df_cliente in df_tss.groupby(col_cif):
-                        df_cliente = df_cliente.copy()
-                        # excluir internos ya usados
-                        df_cliente = df_cliente[~df_cliente[col_sociedad].isin(socios_usados)]
-                        if df_cliente.empty:
-                            continue
-
-                        df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
-                        objetivo = int(importe_pago * 100)
-
-                        data = list(zip(df_cliente.index.tolist(), df_cliente['IMPORTE_CENT'].tolist()))
-                        n = len(data)
-
-                        model = cp_model.CpModel()
-                        x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
-
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
-
-                        # Restricción: una interna/socio no puede asignarse a varias 90
-                        if col_sociedad in df_cliente.columns:
-                            for (soc, fac), g in df_cliente.groupby([col_sociedad, col_factura]):
-                                idxs = [i for i, idx in enumerate(df_cliente.index) if idx in g.index]
-                                if idxs:
-                                    model.Add(sum(x[i] for i in idxs) <= 1)
-
-                        solver = cp_model.CpSolver()
-                        solver.parameters.max_time_in_seconds = 10
-                        status = solver.Solve(model)
-
-                        if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                            seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
-                            df_selec_cliente = df_cliente.loc[seleccionadas]
-                            seleccion_total.append(df_selec_cliente)
-                            # marcar socios usados
-                            socios_usados.update(df_selec_cliente[col_sociedad].tolist())
-
-                    if seleccion_total:
-                        return pd.concat(seleccion_total)
-
-                    return pd.DataFrame()
-
-                # --- 2) Llamada al solver si se introduce importe de pago ---
-                solver_used = False
-                df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
-
-                if not df_tss_selec.empty:
-                    solver_used = True
-                    st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
-                    st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
-
-                # --- Si el solver se usó, solo entonces creamos la factura agrupada como fallback
-               # --- Solver TSS por importe, solo positivas y por cliente final ---
+                            # --- Solver TSS por importe, solo positivas y por cliente final ---
                 def solver_tss_pago(df_tss, importe_pago, tol=100):
                     from ortools.sat.python import cp_model
 
@@ -299,10 +228,24 @@ if archivo:
                     df_tss = df_tss[df_tss['IMPORTE_CORRECTO'] > 0].copy()
                     if df_tss.empty:
                         return pd.DataFrame()
-                    
+
+                    # 🚨 Deduplicar por socio + factura interna (evita dobles filas idénticas)
+                    if col_sociedad in df_tss.columns and col_factura in df_tss.columns:
+                        df_tss = df_tss.drop_duplicates(subset=[col_sociedad, col_factura])
+
+                    # Llevar control de filas ya usadas (factura+sociedad)
+                    filas_usadas = set()
+                    seleccion_total = []
+
                     # 🔹 Probar solver cliente por cliente
                     for cif, df_cliente in df_tss.groupby(col_cif):
                         df_cliente = df_cliente.copy()
+
+                        # Excluir filas ya usadas
+                        df_cliente = df_cliente[~df_cliente.index.isin(filas_usadas)]
+                        if df_cliente.empty:
+                            continue
+
                         df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
                         objetivo = int(importe_pago * 100)
 
@@ -316,9 +259,9 @@ if archivo:
                         model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
                         model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
 
-                        # 🚨 Restricción: una interna/socio no puede asignarse a varias 90
+                        # Restricción extra: una factura concreta (sociedad+numero) solo puede usarse una vez
                         if col_sociedad in df_cliente.columns and col_factura in df_cliente.columns:
-                            for _, g in df_cliente.groupby([col_sociedad, col_factura]):
+                            for (soc, fac), g in df_cliente.groupby([col_sociedad, col_factura]):
                                 idxs = [i for i, idx in enumerate(df_cliente.index) if idx in g.index]
                                 if idxs:
                                     model.Add(sum(x[i] for i in idxs) <= 1)
@@ -329,12 +272,19 @@ if archivo:
 
                         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
                             seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
-                            return df_cliente.loc[seleccionadas]
+                            df_selec_cliente = df_cliente.loc[seleccionadas]
+                            seleccion_total.append(df_selec_cliente)
+
+                            # marcar filas concretas como usadas para que no se repitan en otros 90
+                            filas_usadas.update(df_selec_cliente.index.tolist())
+
+                    if seleccion_total:
+                        return pd.concat(seleccion_total)
 
                     return pd.DataFrame()
 
 
-                # --- Llamada al solver ---
+                # --- 2) Llamada al solver si se introduce importe de pago ---
                 solver_used = False
                 df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
 
@@ -343,32 +293,34 @@ if archivo:
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
 
-                # --- Creación de df_resultado y factura_final sin duplicar socios ---
+                # --- Si el solver se usó, solo entonces creamos la factura agrupada como fallback
                 if solver_used:
+                    # Si NO hay facturas internas seleccionadas por el usuario, usamos las TSS encontradas
+                    # como df_resultado y creamos una factura_final "agrupada" con la suma total.
                     if df_internas.empty:
-                        df_resultado = pd.DataFrame()
-                        socios_vistos = set()
+                        df_resultado = df_tss_selec.copy()
 
-                        for idx, row in df_tss_selec.iterrows():
-                            soc = row[col_sociedad]
-                            if soc not in socios_vistos:
-                                df_resultado = pd.concat([df_resultado, row.to_frame().T])
-                                socios_vistos.add(soc)
+                        if not df_resultado.empty and col_factura in df_resultado and col_sociedad in df_resultado:
+                            df_resultado = df_resultado.drop_duplicates(subset=[col_factura, col_sociedad])
 
-                        if not df_resultado.empty:
-                            total_importe = float(df_resultado["IMPORTE_CORRECTO"].sum())
-                            fecha_min = df_resultado[col_fecha_emision].min()
-                            factura_final = pd.Series({
-                                col_cif: "AGRUPADO",
-                                col_nombre_cliente: "Facturas TSS agrupadas",
-                                col_factura: "AGRUPADO",
-                                col_fecha_emision: fecha_min,
-                                "IMPORTE_CORRECTO": total_importe,
-                                "IMPORTE_CENT": int(round(total_importe * 100))
-                            })
+                        total_importe = float(df_tss_selec["IMPORTE_CORRECTO"].sum())
+                        fecha_min = df_tss_selec[col_fecha_emision].min()
+
+                        factura_final = pd.Series({
+                            col_cif: "AGRUPADO",
+                            col_nombre_cliente: "Facturas TSS agrupadas",
+                            col_factura: "AGRUPADO",
+                            col_fecha_emision: fecha_min,
+                            "IMPORTE_CORRECTO": total_importe,
+                            "IMPORTE_CENT": int(round(total_importe * 100))
+                        })
                     else:
-                        # Si hay internas, dejamos que el flujo normal las gestione
+                        # Si hay internas, no sobrescribimos factura_final aquí: dejamos que
+                        # el flujo normal (cuadrado de cada TSS con internas) actúe más abajo.
+                        # Importante: no pongas factura_final = pd.Series() aquí porque puede borrar
+                        # la selección hecha en flujos distintos al solver.
                         df_resultado = pd.DataFrame()
+
 
 
             else:
