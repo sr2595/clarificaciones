@@ -291,6 +291,9 @@ if archivo:
                 df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
 
                 if not df_tss_selec.empty:
+                    df_resultado = df_tss_selec.copy()
+                    # Deduplicar por seguridad antes de agregar info de pago
+                    df_resultado = df_resultado.drop_duplicates(subset=[col_sociedad, col_factura])
                     solver_used = True
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
