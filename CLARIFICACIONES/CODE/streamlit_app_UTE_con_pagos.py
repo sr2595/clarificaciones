@@ -217,70 +217,55 @@ if archivo:
 
             if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
 
-               # --- Solver TSS con restricción de no duplicar internas ---
-                def solver_tss_pago(df_tss, df_internas, importe_pago, tol=100):
+                # --- Solver TSS por importe, solo positivas y por cliente final ---
+                def solver_tss_pago(df_tss, importe_pago, tol=100):
                     from ortools.sat.python import cp_model
 
                     if df_tss.empty or importe_pago is None:
                         return pd.DataFrame()
 
-                    # 🔹 Filtramos solo TSS positivas
+                    # 🔹 Filtramos solo facturas positivas
                     df_tss = df_tss[df_tss['IMPORTE_CORRECTO'] > 0].copy()
                     if df_tss.empty:
                         return pd.DataFrame()
 
-                    model = cp_model.CpModel()
+                    # 🔹 Probar solver cliente por cliente
+                    for cif, df_cliente in df_tss.groupby(col_cif):
+                        df_cliente = df_cliente.copy()
+                        df_cliente['IMPORTE_CENT'] = (df_cliente['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
+                        objetivo = int(importe_pago * 100)
 
-                    # --- Variables para TSS ---
-                    x = {tss_idx: model.NewBoolVar(f"x_{tss_idx}") for tss_idx in df_tss.index}
+                        data = list(zip(df_cliente.index.tolist(), df_cliente['IMPORTE_CENT'].tolist()))
+                        n = len(data)
 
-                    # --- Variables para internas ---
-                    y = {inte_idx: model.NewBoolVar(f"y_{inte_idx}") for inte_idx in df_internas.index}
+                        model = cp_model.CpModel()
+                        x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-                    # --- Variables de asignación TSS-interna ---
-                    z = {}
-                    for tss_idx, tss_row in df_tss.iterrows():
-                        for inte_idx, inte_row in df_internas.iterrows():
-                            # 🔹 Aquí defines la condición de link TSS ↔ interna
-                            mismo_cif = tss_row[col_cif] == inte_row[col_cif]
-                            if mismo_cif:
-                                z[(tss_idx, inte_idx)] = model.NewBoolVar(f"z_{tss_idx}_{inte_idx}")
+                        # Restricción: suma ≈ objetivo
+                        model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
+                        model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
 
-                                # Coherencia: si z=1 → x_tss=1 e y_interna=1
-                                model.Add(z[(tss_idx, inte_idx)] <= x[tss_idx])
-                                model.Add(z[(tss_idx, inte_idx)] <= y[inte_idx])
+                        # 🚨 Restricción extra: una interna/socio no puede asignarse a varias 90
+                        if col_sociedad in df_cliente.columns and col_factura in df_cliente.columns:
+                            for _, g in df_cliente.groupby([col_sociedad, col_factura]):
+                                idxs = [list(df_cliente.index).index(idx) for idx in g.index]
+                                model.Add(sum(x[i] for i in idxs) <= 1)
 
-                    # --- Restricción: una interna no puede asignarse a dos TSS distintas ---
-                    for inte_idx in df_internas.index:
-                        posibles = [z[(tss_idx, inte_idx)] for tss_idx in df_tss.index if (tss_idx, inte_idx) in z]
-                        if posibles:
-                            model.Add(sum(posibles) <= 1)
+                        solver = cp_model.CpSolver()
+                        solver.parameters.max_time_in_seconds = 10
+                        status = solver.Solve(model)
 
-                    # --- Restricción de importe total (solo TSS) ---
-                    total_tss = sum(
-                        x[tss_idx] * int(round(df_tss.loc[tss_idx, "IMPORTE_CORRECTO"] * 100))
-                        for tss_idx in df_tss.index
-                    )
-                    objetivo = int(round(importe_pago * 100))
-                    model.Add(total_tss >= objetivo - tol)
-                    model.Add(total_tss <= objetivo + tol)
+                        if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                            seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
+                            return df_cliente.loc[seleccionadas]
 
-                    # --- Resolver ---
-                    solver = cp_model.CpSolver()
-                    solver.parameters.max_time_in_seconds = 15
-                    status = solver.Solve(model)
-
-                    if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                        seleccionadas = [idx for idx in df_tss.index if solver.Value(x[idx]) == 1]
-                        return df_tss.loc[seleccionadas]
-                    else:
-                        return pd.DataFrame()
-
+                    # si ningún cliente da combinación
+                    return pd.DataFrame()
                 
                 
                 # --- 2) Llamada al solver si se introduce importe de pago ---
                 solver_used = False
-                df_tss_selec = solver_tss_pago(df_tss.copy(), df_internas.copy(), importe_pago)
+                df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
 
                 if not df_tss_selec.empty:
                     solver_used = True
