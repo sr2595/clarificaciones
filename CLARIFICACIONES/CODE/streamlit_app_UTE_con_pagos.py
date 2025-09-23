@@ -218,7 +218,7 @@ if archivo:
             if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
 
                 # --- Solver TSS por importe, solo positivas y por cliente final ---
-                def solver_tss_pago_por_cliente_mejorado(df_tss, importe_pago, tol=100):
+                def solver_tss_pago(df_tss, importe_pago, tol=100):
                     from ortools.sat.python import cp_model
 
                     if df_tss.empty or importe_pago is None:
