@@ -234,7 +234,7 @@ if archivo:
                         df_tss = df_tss.drop_duplicates(subset=[col_sociedad, col_factura])
 
                     # Llevar control de filas ya usadas (factura+sociedad)
-                    filas_usadas = set()
+                    socios_facturas_usadas = set()
                     seleccion_total = []
 
                     # 🔹 Probar solver cliente por cliente
@@ -242,7 +242,9 @@ if archivo:
                         df_cliente = df_cliente.copy()
 
                         # Excluir filas ya usadas
-                        df_cliente = df_cliente[~df_cliente.index.isin(filas_usadas)]
+                        # Excluir filas ya usadas globalmente (para cualquier 90)
+                        if col_sociedad in df_cliente.columns and col_factura in df_cliente.columns:
+                            df_cliente = df_cliente[~df_cliente.apply(lambda row: (row[col_sociedad], row[col_factura]) in socios_facturas_usadas, axis=1)]
                         if df_cliente.empty:
                             continue
 
@@ -276,8 +278,8 @@ if archivo:
                             seleccion_total.append(df_selec_cliente)
 
                             # marcar filas concretas como usadas para que no se repitan en otros 90
-                            filas_usadas.update(df_selec_cliente.index.tolist())
-
+                            socios_facturas_usadas.update(df_selec_cliente[[col_sociedad, col_factura]].itertuples(index=False, name=None))
+                            
                     if seleccion_total:
                         return pd.concat(seleccion_total)
 
