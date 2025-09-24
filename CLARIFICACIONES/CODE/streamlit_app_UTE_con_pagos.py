@@ -442,6 +442,7 @@ if archivo:
             return df_internas.loc[seleccionadas]
         else:
             return pd.DataFrame() 
+        
     # ==========================================
     # 🔹 1) Cuadrar TSS con internas (opcional)
     # ==========================================
@@ -449,36 +450,32 @@ if archivo:
     df_resultado_tss = pd.DataFrame()
     if not df_tss_selec.empty:
         resultados_internas = []
-        used_interna_idxs = set()  # control global de internas ya usadas
+        usadas_internas = set()  # ✅ control global de facturas de socio ya usadas
 
         for _, tss_row in df_tss_selec.iterrows():
-            # filtrar internas disponibles (no usadas aún)
-            df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
-            if df_internas_available.empty:
-                continue
+            df_cuadras = cuadrar_internas(tss_row, df_internas)
 
-            df_cuadras = cuadrar_internas(tss_row, df_internas_available)
-            if df_cuadras is None or df_cuadras.empty:
-                continue
+            if not df_cuadras.empty:
+                # Filtrar internas ya usadas
+                df_cuadras["_clave_interna"] = (
+                    df_cuadras[col_sociedad].astype(str) + "_" + df_cuadras[col_factura].astype(str)
+                )
+                df_cuadras = df_cuadras[~df_cuadras["_clave_interna"].isin(usadas_internas)]
 
-            try:
-                idx_col_doc = df_cuadras.columns.get_loc(col_factura)
-                df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
-            except Exception:
-                df_cuadras["TSS_90"] = tss_row[col_factura]
+                if not df_cuadras.empty:
+                    # Marcar como usadas las facturas seleccionadas
+                    usadas_internas.update(df_cuadras["_clave_interna"].tolist())
 
-            resultados_internas.append(df_cuadras)
+                    # Añadir referencia de la TSS 90
+                    idx_col_doc = df_cuadras.columns.get_loc(col_factura)
+                    df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
 
-            # marcar internas usadas para no reusarlas en otros 90
-            used_interna_idxs.update(df_cuadras.index.tolist())
+                    resultados_internas.append(df_cuadras.drop(columns="_clave_interna"))
 
         if resultados_internas:
-            df_resultado_tss = pd.concat(resultados_internas, ignore_index=False)
-            if col_sociedad in df_resultado_tss.columns and col_factura in df_resultado_tss.columns:
-                df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
-            st.success("✅ Se cuadraron las TSS con las internas:")
+            df_resultado_tss = pd.concat(resultados_internas)
+            st.success("✅ Se cuadraron las TSS con las internas")
             st.dataframe(df_resultado_tss, use_container_width=True)
-
 
     # ==========================================
     # 🔹 2) Cuadrar factura final con internas
