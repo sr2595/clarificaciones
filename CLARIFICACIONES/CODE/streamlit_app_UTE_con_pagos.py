@@ -445,20 +445,40 @@ if archivo:
     # ==========================================
     # 🔹 1) Cuadrar TSS con internas (opcional)
     # ==========================================
+        
     df_resultado_tss = pd.DataFrame()
     if not df_tss_selec.empty:
         resultados_internas = []
+        used_interna_idxs = set()  # control global de internas ya usadas
+
         for _, tss_row in df_tss_selec.iterrows():
-            df_cuadras = cuadrar_internas(tss_row, df_internas)
-            if not df_cuadras.empty:
+            # filtrar internas disponibles (no usadas aún)
+            df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
+            if df_internas_available.empty:
+                continue
+
+            df_cuadras = cuadrar_internas(tss_row, df_internas_available)
+            if df_cuadras is None or df_cuadras.empty:
+                continue
+
+            try:
                 idx_col_doc = df_cuadras.columns.get_loc(col_factura)
                 df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
-                resultados_internas.append(df_cuadras)
+            except Exception:
+                df_cuadras["TSS_90"] = tss_row[col_factura]
+
+            resultados_internas.append(df_cuadras)
+
+            # marcar internas usadas para no reusarlas en otros 90
+            used_interna_idxs.update(df_cuadras.index.tolist())
 
         if resultados_internas:
-            df_resultado_tss = pd.concat(resultados_internas)
-            st.success("✅ Se cuadraron las TSS con las internas")
+            df_resultado_tss = pd.concat(resultados_internas, ignore_index=False)
+            if col_sociedad in df_resultado_tss.columns and col_factura in df_resultado_tss.columns:
+                df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
+            st.success("✅ Se cuadraron las TSS con las internas (sin reuso)")
             st.dataframe(df_resultado_tss, use_container_width=True)
+
 
     # ==========================================
     # 🔹 2) Cuadrar factura final con internas
