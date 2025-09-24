@@ -476,7 +476,7 @@ if archivo:
             df_resultado_tss = pd.concat(resultados_internas, ignore_index=False)
             if col_sociedad in df_resultado_tss.columns and col_factura in df_resultado_tss.columns:
                 df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
-            st.success("✅ Se cuadraron las TSS con las internas (sin reuso)")
+            st.success("✅ Se cuadraron las TSS con las internas:")
             st.dataframe(df_resultado_tss, use_container_width=True)
 
 
