@@ -217,7 +217,7 @@ if archivo:
 
             if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
 
-                def solver_tss_pago(df_tss, importe_pago, tol=100):
+                def solver_tss_pago(df_tss, importe_pago):
                     from ortools.sat.python import cp_model
 
                     if df_tss.empty or importe_pago is None:
@@ -247,10 +247,10 @@ if archivo:
 
                         model = cp_model.CpModel()
                         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
+                    
+                        # Suma EXACTA al objetivo
+                        model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
 
-                        # Suma ≈ objetivo
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
 
                         # Restricción: cada factura (sociedad+numero) solo una vez en TODO el flujo
                         for i, idx in enumerate(df_cliente.index):
