@@ -413,7 +413,7 @@ if archivo:
 
      # --- Solver ---
   
-    def cuadrar_internas(externa, df_internas):
+    def cuadrar_internas(externa, df_internas, tol=0):
         if externa is None or df_internas.empty:
             return pd.DataFrame()
 
@@ -434,7 +434,13 @@ if archivo:
         model = cp_model.CpModel()
         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-        model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+        # 🎯 Exacto o con tolerancia
+        if tol == 0:
+            model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+        else:
+            model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
+            model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+
 
         sociedades = set(d[3] for d in data)
         for s in sociedades:
