@@ -301,7 +301,7 @@ if archivo:
 
                 # --- 2) Llamada al solver si se introduce importe de pago ---
                 solver_used = False
-                df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago)
+                df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
 
                 if not df_tss_selec.empty:
                     df_resultado = df_tss_selec.copy()
