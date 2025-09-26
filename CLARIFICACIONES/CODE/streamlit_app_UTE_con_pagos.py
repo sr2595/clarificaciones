@@ -203,7 +203,7 @@ if archivo:
             
             # --- Input opcional: importe de pago para solver de TSS ---
             importe_pago_str = st.text_input("💶 Introduce importe de pago (opcional, formato europeo: 96.893,65)")
-            tolerancia_str = st.text_input("🎯 Tolerancia en céntimos (0 = exacto, ej: 100 = ±1€)", "0")
+            tolerancia_str = st.text_input("🎯 Tolerancia en céntimos (opcional, 0 = exacto, ej: 100 = ±1€), si no indicas nada no aplicara tolerancia y buscara el importe exacto", "0")
 
 
             def parse_importe_europeo(texto):
