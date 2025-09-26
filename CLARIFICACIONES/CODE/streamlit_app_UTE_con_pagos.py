@@ -203,6 +203,8 @@ if archivo:
             
             # --- Input opcional: importe de pago para solver de TSS ---
             importe_pago_str = st.text_input("💶 Introduce importe de pago (opcional, formato europeo: 96.893,65)")
+            tolerancia_str = st.text_input("🎯 Tolerancia en céntimos (0 = exacto, ej: 100 = ±1€)", "0")
+
 
             def parse_importe_europeo(texto):
                 if not texto:
@@ -214,10 +216,16 @@ if archivo:
                     return None
 
             importe_pago = parse_importe_europeo(importe_pago_str)
+            try:
+                tolerancia_cent = int(tolerancia_str)
+                if tolerancia_cent < 0:
+                    tolerancia_cent = 0
+            except:
+                tolerancia_cent = 0
 
             if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
 
-                def solver_tss_pago(df_tss, importe_pago):
+                def solver_tss_pago(df_tss, importe_pago, tol=0):
                     from ortools.sat.python import cp_model
 
                     if df_tss.empty or importe_pago is None:
@@ -249,7 +257,13 @@ if archivo:
                         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
                         # Suma ≈ objetivo
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+                       # 🎯 Exacto o con tolerancia según input
+                        if tol == 0:
+                            model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+                        else:
+                            model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
+                            model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+
 
                         # Restricción: cada factura (sociedad+numero) solo una vez en TODO el flujo
                         for i, idx in enumerate(df_cliente.index):
