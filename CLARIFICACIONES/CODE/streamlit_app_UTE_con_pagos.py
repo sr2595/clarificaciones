@@ -217,7 +217,7 @@ if archivo:
 
             if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
 
-                def solver_tss_pago(df_tss, importe_pago, tol=100):
+                def solver_tss_pago(df_tss, importe_pago):
                     from ortools.sat.python import cp_model
 
                     if df_tss.empty or importe_pago is None:
@@ -249,8 +249,7 @@ if archivo:
                         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
                         # Suma ≈ objetivo
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+                        model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
 
                         # Restricción: cada factura (sociedad+numero) solo una vez en TODO el flujo
                         for i, idx in enumerate(df_cliente.index):
@@ -400,7 +399,7 @@ if archivo:
 
      # --- Solver ---
   
-    def cuadrar_internas(externa, df_internas, tol=100):
+    def cuadrar_internas(externa, df_internas):
         if externa is None or df_internas.empty:
             return pd.DataFrame()
 
@@ -421,8 +420,7 @@ if archivo:
         model = cp_model.CpModel()
         x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-        model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
-        model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+        model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
 
         sociedades = set(d[3] for d in data)
         for s in sociedades:
