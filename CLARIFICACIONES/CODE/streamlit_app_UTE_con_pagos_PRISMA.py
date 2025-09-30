@@ -56,21 +56,25 @@ df_internas = pd.DataFrame()
 archivo_prisma = st.file_uploader("Sube el archivo PRISMA", type=["xlsx", "xls", "csv"])
 df_prisma = pd.DataFrame()
 
-st.write("Primeras 5 líneas en bruto del CSV:")
-st.code(archivo_prisma.getvalue().decode("latin1").splitlines()[:5])
-
-
 if archivo_prisma:
     nombre_archivo = archivo_prisma.name.lower()
 
     # --- Lectura inicial ---
     if nombre_archivo.endswith(".csv"):
         # Detecta automáticamente el delimitador
-        try:
-            df_prisma_raw = pd.read_csv(archivo_prisma, sep=None, engine="python", header=None, encoding="utf-8")
-        except Exception:
-            df_prisma_raw = pd.read_csv(archivo_prisma, sep=None, engine="python", header=None, encoding="latin1")
-
+        if nombre_archivo.endswith(".csv"):
+            try:
+                df_prisma = pd.read_csv(
+                    archivo_prisma,
+                    sep=";",             # delimitador correcto
+                    skiprows=2,          # saltar las 2 primeras filas basura
+                    header=0,            # ahora la fila 3 es la cabecera real
+                    encoding="latin1",   # por si hay acentos
+                    on_bad_lines="skip"  # evita caídas si hay filas raras
+                )
+            except Exception as e:
+                st.error(f"❌ Error leyendo PRISMA CSV: {e}")
+                st.stop()
     else:
         # Excel
         try:
@@ -91,12 +95,7 @@ if archivo_prisma:
         st.stop()
 
     # --- Releer con cabecera ---
-    if nombre_archivo.endswith(".csv"):
-        try:
-            df_prisma = pd.read_csv(archivo_prisma, sep=";", header=header_row, encoding="utf-8")
-        except Exception:
-            df_prisma = pd.read_csv(archivo_prisma, sep=",", header=header_row, encoding="latin1")
-    else:
+      
         try:
             df_prisma = pd.read_excel(archivo_prisma, engine="openpyxl", header=header_row)
         except Exception:
