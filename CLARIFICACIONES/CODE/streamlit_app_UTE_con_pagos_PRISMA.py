@@ -309,9 +309,9 @@ if archivo:
                     factura_final = df_factura_final.iloc[0]
                 else:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
-                    st.stop()
+                    factura_final = None
                       # 🔹 Llamada al hook PRISMA
-                    if not df_prisma.empty:
+                    if factura_final is not None and not df_prisma.empty:
                         prisma_cubierto, pendiente_prisma = hook_prisma(
                             factura_final,
                             df_prisma,
