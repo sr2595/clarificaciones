@@ -550,26 +550,27 @@ else:
         # guarda en session_state para que el flujo posterior lo use
         st.session_state["externa_pendiente"] = externa_pendiente
 
-                    
+        # ==========================================
+    # 🔹 Filtrado UTES y ejecución del solver
     # ==========================================
-    # 🔹 Filtrado UTES y solver de internas
-    # ==========================================
+    grupo_seleccionado = globals().get("grupo_seleccionado", None)
+
     if grupo_seleccionado:  # Solo si hay un grupo válido
         grupo_filtrado = str(grupo_seleccionado).replace(" ", "")
         df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
 
-        # Filtrar UTES del grupo y eliminar importes negativos o nulos
+        # Filtrar UTES del mismo grupo y eliminar negativas
         df_utes_grupo = df[
             (df[col_grupo] == grupo_filtrado) &
-            (df['ES_UTE']) &
-            (df['IMPORTE_CORRECTO'].fillna(0) > 0)
+            (df['ES_UTE'])
         ].copy()
+
+        df_utes_grupo = df_utes_grupo[df_utes_grupo['IMPORTE_CORRECTO'].fillna(0) > 0]
 
         if df_utes_grupo.empty:
             st.warning("⚠️ No hay UTES válidas (positivas) para esta selección")
-            df_internas = pd.DataFrame()
         else:
-            # Selección de socios de la UTE
+            # Preparar opciones de selección de socios
             df_utes_unicos = df_utes_grupo[[col_cif, col_nombre_cliente]].drop_duplicates().sort_values(by=col_cif)
             opciones_utes = [
                 f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
@@ -577,121 +578,125 @@ else:
             ]
             mapping_utes_cif = dict(zip(opciones_utes, df_utes_unicos[col_cif]))
 
-            socios_display = st.multiselect(
-                "Selecciona CIF(s) de la UTE (socios)",
-                opciones_utes,
-                key="multiselect_socios_utes"
-            )
+            socios_display = st.multiselect("Selecciona CIF(s) de la UTE (socios)", opciones_utes, key="multiselect_socios_utes")
             socios_cifs = [mapping_utes_cif[s] for s in socios_display]
 
             df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
 
-        # --- Solver de combinación de internas ---
-        def cuadrar_internas(externa, df_internas, tol=0):
-            if externa is None or df_internas.empty:
-                return pd.DataFrame()
+            # --- Solver ---
+            def cuadrar_internas(externa, df_internas, tol=0):
+                if externa is None or df_internas.empty:
+                    return pd.DataFrame()
 
-            objetivo = int(externa['IMPORTE_CENT'])
-            fecha_ref = externa[col_fecha_emision]
+                objetivo = int(externa['IMPORTE_CENT'])
+                fecha_ref = externa[col_fecha_emision]
 
-            data = list(zip(
-                df_internas.index.tolist(),
-                df_internas['IMPORTE_CENT'].astype(int).tolist(),
-                (df_internas[col_fecha_emision] - fecha_ref).dt.days.fillna(0).astype(int).tolist(),
-                df_internas[col_sociedad].tolist()
-            ))
+                data = list(zip(
+                    df_internas.index.tolist(),
+                    df_internas['IMPORTE_CENT'].astype(int).tolist(),
+                    (df_internas[col_fecha_emision] - fecha_ref).dt.days.fillna(0).astype(int).tolist(),
+                    df_internas[col_sociedad].tolist()
+                ))
 
-            n = len(data)
-            if n == 0:
-                return pd.DataFrame()
+                n = len(data)
+                if n == 0:
+                    return pd.DataFrame()
 
-            model = cp_model.CpModel()
-            x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
+                model = cp_model.CpModel()
+                x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
 
-            # 🎯 Exacto o con tolerancia
-            if tol == 0:
-                model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+                # 🎯 Exacto o con tolerancia
+                if tol == 0:
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+                else:
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+
+                # Restricción: no repetir sociedad
+                sociedades = set(d[3] for d in data)
+                for s in sociedades:
+                    indices = [i for i, d in enumerate(data) if d[3] == s]
+                    if indices:
+                        model.Add(sum(x[i] for i in indices) <= 1)
+
+                # Minimizar desviación de fechas (opcional)
+                costs = [abs(d[2]) for d in data]
+                model.Minimize(sum(x) + sum(x[i] * costs[i] for i in range(n)))
+
+                solver = cp_model.CpSolver()
+                solver.parameters.max_time_in_seconds = 10
+                status = solver.Solve(model)
+
+                if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                    seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
+                    return df_internas.loc[seleccionadas]
+                else:
+                    return pd.DataFrame()
+
+            # ==========================================
+            # 🔹 1) Cuadrar TSS con internas (opcional)
+            # ==========================================
+            df_resultado_tss = pd.DataFrame()
+            if not df_tss_selec.empty:
+                resultados_internas = []
+                used_interna_idxs = set()  # control global de internas ya usadas
+
+                for _, tss_row in df_tss_selec.iterrows():
+                    df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
+                    if df_internas_available.empty:
+                        continue
+
+                    df_cuadras = cuadrar_internas(tss_row, df_internas_available)
+                    if df_cuadras is None or df_cuadras.empty:
+                        continue
+
+                    try:
+                        idx_col_doc = df_cuadras.columns.get_loc(col_factura)
+                        df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
+                    except Exception:
+                        df_cuadras["TSS_90"] = tss_row[col_factura]
+
+                    resultados_internas.append(df_cuadras)
+                    used_interna_idxs.update(df_cuadras.index.tolist())
+
+                if resultados_internas:
+                    df_resultado_tss = pd.concat(resultados_internas, ignore_index=False)
+                    if col_sociedad in df_resultado_tss.columns and col_factura in df_resultado_tss.columns:
+                        df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
+                    st.success("✅ Se cuadraron las TSS con las internas")
+                    st.dataframe(df_resultado_tss, use_container_width=True)
+
+            # ==========================================
+            # 🔹 2) Cuadrar factura final con internas
+            # ==========================================
+            df_resultado_factura = pd.DataFrame()
+            if factura_final is not None and not df_internas.empty:
+                df_resultado_factura = cuadrar_internas(factura_final, df_internas)
+                if df_resultado_factura.empty:
+                    st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+                else:
+                    st.success(f"✅ Se han seleccionado {len(df_resultado_factura)} factura(s) interna(s) que cuadran con la externa")
+                    st.dataframe(df_resultado_factura[[col_factura, col_cif, col_nombre_cliente,
+                                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]],
+                                use_container_width=True)
+
+            # ==========================================
+            # 🔹 3) Determinar el DataFrame final a usar
+            # ==========================================
+            if not df_resultado_tss.empty:
+                df_resultado = df_resultado_tss.copy()
+            elif not df_resultado_factura.empty:
+                df_resultado = df_resultado_factura.copy()
             else:
-                model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
-                model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+                df_resultado = pd.DataFrame()
 
-            # Restricción: no repetir facturas por sociedad
-            sociedades = set(d[3] for d in data)
-            for s in sociedades:
-                indices = [i for i, d in enumerate(data) if d[3] == s]
-                if indices:
-                    model.Add(sum(x[i] for i in indices) <= 1)
+            if df_resultado.empty:
+                st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
 
-            costs = [abs(d[2]) for d in data]  # minimizar desviación de fechas
-            model.Minimize(sum(x) + sum(x[i] * costs[i] for i in range(n)))
-
-            solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = 10
-            status = solver.Solve(model)
-
-            if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
-                return df_internas.loc[seleccionadas]
-            else:
-                return pd.DataFrame()
-
-        # ==========================================
-        # 🔹 1) Cuadrar TSS con internas (opcional)
-        # ==========================================
-        df_resultado_tss = pd.DataFrame()
-        if not df_tss_selec.empty and not df_internas.empty:
-            resultados_internas = []
-            used_interna_idxs = set()
-
-            for _, tss_row in df_tss_selec.iterrows():
-                df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
-                if df_internas_available.empty:
-                    continue
-
-                df_cuadras = cuadrar_internas(tss_row, df_internas_available)
-                if df_cuadras.empty:
-                    continue
-
-                df_cuadras["TSS_90"] = tss_row[col_factura]
-                resultados_internas.append(df_cuadras)
-                used_interna_idxs.update(df_cuadras.index.tolist())
-
-            if resultados_internas:
-                df_resultado_tss = pd.concat(resultados_internas, ignore_index=False)
-                if col_sociedad in df_resultado_tss.columns and col_factura in df_resultado_tss.columns:
-                    df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
-                st.success("✅ Se cuadraron las TSS con las internas")
-                st.dataframe(df_resultado_tss, use_container_width=True)
-
-        # ==========================================
-        # 🔹 2) Cuadrar factura final con internas
-        # ==========================================
-        df_resultado_factura = pd.DataFrame()
-        if factura_final is not None and not df_internas.empty:
-            df_resultado_factura = cuadrar_internas(factura_final, df_internas)
-            if df_resultado_factura.empty:
-                st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
-            else:
-                st.success(f"✅ Se han seleccionado {len(df_resultado_factura)} factura(s) interna(s) que cuadran con la externa")
-                st.dataframe(df_resultado_factura[[col_factura, col_cif, col_nombre_cliente,
-                                                'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]],
-                            use_container_width=True)
-
-        # ==========================================
-        # 🔹 3) Determinar DataFrame final a usar
-        # ==========================================
-        if not df_resultado_tss.empty:
-            df_resultado = df_resultado_tss.copy()
-        elif not df_resultado_factura.empty:
-            df_resultado = df_resultado_factura.copy()
-        else:
-            df_resultado = pd.DataFrame()
-
-        if df_resultado.empty:
-            st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
     else:
         st.warning("⚠️ No se ha seleccionado un grupo válido. No se pueden filtrar UTES ni ejecutar el solver.")
-
+                
+    
     # --- 2) leer/normalizar cobros ---
         cobros_file = st.file_uploader(
             "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
