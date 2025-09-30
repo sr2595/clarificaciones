@@ -292,6 +292,29 @@ if archivo:
                 else:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
                     st.stop()
+                      # 🔹 Llamada al hook PRISMA
+                if not df_prisma.empty:
+                    prisma_cubierto, pendiente_prisma = hook_prisma(factura_final, df_prisma)
+
+                    if prisma_cubierto:
+                        res = st.session_state.get("resultado_prisma_directo", {})
+                        if res:
+                            st.subheader("✅ Resultado final (PRISMA)")
+                            st.write(f"ID UTE: {res['id_ute']}, Factura 90: {res['factura_90']}")
+                            st.dataframe(
+                                res['socios_df'][[col_num_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']],
+                                use_container_width=True
+                            )
+                    else:
+                        if pendiente_prisma is not None:
+                            externa_pendiente = pd.Series({
+                                'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                                col_fecha_emision: factura_final[col_fecha_emision] 
+                                                    if col_fecha_emision in factura_final 
+                                                    else factura_final.get(col_fecha_emision, pd.NaT)
+                            })
+                            st.session_state["externa_pendiente"] = externa_pendiente
+                            st.warning(f"⚠️ PRISMA no cubrió totalmente la factura 90, pendiente {pendiente_prisma['resto_euros']:,.2f} € que se cuadrará en COBRA")
             else:
                 st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
                 st.stop()
