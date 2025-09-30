@@ -441,6 +441,116 @@ if archivo:
                     st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
                             f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
                     
+                    # ---------------------------
+# --- Hook PRISMA → antes de continuar con COBRA ---
+# ---------------------------
+# Requiere: df_prisma (normalizado), col_num_factura, col_id_ute, col_importe (de PRISMA),
+#           factura_final (fila de df con la 90), df (Cobra), col_factura (en Cobra)
+
+prisma_cubierto = False
+pendiente_prisma = None  # dict con info si hay resto
+
+# Solo actúa si tenemos PRISMA cargado y una factura_final seleccionada
+if 'df_prisma' in globals() and not df_prisma.empty and factura_final is not None:
+    try:
+        factura_90_val = str(factura_final[col_factura]).strip()
+    except Exception:
+        factura_90_val = None
+
+    if factura_90_val:
+        # 1) Buscar la fila de la 90 en PRISMA
+        fila_90_prisma = df_prisma[df_prisma[col_num_factura].astype(str).str.strip() == factura_90_val]
+
+        if fila_90_prisma.empty:
+            st.warning(f"⚠️ La factura {factura_90_val} NO se encuentra en PRISMA. Se continuará usando solo COBRA.")
+            prisma_cubierto = False
+        else:
+            fila_90_prisma = fila_90_prisma.iloc[0]
+            id_ute_90 = str(fila_90_prisma[col_id_ute]).strip()
+            st.success(f"✅ Factura 90 encontrada en PRISMA. id UTE = {id_ute_90}")
+
+            # 2) Extraer todas las filas PRISMA que compartan ese id UTE (incluye 90 y socios)
+            df_parejas = df_prisma[df_prisma[col_id_ute].astype(str).str.strip() == id_ute_90].copy()
+
+            # Separar la propia 90 de las facturas 'socios' (TDE/TME)
+            df_socios_prisma = df_parejas[df_parejas[col_num_factura].astype(str).str.strip() != factura_90_val].copy()
+
+            # Mostrar resultados PRISMA
+            st.subheader("📂 PRISMA: filas relacionadas con id UTE")
+            st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
+            st.dataframe(df_parejas[[col_num_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']].head(30), use_container_width=True)
+
+            # 3) Sumar importes de socios y comparar con importe de la 90 (usamos IMPORT_CORRECTO)
+            importe_90_prisma = fila_90_prisma.get('IMPORTE_CORRECTO', None)
+            if importe_90_prisma is None:
+                # fallback: si PRISMA no tiene importe limpio, intentar buscar el importe en COBRA
+                try:
+                    importe_90_prisma = float(factura_final['IMPORTE_CORRECTO'])
+                except Exception:
+                    importe_90_prisma = None
+
+            importe_socios_prisma = float(df_socios_prisma['IMPORTE_CORRECTO'].sum()) if not df_socios_prisma.empty else 0.0
+            diferencia = (importe_90_prisma or 0.0) - importe_socios_prisma
+
+            st.info(f"💶 PRISMA → importe 90: {importe_90_prisma:,.2f} €")
+            st.info(f"💶 PRISMA → suma socios (TDE/TME): {importe_socios_prisma:,.2f} €")
+            st.info(f"🔢 PRISMA → diferencia (90 - socios): {diferencia:,.2f} €")
+
+            # 4) Decisión
+            tol_euros = 0.01
+            if abs(diferencia) <= tol_euros:
+                prisma_cubierto = True
+                st.success("🎉 La UTE queda cuadrada con PRISMA (no hace falta buscar en COBRA).")
+                # Guardamos resultado final como combinación de filas PRISMA (podrías mapear a formato COBRA si quieres)
+                st.session_state["resultado_prisma_directo"] = {
+                    "id_ute": id_ute_90,
+                    "factura_90": factura_90_val,
+                    "socios_df": df_socios_prisma,
+                    "fila_90": fila_90_prisma
+                }
+            else:
+                prisma_cubierto = False
+                # Guardamos la diferencia en céntimos para usar como objetivo en el solver de COBRA
+                resto_cent = int(round(diferencia * 100))
+                st.warning(f"⚠️ PRISMA no cubre totalmente la 90 — resta {diferencia:,.2f} € ({resto_cent} cént.) que habrá que cuadrar en COBRA")
+                pendiente_prisma = {
+                    "id_ute": id_ute_90,
+                    "factura_90": factura_90_val,
+                    "importe_90_prisma": importe_90_prisma,
+                    "importe_socios_prisma": importe_socios_prisma,
+                    "resto_euros": diferencia,
+                    "resto_cent": resto_cent,
+                    "df_socios_prisma": df_socios_prisma
+                }
+                # Guardarlo en session_state para que otras partes del flujo lo usen
+                st.session_state["pendiente_prisma"] = pendiente_prisma
+
+    else:
+        st.info("Introduce una factura 90 válida para que PRISMA actúe como filtro maestro.")
+
+# Si PRISMA cubre completamente, nos saltamos la parte de búsqueda en COBRA
+if prisma_cubierto:
+    # Puedes terminar aquí mostrando el resultado ya cuadrado desde PRISMA
+    res = st.session_state.get("resultado_prisma_directo", {})
+    if res:
+        st.subheader("✅ Resultado final (PRISMA)")
+        st.write(f"ID UTE: {res['id_ute']}, Factura 90: {res['factura_90']}")
+        st.dataframe(res['socios_df'][[col_num_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']], use_container_width=True)
+    # y luego hacer `st.stop()` si quieres cortar el flujo y no mostrar las opciones de COBRA:
+    # st.stop()
+else:
+    # Si no está cubierto por PRISMA, continúa el flujo normal y, cuando vayas a llamar al solver
+    # para cuadrar la factura externa con internas, usa `pendiente_prisma["resto_cent"]` como objetivo
+    # Ejemplo: construir una 'externa' temporal para pasar a `cuadrar_internas()`:
+    if pendiente_prisma is not None:
+        externa_pendiente = pd.Series({
+            'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+            col_fecha_emision: factura_final[col_fecha_emision] if col_fecha_emision in factura_final else factura_final.get(col_fecha_emision, pd.NaT)
+        })
+        # guarda en session_state para que el flujo posterior lo use
+        st.session_state["externa_pendiente"] = externa_pendiente
+
+                    
    # --- Filtrar UTES del mismo grupo y eliminar negativas ---
     
     grupo_filtrado = str(grupo_seleccionado).replace(" ", "")
