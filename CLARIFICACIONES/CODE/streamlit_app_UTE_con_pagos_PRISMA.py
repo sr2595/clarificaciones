@@ -108,6 +108,23 @@ if archivo_prisma:
     with st.expander("👀 Primeras filas PRISMA normalizado"):
         st.dataframe(df_prisma.head(10))
 
+        # --- Debug: ver cómo quedan las facturas en PRISMA ---
+    if not df_prisma.empty:
+        st.subheader("🔍 Revisión columna de facturas en PRISMA")
+        df_debug = df_prisma[[col_num_factura_prisma]].copy()
+        # Añadimos una versión “normalizada” para comparar
+        df_debug['FACTURA_NORMALIZADA'] = df_debug[col_num_factura_prisma].astype(str).str.strip().str.upper()
+        st.dataframe(df_debug.head(20), use_container_width=True)
+        
+        # También ver si hay duplicados o espacios invisibles
+        df_debug['LONGITUD'] = df_debug[col_num_factura_prisma].astype(str).str.len()
+        df_debug['CONTIENE_ESPACIOS'] = df_debug[col_num_factura_prisma].astype(str).str.contains(" ")
+        st.write("❗ Estadísticas rápidas:")
+        st.write(f"- Número de filas: {len(df_debug)}")
+        st.write(f"- Número de facturas únicas: {df_debug['FACTURA_NORMALIZADA'].nunique()}")
+        st.write(f"- Facturas con espacios: {df_debug['CONTIENE_ESPACIOS'].sum()}")
+
+
 def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma, col_importe_prisma, col_id_ute_prisma):
     prisma_cubierto = False
     pendiente_prisma = None
