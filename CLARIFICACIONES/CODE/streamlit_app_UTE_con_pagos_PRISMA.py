@@ -62,7 +62,7 @@ if archivo_prisma:
         df_prisma = pd.read_csv(
             archivo_prisma,
             sep=";",             # delimitador correcto
-            skiprows=2,          # saltar las 2 primeras filas basura
+            skiprows=1,          # saltar las 2 primeras filas basura
             header=0,            # ahora la fila 3 es la cabecera real
             encoding="latin1",   # por si hay acentos
             on_bad_lines="skip"  # evita caídas si hay filas raras
