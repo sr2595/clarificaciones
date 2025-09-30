@@ -53,7 +53,7 @@ factura_final = None
 df_internas = pd.DataFrame()
 
 # --------- Subida y normalización de PRISMA ---------
-archivo_prisma = st.file_uploader("Sube el archivo PRISMA", type=["xlsx", "xls"])
+archivo_prisma = st.file_uploader("Sube el archivo PRISMA", type=["xlsx", "xls", "csv"])
 df_prisma = pd.DataFrame()
 
 if archivo_prisma:
