@@ -553,6 +553,9 @@ else:
                     
    # --- Filtrar UTES del mismo grupo y eliminar negativas ---
     
+    if not grupo_seleccionado:
+        st.stop()  # o st.warning("Selecciona primero una factura/grupo") y return
+
     grupo_filtrado = str(grupo_seleccionado).replace(" ", "")
     df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
 
