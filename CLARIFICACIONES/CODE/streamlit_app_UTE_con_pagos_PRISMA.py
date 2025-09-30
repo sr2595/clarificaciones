@@ -53,53 +53,23 @@ factura_final = None
 df_internas = pd.DataFrame()
 
 # --------- Subida y normalización de PRISMA ---------
-archivo_prisma = st.file_uploader("Sube el archivo PRISMA", type=["xlsx", "xls", "csv"])
+archivo_prisma = st.file_uploader("Sube el archivo PRISMA (CSV)", type=["csv"])
 df_prisma = pd.DataFrame()
 
 if archivo_prisma:
-    nombre_archivo = archivo_prisma.name.lower()
-
-    # --- Lectura inicial ---
-    if nombre_archivo.endswith(".csv"):
-        # Detecta automáticamente el delimitador
-        if nombre_archivo.endswith(".csv"):
-            try:
-                df_prisma = pd.read_csv(
-                    archivo_prisma,
-                    sep=";",             # delimitador correcto
-                    skiprows=2,          # saltar las 2 primeras filas basura
-                    header=0,            # ahora la fila 3 es la cabecera real
-                    encoding="latin1",   # por si hay acentos
-                    on_bad_lines="skip"  # evita caídas si hay filas raras
-                )
-            except Exception as e:
-                st.error(f"❌ Error leyendo PRISMA CSV: {e}")
-                st.stop()
-    else:
-        # Excel
-        try:
-            df_prisma_raw = pd.read_excel(archivo_prisma, engine="openpyxl", header=None)
-        except Exception:
-            df_prisma_raw = pd.read_excel(archivo_prisma, header=None)
-
-    # --- Buscar fila que contiene la cabecera ---
-    header_row = None
-    for i in range(min(20, len(df_prisma_raw))):
-        vals = [str(x).lower() for x in df_prisma_raw.iloc[i].tolist()]
-        if any("id ute" in v or "num" in v or "cif" in v for v in vals):
-            header_row = i
-            break
-
-    if header_row is None:
-        st.error("❌ No se encontró cabecera reconocible en PRISMA")
+    try:
+        # Leer PRISMA CSV
+        df_prisma = pd.read_csv(
+            archivo_prisma,
+            sep=";",             # delimitador correcto
+            skiprows=2,          # saltar las 2 primeras filas basura
+            header=0,            # ahora la fila 3 es la cabecera real
+            encoding="latin1",   # por si hay acentos
+            on_bad_lines="skip"  # evita caídas si hay filas raras
+        )
+    except Exception as e:
+        st.error(f"❌ Error leyendo PRISMA CSV: {e}")
         st.stop()
-
-    # --- Releer con cabecera ---
-      
-        try:
-            df_prisma = pd.read_excel(archivo_prisma, engine="openpyxl", header=header_row)
-        except Exception:
-            df_prisma = pd.read_excel(archivo_prisma, header=header_row)
 
     # --- Detectar columnas ---
     col_id_ute       = find_col(df_prisma, ["id UTE"])
@@ -112,8 +82,10 @@ if archivo_prisma:
     col_razon_social = find_col(df_prisma, ["Razón Social"])
 
     faltan = []
-    for c, name in zip([col_id_ute, col_num_factura, col_fecha, col_cif, col_importe],
-                    ["id UTE", "Num. Factura", "Fecha Emisión", "CIF", "Total Base Imponible"]):
+    for c, name in zip(
+        [col_id_ute, col_num_factura, col_fecha, col_cif, col_importe],
+        ["id UTE", "Num. Factura", "Fecha Emisión", "CIF", "Total Base Imponible"]
+    ):
         if c is None:
             faltan.append(name)
     if faltan:
@@ -129,8 +101,12 @@ if archivo_prisma:
     df_prisma[col_fecha] = pd.to_datetime(df_prisma[col_fecha], dayfirst=True, errors='coerce')
 
     st.success(f"✅ Archivo PRISMA cargado correctamente con {len(df_prisma)} filas")
+
     with st.expander("🔎 Ver columnas detectadas en PRISMA"):
         st.write(list(df_prisma.columns))
+
+    with st.expander("👀 Primeras filas PRISMA normalizado"):
+        st.dataframe(df_prisma.head(10))
 
 
 # --------- subida y normalizacion de COBRA ---------
