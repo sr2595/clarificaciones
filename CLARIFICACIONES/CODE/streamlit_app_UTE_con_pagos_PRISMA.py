@@ -56,6 +56,10 @@ df_internas = pd.DataFrame()
 archivo_prisma = st.file_uploader("Sube el archivo PRISMA", type=["xlsx", "xls", "csv"])
 df_prisma = pd.DataFrame()
 
+st.write("Primeras 5 líneas en bruto del CSV:")
+st.code(archivo_prisma.getvalue().decode("latin1").splitlines()[:5])
+
+
 if archivo_prisma:
     nombre_archivo = archivo_prisma.name.lower()
 
