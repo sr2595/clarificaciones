@@ -57,13 +57,23 @@ archivo_prisma = st.file_uploader("Sube el archivo PRISMA", type=["xlsx", "xls",
 df_prisma = pd.DataFrame()
 
 if archivo_prisma:
-    # Lectura flexible para detectar cabecera
-    try:
-        df_prisma_raw = pd.read_excel(archivo_prisma, engine="openpyxl", header=None)
-    except Exception:
-        df_prisma_raw = pd.read_excel(archivo_prisma, header=None)
+    nombre_archivo = archivo_prisma.name.lower()
 
-    # Buscar fila que contiene la cabecera
+    # --- Lectura inicial ---
+    if nombre_archivo.endswith(".csv"):
+        # CSV no tiene múltiples hojas, lo leemos directo
+        try:
+            df_prisma_raw = pd.read_csv(archivo_prisma, sep=";", header=None, encoding="utf-8")
+        except Exception:
+            df_prisma_raw = pd.read_csv(archivo_prisma, sep=",", header=None, encoding="latin1")
+    else:
+        # Excel
+        try:
+            df_prisma_raw = pd.read_excel(archivo_prisma, engine="openpyxl", header=None)
+        except Exception:
+            df_prisma_raw = pd.read_excel(archivo_prisma, header=None)
+
+    # --- Buscar fila que contiene la cabecera ---
     header_row = None
     for i in range(min(20, len(df_prisma_raw))):
         vals = [str(x).lower() for x in df_prisma_raw.iloc[i].tolist()]
@@ -75,13 +85,19 @@ if archivo_prisma:
         st.error("❌ No se encontró cabecera reconocible en PRISMA")
         st.stop()
 
-    # Releer usando esa fila como cabecera
-    try:
-        df_prisma = pd.read_excel(archivo_prisma, engine="openpyxl", header=header_row)
-    except Exception:
-        df_prisma = pd.read_excel(archivo_prisma, header=header_row)
+    # --- Releer con cabecera ---
+    if nombre_archivo.endswith(".csv"):
+        try:
+            df_prisma = pd.read_csv(archivo_prisma, sep=";", header=header_row, encoding="utf-8")
+        except Exception:
+            df_prisma = pd.read_csv(archivo_prisma, sep=",", header=header_row, encoding="latin1")
+    else:
+        try:
+            df_prisma = pd.read_excel(archivo_prisma, engine="openpyxl", header=header_row)
+        except Exception:
+            df_prisma = pd.read_excel(archivo_prisma, header=header_row)
 
-    # Detectar columnas
+    # --- Detectar columnas ---
     col_id_ute       = find_col(df_prisma, ["id UTE"])
     col_num_factura  = find_col(df_prisma, ["Num. Factura", "Factura"])
     col_fecha        = find_col(df_prisma, ["Fecha Emisión", "Fecha"])
@@ -93,14 +109,14 @@ if archivo_prisma:
 
     faltan = []
     for c, name in zip([col_id_ute, col_num_factura, col_fecha, col_cif, col_importe],
-                       ["id UTE", "Num. Factura", "Fecha Emisión", "CIF", "Total Base Imponible"]):
+                    ["id UTE", "Num. Factura", "Fecha Emisión", "CIF", "Total Base Imponible"]):
         if c is None:
             faltan.append(name)
     if faltan:
         st.error("❌ No se pudieron localizar estas columnas en PRISMA: " + ", ".join(faltan))
         st.stop()
 
-    # Normalizar valores
+    # --- Normalizar valores ---
     df_prisma[col_num_factura]  = df_prisma[col_num_factura].astype(str).str.strip()
     df_prisma[col_cif]          = df_prisma[col_cif].astype(str).str.replace(" ", "")
     df_prisma[col_id_ute]       = df_prisma[col_id_ute].astype(str).str.strip()
