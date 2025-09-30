@@ -72,18 +72,18 @@ if archivo_prisma:
         st.stop()
 
     # --- Detectar columnas ---
-    col_id_ute       = find_col(df_prisma, ["id UTE"])
-    col_num_factura  = find_col(df_prisma, ["Num. Factura", "Factura"])
-    col_fecha        = find_col(df_prisma, ["Fecha Emisión", "Fecha"])
-    col_cif          = find_col(df_prisma, ["CIF"])
-    col_importe      = find_col(df_prisma, ["Total Base Imponible"])
-    col_tipo_imp     = find_col(df_prisma, ["Tipo Impuesto"])
-    col_cif_emisor   = find_col(df_prisma, ["CIF Emisor"])
-    col_razon_social = find_col(df_prisma, ["Razón Social"])
+    col_id_ute_prisma       = find_col(df_prisma, ["id UTE"])
+    col_num_factura_prisma  = find_col(df_prisma, ["Num. Factura", "Factura"])
+    col_fecha_prisma        = find_col(df_prisma, ["Fecha Emisión", "Fecha"])
+    col_cif_prisma          = find_col(df_prisma, ["CIF"])
+    col_importe_prisma      = find_col(df_prisma, ["Total Base Imponible"])
+    col_tipo_imp_prisma     = find_col(df_prisma, ["Tipo Impuesto"])
+    col_cif_emisor_prisma   = find_col(df_prisma, ["CIF Emisor"])
+    col_razon_social_prisma = find_col(df_prisma, ["Razón Social"])
 
     faltan = []
     for c, name in zip(
-        [col_id_ute, col_num_factura, col_fecha, col_cif, col_importe],
+        [col_id_ute_prisma, col_num_factura_prisma, col_fecha_prisma, col_cif_prisma, col_importe_prisma],
         ["id UTE", "Num. Factura", "Fecha Emisión", "CIF", "Total Base Imponible"]
     ):
         if c is None:
@@ -93,12 +93,12 @@ if archivo_prisma:
         st.stop()
 
     # --- Normalizar valores ---
-    df_prisma[col_num_factura]  = df_prisma[col_num_factura].astype(str).str.strip()
-    df_prisma[col_cif]          = df_prisma[col_cif].astype(str).str.replace(" ", "")
-    df_prisma[col_id_ute]       = df_prisma[col_id_ute].astype(str).str.strip()
-    df_prisma['IMPORTE_CORRECTO'] = df_prisma[col_importe].apply(convertir_importe_europeo)
+    df_prisma[col_num_factura_prisma]  = df_prisma[col_num_factura_prisma].astype(str).str.strip()
+    df_prisma[col_cif_prisma]          = df_prisma[col_cif_prisma].astype(str).str.replace(" ", "")
+    df_prisma[col_id_ute_prisma]       = df_prisma[col_id_ute_prisma].astype(str).str.strip()
+    df_prisma['IMPORTE_CORRECTO'] = df_prisma[col_importe_prisma].apply(convertir_importe_europeo)
     df_prisma['IMPORTE_CENT'] = (df_prisma['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
-    df_prisma[col_fecha] = pd.to_datetime(df_prisma[col_fecha], dayfirst=True, errors='coerce')
+    df_prisma[col_fecha_prisma] = pd.to_datetime(df_prisma[col_fecha_prisma], dayfirst=True, errors='coerce')
 
     st.success(f"✅ Archivo PRISMA cargado correctamente con {len(df_prisma)} filas")
 
@@ -108,7 +108,7 @@ if archivo_prisma:
     with st.expander("👀 Primeras filas PRISMA normalizado"):
         st.dataframe(df_prisma.head(10))
 
-def hook_prisma(factura_final, df_prisma):
+def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma, col_importe_prisma, col_id_ute_prisma):
     prisma_cubierto = False
     pendiente_prisma = None
 
@@ -118,22 +118,22 @@ def hook_prisma(factura_final, df_prisma):
         factura_90_val = None
 
     if factura_90_val:
-        fila_90_prisma = df_prisma[df_prisma[col_num_factura].astype(str).str.strip() == factura_90_val]
+        fila_90_prisma = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.strip() == factura_90_val]
 
         if fila_90_prisma.empty:
             st.warning(f"⚠️ La factura {factura_90_val} NO se encuentra en PRISMA. Se continuará usando solo COBRA.")
             prisma_cubierto = False
         else:
             fila_90_prisma = fila_90_prisma.iloc[0]
-            id_ute_90 = str(fila_90_prisma[col_id_ute]).strip()
+            id_ute_90 = str(fila_90_prisma[col_id_ute_prisma]).strip()
             st.success(f"✅ Factura 90 encontrada en PRISMA. id UTE = {id_ute_90}")
 
-            df_parejas = df_prisma[df_prisma[col_id_ute].astype(str).str.strip() == id_ute_90].copy()
-            df_socios_prisma = df_parejas[df_parejas[col_num_factura].astype(str).str.strip() != factura_90_val].copy()
+            df_parejas = df_prisma[df_prisma[col_id_ute_prisma].astype(str).str.strip() == id_ute_90].copy()
+            df_socios_prisma = df_parejas[df_parejas[col_num_factura_prisma].astype(str).str.strip() != factura_90_val].copy()
 
             st.subheader("📂 PRISMA: filas relacionadas con id UTE")
             st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
-            st.dataframe(df_parejas[[col_num_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']].head(30), use_container_width=True)
+            st.dataframe(df_parejas[[col_num_factura_prisma, col_cif_prisma, col_importe_prisma, 'IMPORTE_CORRECTO']].head(30), use_container_width=True)
 
             importe_90_prisma = fila_90_prisma.get('IMPORTE_CORRECTO', 0.0)
             importe_socios_prisma = float(df_socios_prisma['IMPORTE_CORRECTO'].sum()) if not df_socios_prisma.empty else 0.0
@@ -169,6 +169,7 @@ def hook_prisma(factura_final, df_prisma):
                 st.session_state["pendiente_prisma"] = pendiente_prisma
 
     return prisma_cubierto, pendiente_prisma
+
 
 # --------- subida y normalizacion de COBRA ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
@@ -293,28 +294,38 @@ if archivo:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
                     st.stop()
                       # 🔹 Llamada al hook PRISMA
-                if not df_prisma.empty:
-                    prisma_cubierto, pendiente_prisma = hook_prisma(factura_final, df_prisma)
+                    if not df_prisma.empty:
+                        prisma_cubierto, pendiente_prisma = hook_prisma(
+                            factura_final,
+                            df_prisma,
+                            col_num_factura_prisma,
+                            col_cif_prisma,
+                            col_importe_prisma,
+                            col_id_ute_prisma
+                        )
 
-                    if prisma_cubierto:
-                        res = st.session_state.get("resultado_prisma_directo", {})
-                        if res:
-                            st.subheader("✅ Resultado final (PRISMA)")
-                            st.write(f"ID UTE: {res['id_ute']}, Factura 90: {res['factura_90']}")
-                            st.dataframe(
-                                res['socios_df'][[col_num_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']],
-                                use_container_width=True
-                            )
-                    else:
-                        if pendiente_prisma is not None:
-                            externa_pendiente = pd.Series({
-                                'IMPORTE_CENT': pendiente_prisma["resto_cent"],
-                                col_fecha_emision: factura_final[col_fecha_emision] 
-                                                    if col_fecha_emision in factura_final 
-                                                    else factura_final.get(col_fecha_emision, pd.NaT)
-                            })
-                            st.session_state["externa_pendiente"] = externa_pendiente
-                            st.warning(f"⚠️ PRISMA no cubrió totalmente la factura 90, pendiente {pendiente_prisma['resto_euros']:,.2f} € que se cuadrará en COBRA")
+                        if prisma_cubierto:
+                            res = st.session_state.get("resultado_prisma_directo", {})
+                            if res:
+                                st.subheader("✅ Resultado final (PRISMA)")
+                                st.write(f"ID UTE: {res['id_ute']}, Factura 90: {res['factura_90']}")
+                                st.dataframe(
+                                    res['socios_df'][
+                                        [col_num_factura_prisma, col_cif_prisma, col_importe_prisma, 'IMPORTE_CORRECTO']
+                                    ],
+                                    use_container_width=True
+                                )
+                        else:
+                            if pendiente_prisma is not None:
+                                # Aquí se podría crear la serie pendiente para COBRA usando importe en céntimos
+                                externa_pendiente = pd.Series({
+                                    'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                                    col_fecha_emision: factura_final[col_fecha_emision] 
+                                                        if col_fecha_emision in factura_final 
+                                                        else factura_final.get(col_fecha_emision, pd.NaT)
+                                })
+                                st.session_state["externa_pendiente"] = externa_pendiente
+                                st.warning(f"⚠️ PRISMA no cubrió totalmente la factura 90, pendiente {pendiente_prisma['resto_euros']:,.2f} € que se cuadrará en COBRA")  
             else:
                 st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
                 st.stop()
