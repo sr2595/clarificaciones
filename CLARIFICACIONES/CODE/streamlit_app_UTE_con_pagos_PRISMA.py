@@ -61,11 +61,12 @@ if archivo_prisma:
 
     # --- Lectura inicial ---
     if nombre_archivo.endswith(".csv"):
-        # CSV no tiene múltiples hojas, lo leemos directo
+        # Detecta automáticamente el delimitador
         try:
-            df_prisma_raw = pd.read_csv(archivo_prisma, sep=";", header=None, encoding="utf-8")
+            df_prisma_raw = pd.read_csv(archivo_prisma, sep=None, engine="python", header=None, encoding="utf-8")
         except Exception:
-            df_prisma_raw = pd.read_csv(archivo_prisma, sep=",", header=None, encoding="latin1")
+            df_prisma_raw = pd.read_csv(archivo_prisma, sep=None, engine="python", header=None, encoding="latin1")
+
     else:
         # Excel
         try:
