@@ -108,6 +108,67 @@ if archivo_prisma:
     with st.expander("👀 Primeras filas PRISMA normalizado"):
         st.dataframe(df_prisma.head(10))
 
+def hook_prisma(factura_final, df_prisma):
+    prisma_cubierto = False
+    pendiente_prisma = None
+
+    try:
+        factura_90_val = str(factura_final[col_factura]).strip()
+    except Exception:
+        factura_90_val = None
+
+    if factura_90_val:
+        fila_90_prisma = df_prisma[df_prisma[col_num_factura].astype(str).str.strip() == factura_90_val]
+
+        if fila_90_prisma.empty:
+            st.warning(f"⚠️ La factura {factura_90_val} NO se encuentra en PRISMA. Se continuará usando solo COBRA.")
+            prisma_cubierto = False
+        else:
+            fila_90_prisma = fila_90_prisma.iloc[0]
+            id_ute_90 = str(fila_90_prisma[col_id_ute]).strip()
+            st.success(f"✅ Factura 90 encontrada en PRISMA. id UTE = {id_ute_90}")
+
+            df_parejas = df_prisma[df_prisma[col_id_ute].astype(str).str.strip() == id_ute_90].copy()
+            df_socios_prisma = df_parejas[df_parejas[col_num_factura].astype(str).str.strip() != factura_90_val].copy()
+
+            st.subheader("📂 PRISMA: filas relacionadas con id UTE")
+            st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
+            st.dataframe(df_parejas[[col_num_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']].head(30), use_container_width=True)
+
+            importe_90_prisma = fila_90_prisma.get('IMPORTE_CORRECTO', 0.0)
+            importe_socios_prisma = float(df_socios_prisma['IMPORTE_CORRECTO'].sum()) if not df_socios_prisma.empty else 0.0
+            diferencia = (importe_90_prisma or 0.0) - importe_socios_prisma
+
+            st.info(f"💶 PRISMA → importe 90: {importe_90_prisma:,.2f} €")
+            st.info(f"💶 PRISMA → suma socios (TDE/TME): {importe_socios_prisma:,.2f} €")
+            st.info(f"🔢 PRISMA → diferencia (90 - socios): {diferencia:,.2f} €")
+
+            tol_euros = 0.01
+            if abs(diferencia) <= tol_euros:
+                prisma_cubierto = True
+                st.success("🎉 La UTE queda cuadrada con PRISMA (no hace falta buscar en COBRA).")
+                st.session_state["resultado_prisma_directo"] = {
+                    "id_ute": id_ute_90,
+                    "factura_90": factura_90_val,
+                    "socios_df": df_socios_prisma,
+                    "fila_90": fila_90_prisma
+                }
+            else:
+                prisma_cubierto = False
+                resto_cent = int(round(diferencia * 100))
+                st.warning(f"⚠️ PRISMA no cubre totalmente la 90 — resta {diferencia:,.2f} € ({resto_cent} cént.) que habrá que cuadrar en COBRA")
+                pendiente_prisma = {
+                    "id_ute": id_ute_90,
+                    "factura_90": factura_90_val,
+                    "importe_90_prisma": importe_90_prisma,
+                    "importe_socios_prisma": importe_socios_prisma,
+                    "resto_euros": diferencia,
+                    "resto_cent": resto_cent,
+                    "df_socios_prisma": df_socios_prisma
+                }
+                st.session_state["pendiente_prisma"] = pendiente_prisma
+
+    return prisma_cubierto, pendiente_prisma
 
 # --------- subida y normalizacion de COBRA ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
