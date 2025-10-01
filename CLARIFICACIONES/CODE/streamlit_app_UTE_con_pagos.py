@@ -529,102 +529,38 @@ if archivo:
         st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
     else:
      
-    
-
-        def extract_cruce_movs(uploaded_file):
-            """
-            Lee la hoja 'Cruce_Movs' de un .xlsx aunque esté parcialmente corrupto.
-            Devuelve un DataFrame completo.
-            """
-            if uploaded_file is None:
-                return pd.DataFrame()
-
-            raw_bytes = uploaded_file.getvalue()
-            zip_buf = BytesIO(raw_bytes)
-
-            try:
-                z = zipfile.ZipFile(zip_buf)
-            except Exception as e:
-                st.error(f"No se pudo abrir el archivo como ZIP: {e}")
-                return pd.DataFrame()
-
-            # 1️⃣ Leer sharedStrings.xml para valores de texto
-            shared_strings = []
-            if 'xl/sharedStrings.xml' in z.namelist():
-                ss_xml = z.read('xl/sharedStrings.xml')
-                root = ET.fromstring(ss_xml)
-                for si in root.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t'):
-                    shared_strings.append(si.text or '')
-
-            # 2️⃣ Encontrar la hoja 'Cruce_Movs'
-            # Primero leemos workbook.xml para mapear sheetId → sheet file
-            sheet_name_to_file = {}
-            wb_xml = ET.fromstring(z.read('xl/workbook.xml'))
-            ns = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
-            sheets = wb_xml.findall('.//main:sheets/main:sheet', ns)
-            for sheet in sheets:
-                name = sheet.attrib.get('name')
-                rid = sheet.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
-                sheet_name_to_file[name] = rid
-
-            # Mapear rid → sheetX.xml usando _rels/workbook.xml.rels
-            rels = {}
-            if 'xl/_rels/workbook.xml.rels' in z.namelist():
-                rels_xml = ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
-                for rel in rels_xml.findall('{http://schemas.openxmlformats.org/package/2006/relationships}Relationship'):
-                    rels[rel.attrib['Id']] = rel.attrib['Target']
-
-            if 'Cruce_Movs' not in sheet_name_to_file:
-                st.error("❌ La hoja 'Cruce_Movs' no existe en el archivo")
-                return pd.DataFrame()
-
-            rid = sheet_name_to_file['Cruce_Movs']
-            sheet_file = 'xl/' + rels[rid]
-
-            # 3️⃣ Parsear sheetX.xml
-            sheet_xml = z.read(sheet_file)
-            root = ET.fromstring(sheet_xml)
-            rows_data = []
-            for row in root.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row'):
-                row_data = []
-                for c in row.findall('{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c'):
-                    v = c.find('{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v')
-                    if v is None:
-                        row_data.append(None)
-                    else:
-                        # si t="s", usar sharedStrings
-                        if c.attrib.get('t') == 's':
-                            idx = int(v.text)
-                            row_data.append(shared_strings[idx] if idx < len(shared_strings) else None)
-                        else:
-                            row_data.append(v.text)
-                rows_data.append(row_data)
-
-            # Convertir a DataFrame, primera fila como headers
-            if not rows_data:
-                return pd.DataFrame()
-            df = pd.DataFrame(rows_data[1:], columns=rows_data[0])
-            return df
-
-        # --- Streamlit ---
-        st.title("Lector robusto de 'Cruce_Movs'")
-
+         # --- 2) leer/normalizar cobros ---
         cobros_file = st.file_uploader(
             "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
-            type=['xlsm', 'xlsx'],
+            type=['xlsm', 'xlsx', 'csv'],
             key="cobros"
         )
 
         df_cobros = pd.DataFrame()
-
         if cobros_file:
-            df_cobros = extract_cruce_movs(cobros_file)
-            if df_cobros.empty:
-                st.error("No se pudo leer la hoja 'Cruce_Movs'.")
-            else:
-                st.success(f"✅ Hoja 'Cruce_Movs' leída correctamente con {len(df_cobros)} filas")
-                st.dataframe(df_cobros.head(), use_container_width=True)
+            try:
+                if cobros_file.name.endswith(('.xlsm', '.xlsx')):
+                    # Guardamos en BytesIO para poder leer varias veces
+                    data = BytesIO(cobros_file.read())
 
+                    # 1) Detectar hojas
+                    xls = pd.ExcelFile(data, engine="openpyxl")
+                    
+
+                    # 2) Seleccionar la hoja
+                    sheet = "Cruce_Movs" if "Cruce_Movs" in xls.sheet_names else xls.sheet_names[0]
+
+                    # resetear puntero y leer la hoja
+                    data.seek(0)
+                    df_cobros = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
+
+                else:  # CSV
+                    df_cobros = pd.read_csv(cobros_file, sep=None, engine="python")
+
+            
+            except Exception as e:
+                st.error(f"Error al leer el archivo de pagos: {e}")
+                df_cobros = pd.DataFrame()
 
         # Si no hay resultado interno, paramos aquí (nada que asignar)
         if df_resultado.empty:
