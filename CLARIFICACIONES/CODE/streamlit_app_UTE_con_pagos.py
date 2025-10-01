@@ -6,6 +6,8 @@ from datetime import datetime
 import unicodedata, re
 import io
 import os
+import zipfile
+import xml.etree.ElementTree as ET
 
 st.write("DEBUG archivo en ejecución:", os.path.abspath(__file__))
 
