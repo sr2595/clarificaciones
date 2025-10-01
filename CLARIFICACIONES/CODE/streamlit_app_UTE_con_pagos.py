@@ -578,7 +578,27 @@ if archivo:
                 st.error(f"❌ Ningún método pudo leer el archivo: {e5}")
                 return pd.DataFrame()
 
+        # --- 2) leer/normalizar cobros ---
+        cobros_file = st.file_uploader(
+            "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
+            type=['xlsm', 'xlsx', 'xls', 'xlsb', 'csv'],
+            key="cobros"
+        )
 
+        # 👇 siempre inicializado, evita NameError
+        df_cobros = pd.DataFrame()
+
+        if cobros_file:
+            df_cobros = read_excel_robust(cobros_file)
+            if df_cobros.empty:
+                st.error("No se pudo leer el archivo de pagos (o falta la hoja 'Cruce_Movs').")
+            else:
+                st.success(f"✅ Archivo leído correctamente con {len(df_cobros)} filas")
+                st.dataframe(df_cobros.head(), use_container_width=True)
+
+        # 👇 ya no rompe nunca
+        if not df_cobros.empty:
+            st.write("Pagos cargados y listos para procesar.")
 
         # Si no hay resultado interno, paramos aquí (nada que asignar)
         if df_resultado.empty:
