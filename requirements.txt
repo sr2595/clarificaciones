@@ -2,3 +2,6 @@ ortools
 pandas
 streamlit
 openpyxl
+xlrd
+pyxlsb
+odfpy
