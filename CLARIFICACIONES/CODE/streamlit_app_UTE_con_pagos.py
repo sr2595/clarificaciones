@@ -526,76 +526,57 @@ if archivo:
     if df_resultado.empty:
         st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
     else:
-
         # --- función robusta ---
         def read_excel_robust(uploaded_file):
             if uploaded_file is None:
                 return pd.DataFrame()
 
-            data = BytesIO(uploaded_file.read())
+            # Guardamos en memoria los bytes del fichero
+            raw_bytes = uploaded_file.getvalue()
 
             # openpyxl
             try:
-                data.seek(0)
+                data = BytesIO(raw_bytes)
                 xls = pd.ExcelFile(data, engine="openpyxl")
                 if "Cruce_Movs" not in xls.sheet_names:
                     st.error("❌ La hoja 'Cruce_Movs' no existe en el archivo")
                     return pd.DataFrame()
-                data.seek(0)
                 return pd.read_excel(data, sheet_name="Cruce_Movs", engine="openpyxl")
             except Exception as e1:
                 st.warning(f"⚠️ openpyxl falló: {e1}")
 
             # xlrd
             try:
-                data.seek(0)
+                data = BytesIO(raw_bytes)
                 xls = pd.ExcelFile(data, engine="xlrd")
                 if "Cruce_Movs" not in xls.sheet_names:
                     st.error("❌ La hoja 'Cruce_Movs' no existe en el archivo")
                     return pd.DataFrame()
-                data.seek(0)
                 return pd.read_excel(data, sheet_name="Cruce_Movs", engine="xlrd")
             except Exception as e2:
                 st.warning(f"⚠️ xlrd falló: {e2}")
 
             # pyxlsb
             try:
-                data.seek(0)
+                data = BytesIO(raw_bytes)
                 return pd.read_excel(data, sheet_name="Cruce_Movs", engine="pyxlsb")
             except Exception as e3:
                 st.warning(f"⚠️ pyxlsb falló: {e3}")
 
             # odf
             try:
-                data.seek(0)
+                data = BytesIO(raw_bytes)
                 return pd.read_excel(data, sheet_name="Cruce_Movs", engine="odf")
             except Exception as e4:
                 st.warning(f"⚠️ odf falló: {e4}")
 
-            # csv
+            # csv fallback
             try:
-                data.seek(0)
-                return pd.read_csv(uploaded_file, sep=None, engine="python")
+                data = BytesIO(raw_bytes)
+                return pd.read_csv(data, sep=None, engine="python")
             except Exception as e5:
                 st.error(f"❌ Ningún método pudo leer el archivo: {e5}")
                 return pd.DataFrame()
-
-
-        # --- 2) leer/normalizar cobros ---
-        cobros_file = st.file_uploader(
-            "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
-            type=['xlsm', 'xlsx', 'xls', 'xlsb', 'csv'],
-            key="cobros"
-        )
-
-        df_cobros = pd.DataFrame()
-        if cobros_file:
-            df_cobros = read_excel_robust(cobros_file)
-            if df_cobros.empty:
-                st.error("No se pudo leer el archivo de pagos (o falta la hoja 'Cruce_Movs').")
-            else:
-                st.success(f"✅ Archivo leído correctamente con {len(df_cobros)} filas")
-                st.dataframe(df_cobros.head(), use_container_width=True)
 
 
 
