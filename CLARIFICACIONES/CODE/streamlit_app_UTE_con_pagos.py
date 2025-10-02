@@ -312,35 +312,35 @@ if archivo:
                     solver_used = True
                     st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
                     st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
-                
-            # --- Si el solver se usó, solo entonces creamos la factura agrupada como fallback
-            if solver_used:
-                # Si NO hay facturas internas seleccionadas por el usuario
-                if df_internas.empty:
-                    # Tomamos las facturas seleccionadas por el solver (facturas reales)
-                    df_resultado = df_tss_selec.copy()
 
-                    # Deduplicar por socio + factura (por seguridad)
-                    if not df_resultado.empty and col_factura in df_resultado and col_sociedad in df_resultado:
-                        df_resultado = df_resultado.drop_duplicates(subset=[col_factura, col_sociedad])
+                # --- Si el solver se usó, solo entonces creamos la factura agrupada como fallback
+                if solver_used:
+                    # Si NO hay facturas internas seleccionadas por el usuario
+                    if df_internas.empty:
+                        # Tomamos las facturas seleccionadas por el solver
+                        df_resultado = df_tss_selec.copy()
 
-                    # Crear factura final agrupada en un DF aparte (no mezclar con df_resultado)
-                    total_importe = float(df_resultado["IMPORTE_CORRECTO"].sum())
-                    fecha_min = df_resultado[col_fecha_emision].min()
+                        # Deduplicar por socio + factura (por seguridad)
+                        if not df_resultado.empty and col_factura in df_resultado and col_sociedad in df_resultado:
+                            df_resultado = df_resultado.drop_duplicates(subset=[col_factura, col_sociedad])
 
-                    df_resultado_agrupado = pd.DataFrame([{
-                        col_cif: "AGRUPADO",
-                        col_nombre_cliente: "Facturas TSS agrupadas",
-                        col_factura: "AGRUPADO",
-                        col_fecha_emision: fecha_min,
-                        "IMPORTE_CORRECTO": total_importe,
-                        "IMPORTE_CENT": int(round(total_importe * 100))
-                    }])
+                        # Crear factura final agrupada
+                        total_importe = float(df_resultado["IMPORTE_CORRECTO"].sum())
+                        fecha_min = df_resultado[col_fecha_emision].min()
 
-                else:
-                    # Si hay internas, dejamos que el flujo normal actúe
-                    df_resultado = pd.DataFrame()
-                    df_resultado_agrupado = pd.DataFrame()
+                        factura_final = pd.Series({
+                            col_cif: "AGRUPADO",
+                            col_nombre_cliente: "Facturas TSS agrupadas",
+                            col_factura: "AGRUPADO",
+                            col_fecha_emision: fecha_min,
+                            "IMPORTE_CORRECTO": total_importe,
+                            "IMPORTE_CENT": int(round(total_importe * 100))
+                        })
+
+                    else:
+                        # Si hay internas, dejamos que el flujo normal actúe
+                        df_resultado = pd.DataFrame()
+
 
 
             else:
@@ -504,11 +504,8 @@ if archivo:
     # 🔹 2) Cuadrar factura final con internas
     # ==========================================
     df_resultado_factura = pd.DataFrame()
-    # 👉 aquí usamos ref_df: si existe AGRUPADO se cuadra contra él, si no contra facturas reales
-    ref_df = df_resultado_agrupado if not df_resultado_agrupado.empty else df_resultado
-
-    if not ref_df.empty and not df_internas.empty:
-        df_resultado_factura = cuadrar_internas(ref_df.iloc[0], df_internas)
+    if factura_final is not None and not df_internas.empty:
+        df_resultado_factura = cuadrar_internas(factura_final, df_internas)
         if df_resultado_factura.empty:
             st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
         else:
