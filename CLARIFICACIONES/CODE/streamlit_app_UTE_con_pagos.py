@@ -203,22 +203,21 @@ if archivo:
             df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS"]
 
          
-           # --- Opciones de cliente final dentro del grupo (CIF + nombre) ---
+            # --- Opciones de cliente dentro del grupo (CIF + nombre) ---
             df_clientes_del_grupo = df_tss[[col_cif, col_nombre_cliente]].drop_duplicates()
             df_clientes_del_grupo[col_nombre_cliente] = df_clientes_del_grupo[col_nombre_cliente].fillna("").str.strip()
 
             if df_clientes_del_grupo.empty:
                 st.warning("⚠️ No hay clientes en este grupo")
             else:
-                # Mostrar CIF + nombre
-                opciones_clientes_del_grupo = [
-                    f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
+                # Diccionario para mapear display -> CIF
+                opciones_dict = {
+                    f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}": row[col_cif]
                     for _, row in df_clientes_del_grupo.iterrows()
-                ]
-                cliente_seleccionado_display = st.selectbox("Selecciona cliente dentro del grupo", opciones_clientes_del_grupo)
-                
-                # Filtrar solo por CIF
-                cliente_seleccionado_cif = cliente_seleccionado_display.split(" - ")[0].replace(" ", "")
+                }
+
+                cliente_seleccionado_display = st.selectbox("Selecciona cliente dentro del grupo", list(opciones_dict.keys()))
+                cliente_seleccionado_cif = opciones_dict[cliente_seleccionado_display]  # Aquí siempre tenemos el CIF correcto
                 df_tss_cliente = df_tss[df_tss[col_cif] == cliente_seleccionado_cif].copy()
 
             
