@@ -140,7 +140,8 @@ if archivo:
     df_internas = pd.DataFrame()
     df_tss_selec = pd.DataFrame()
     df_resultado_final = pd.DataFrame()
-    df_resultado = pd.DataFrame()   
+    df_resultado = pd.DataFrame() 
+    pago_final_used = None  
 
     if modo_busqueda == "Por factura TSS (90)":
         # --- Input alternativo: buscar directamente por factura TSS (90) ---
