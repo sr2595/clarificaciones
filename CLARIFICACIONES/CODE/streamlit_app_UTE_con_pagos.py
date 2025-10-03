@@ -525,6 +525,16 @@ if archivo:
     if df_resultado.empty:
         st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
     else:
+
+        # DEBUG: verificar estado de variables
+        st.write("🔍 DEBUG:")
+        st.write(f"- df_resultado tiene {len(df_resultado)} filas")
+        st.write(f"- factura_final es: {type(factura_final)}")
+        if isinstance(factura_final, pd.Series):
+            st.write(f"  - CIF: {factura_final.get(col_cif)}")
+        st.write(f"- df_tss_selec existe: {'df_tss_selec' in locals()}")
+        if 'df_tss_selec' in locals():
+            st.write(f"  - tiene {len(df_tss_selec)} filas")
      
     # --- 2) leer/normalizar cobros --- 
         cobros_file = st.file_uploader(
