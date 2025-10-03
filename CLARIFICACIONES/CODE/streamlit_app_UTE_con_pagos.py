@@ -890,8 +890,15 @@ if archivo:
 
                 df_carta_pago = pd.DataFrame(rows)
 
-                  
-            # --- 8) generar carta de pago ---
+
+
+                 # --- 8) generar carta de pago ---
+
+                socio_map = {
+                    "T001": "TDE",
+                    "TM01": "TME",
+                    "TSOL": "TSOL"
+}     
                 if pago_elegido is not None:
                     rows = []
 
@@ -934,7 +941,7 @@ if archivo:
                                                                         if pd.notna(socio.get(col_fecha_emision)) else "",
                                     "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio.get(col_factura, ""),
                                     "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio.get("IMPORTE_CORRECTO", 0.0),
-                                    "SOCIO A PAGAR": socio.get(col_sociedad, ""),
+                                    "SOCIO A PAGAR": socio_map.get(socio.get(col_sociedad, ""), socio.get(col_sociedad, "")),
                                     "ID MOVIMIENTO": pago_elegido.get("id_movimiento", ""),
                                 })
 
@@ -959,7 +966,7 @@ if archivo:
                                                                     if pd.notna(socio.get(col_fecha_emision)) else "",
                                 "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio.get(col_factura, ""),
                                 "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio.get("IMPORTE_CORRECTO", 0.0),
-                                "SOCIO A PAGAR": socio.get(col_sociedad, ""),
+                                "SOCIO A PAGAR": socio_map.get(socio.get(col_sociedad, ""), socio.get(col_sociedad, "")),
                                 "ID MOVIMIENTO": pago_elegido.get("id_movimiento", ""),
                             })
 
