@@ -753,8 +753,8 @@ if archivo:
             df_resultado.loc[:, 'Pago_Norma43'] = pd.NA
             df_resultado.loc[:, 'Pago_CIF'] = pd.NA
 
-            if pago_elegido is not None:
-                p = pago_elegido
+            if pago_final_used is not None:
+                p = pago_final_used
                 importe_pago = p.get('importe') if p.get('importe') is not None else 0.0
                 fecha_pago = p.get('fec_operacion') if 'fec_operacion' in p else None
                 norma_pago = p.get('norma_43') if 'norma_43' in p else ''
@@ -867,14 +867,14 @@ if archivo:
                 candidatos_final = pd.DataFrame()
 
             if not candidatos_final.empty:
-                pago_final_used = choose_closest_by_date(candidatos_final, fecha_ref)
+                pago_final_used = _choose_closest_by_date_abs(candidatos_final, fecha_ref)
 
             # --- Paso 2: si no se encontró nada, buscar por todos los CIFs del agrupado ---
             if pago_final_used is None and cif_col and cifs_agrupado:
                 candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
                 candidatos_agrupado = candidatos[candidatos[cif_col].isin(cifs_agrupado)]
                 if not candidatos_agrupado.empty:
-                    pago_final_used = choose_closest_by_date(candidatos_agrupado, fecha_ref)
+                    pago_final_used = _choose_closest_by_date_abs(candidatos_agrupado, fecha_ref)
 
         else:
             # Caso normal: usar el pago global
