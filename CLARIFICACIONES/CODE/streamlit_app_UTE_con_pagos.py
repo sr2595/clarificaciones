@@ -660,88 +660,88 @@ if archivo:
                     socios_list = []
         
             # --- auxiliar: elegir candidato más cercano por fecha ---
-            # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
-            def choose_closest_by_date(cand_df, fecha_ref_local):
+            def _choose_closest_by_date_abs(cand_df, fecha_ref_local):
+                """Devuelve la fila (as dict) con menor diferencia absoluta de fecha respecto a fecha_ref_local."""
                 if cand_df is None or cand_df.empty:
                     return None
-
                 tmp = cand_df.copy()
                 fecha_ref_dt = pd.to_datetime(fecha_ref_local, errors='coerce')
-
                 if 'fec_operacion' in tmp.columns:
                     tmp['fec_operacion'] = pd.to_datetime(tmp['fec_operacion'], errors='coerce')
-                    # Filtrar solo pagos posteriores o iguales a fecha_ref
-                    tmp = tmp[tmp['fec_operacion'] >= fecha_ref_dt]
-
-                # Filtrar solo filas con importe válido
                 if 'importe' in tmp.columns:
                     tmp = tmp[tmp['importe'].notna()]
-
                 if tmp.empty:
                     return None
-
-                # Elegir pago más cercano posterior (min diferencia)
                 if 'fec_operacion' in tmp.columns and tmp['fec_operacion'].notna().any():
-                    tmp['diff'] = (tmp['fec_operacion'] - fecha_ref_dt).dt.total_seconds()
-                    chosen = tmp.sort_values('diff').iloc[0]
+                    tmp['diff_abs'] = (tmp['fec_operacion'] - fecha_ref_dt).dt.total_seconds().abs()
+                    chosen = tmp.sort_values('diff_abs').iloc[0]
                 else:
-                    # Si no hay fechas, coger el primero disponible
                     chosen = tmp.iloc[0]
-
                 return chosen.to_dict()
 
+            def find_pago_for_agrupado(df_cobros, df_tss_selec, fecha_ref, cliente_seleccionado_cif=None, tolerancia_cent=0):
+                """Busca y devuelve UN pago (dict) para un agrupado de TSS sin fallback global."""
+                if df_cobros is None or df_cobros.empty:
+                    return None
 
-            pago_elegido = None
+                # objetivo en céntimos
+                try:
+                    objetivo_cent = int(round(float(df_tss_selec["IMPORTE_CORRECTO"].sum()) * 100))
+                except Exception:
+                    return None
 
-            # --- Paso A: buscar por posible_factura EXACTA + importe total (comparación exacta en céntimos) ---
-            if not df_cobros.empty and fact_final_id:
-                cand_pf = df_cobros[df_cobros.get('posible_factura', '').astype(str) == fact_final_id].copy()
-                if not cand_pf.empty and 'importe' in cand_pf.columns:
-                    cand_pf = cand_pf[cand_pf['importe'].notna()].copy()
-                    # comparar en céntimos para evitar floats
-                    cand_pf['IMPORTE_CENT'] = (cand_pf['importe'].astype(float) * 100).round().astype('Int64')
-                    objetivo_cent = int(round(importe_total_final * 100))
-                    cand_pf = cand_pf[cand_pf['IMPORTE_CENT'] == objetivo_cent]
-                    if not cand_pf.empty:
-                        pago_elegido = choose_closest_by_date(cand_pf, fecha_ref)
+                df_cand = df_cobros.copy()
+                if 'importe' not in df_cand.columns:
+                    return None
+                df_cand = df_cand[df_cand['importe'].notna()].copy()
+                df_cand['IMPORTE_CENT'] = (df_cand['importe'].astype(float) * 100).round().astype('Int64')
 
-            # --- Paso B: si no hay, buscar por IMPORTE + CIF (CIF debe pertenecer a socios_list) ---
-            if pago_elegido is None and not df_cobros.empty:
-                # detectar columna de CIF/NIF en df_cobros
+                # detectar columna CIF/NIF
                 cif_col = None
-                for c in df_cobros.columns:
-                    if any(k in c for k in ['cif', 'nif', 'titular', 'benef', 'beneficiario', 'cliente', 'titular_nif']):
+                for c in df_cand.columns:
+                    cl = str(c).lower()
+                    if any(k in cl for k in ['cif','nif','titular','benef','cliente','titular_nif']):
                         cif_col = c
                         break
 
-                candidatos = df_cobros.copy()
-                if 'importe' in candidatos.columns:
-                    candidatos = candidatos[candidatos['importe'].notna()].copy()
-                    candidatos['IMPORTE_CENT'] = (candidatos['importe'].astype(float) * 100).round().astype('Int64')
-                    objetivo_cent = int(round(importe_total_final * 100))
-                    candidatos = candidatos[candidatos['IMPORTE_CENT'] == objetivo_cent]
-                else:
-                    candidatos = candidatos.iloc[0:0]
+                # lista de TSS y CIFs del agrupado
+                tss_list = df_tss_selec[col_factura].astype(str).fillna('').unique().tolist() if col_factura in df_tss_selec.columns else []
+                cifs_agrupado = df_tss_selec[col_cif].astype(str).fillna('').str.replace(' ','').str.upper().unique().tolist() if col_cif in df_tss_selec.columns else []
 
-                if cif_col and socios_list:
-                    candidatos[cif_col] = candidatos[cif_col].astype(str).fillna('').str.replace(' ', '').str.upper()
-                    candidatos_por_cif = candidatos[candidatos[cif_col].isin(socios_list)].copy()
-                    if not candidatos_por_cif.empty:
-                        # priorizamos posible_factura dentro de este subset
-                        pf_match = candidatos_por_cif[candidatos_por_cif.get('posible_factura','').astype(str) == fact_final_id]
-                        if not pf_match.empty:
-                            pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
-                        else:
-                            # fallback: por fecha entre los candidatos con mismo importe
-                            pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
+                def filtrar_por_importe(df, objetivo_cent_local, tol_cent_local):
+                    if tol_cent_local == 0:
+                        return df[df['IMPORTE_CENT'] == objetivo_cent_local]
+                    low, high = objetivo_cent_local - tol_cent_local, objetivo_cent_local + tol_cent_local
+                    return df[df['IMPORTE_CENT'].between(low, high)]
 
-                # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF) ---
-                if pago_elegido is None and not candidatos.empty:
-                    pf_match = candidatos[candidatos.get('posible_factura','').astype(str) == fact_final_id]
-                    if not pf_match.empty:
-                        pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
-                    else:
-                        pago_elegido = choose_closest_by_date(candidatos, fecha_ref)
+                # --- Paso 1: posible_factura en TSS seleccionadas ---
+                if tss_list and 'posible_factura' in df_cand.columns:
+                    df_pf = df_cand[df_cand['posible_factura'].astype(str).isin(tss_list)].copy()
+                    df_pf = filtrar_por_importe(df_pf, objetivo_cent, tolerancia_cent)
+                    if not df_pf.empty:
+                        return _choose_closest_by_date_abs(df_pf, fecha_ref)
+
+                # --- Paso 2: cliente final si existe ---
+                if cliente_seleccionado_cif and cif_col:
+                    df_cli = df_cand.copy()
+                    df_cli[cif_col] = df_cli[cif_col].astype(str).fillna('').str.replace(' ','').str.upper()
+                    df_cli = df_cli[df_cli[cif_col] == cliente_seleccionado_cif.replace(' ','').upper()]
+                    df_cli = filtrar_por_importe(df_cli, objetivo_cent, tolerancia_cent)
+                    if not df_cli.empty:
+                        return _choose_closest_by_date_abs(df_cli, fecha_ref)
+
+                # --- Paso 3: cualquiera de los CIFs del agrupado ---
+                if cifs_agrupado and cif_col:
+                    df_cif = df_cand.copy()
+                    df_cif[cif_col] = df_cif[cif_col].astype(str).fillna('').str.replace(' ','').str.upper()
+                    df_cif = df_cif[df_cif[cif_col].isin(cifs_agrupado)]
+                    df_cif = filtrar_por_importe(df_cif, objetivo_cent, tolerancia_cent)
+                    if not df_cif.empty:
+                        return _choose_closest_by_date_abs(df_cif, fecha_ref)
+
+                # --- Si no encontró nada dentro del agrupado, devuelve None ---
+                return None
+
 
 
             # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
@@ -824,61 +824,61 @@ if archivo:
             rows = []
 
             # --- AGRUPADO: buscar pago, priorizando cliente final si existe ---
-            pago_final_used = None
+        pago_final_used = None
 
-            if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
-                # importe total real del agrupado
-                importe_total_agrupado = float(df_tss_selec["IMPORTE_CORRECTO"].sum())
-                objetivo_cent = int(round(importe_total_agrupado * 100))
+        if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
+            # importe total real del agrupado
+            importe_total_agrupado = float(df_tss_selec["IMPORTE_CORRECTO"].sum())
+            objetivo_cent = int(round(importe_total_agrupado * 100))
 
-                # candidatos iniciales (pagos)
-                candidatos_base = df_cobros.copy() if (not df_cobros.empty) else pd.DataFrame()
+            # candidatos iniciales (pagos)
+            candidatos_base = df_cobros.copy() if (not df_cobros.empty) else pd.DataFrame()
 
-                if not candidatos_base.empty and "importe" in candidatos_base.columns:
-                    candidatos_base = candidatos_base[candidatos_base['importe'].notna()].copy()
-                    candidatos_base["IMPORTE_CENT"] = (candidatos_base["importe"].astype(float) * 100).round().astype("Int64")
-                    candidatos_base = candidatos_base[candidatos_base["IMPORTE_CENT"] == objetivo_cent]
-                else:
-                    candidatos_base = candidatos_base.iloc[0:0]
-
-                # detectar columna CIF/NIF
-                cif_col = None
-                for c in df_cobros.columns:
-                    if any(k in c.lower() for k in ["cif","nif","titular","benef","cliente","titular_nif"]):
-                        cif_col = c
-                        break
-
-                # lista de CIFs implicados en el agrupado
-                cifs_agrupado = []
-                if (not df_tss_selec.empty) and (col_cif in df_tss_selec.columns):
-                    cifs_agrupado = df_tss_selec[col_cif].astype(str).fillna("").str.replace(" ", "").str.upper().unique().tolist()
-
-                # cliente final si existe
-                cliente_para_busqueda = None
-                if 'cliente_seleccionado_cif' in locals() and cliente_seleccionado_cif:
-                    cliente_para_busqueda = str(cliente_seleccionado_cif).replace(" ", "").upper()
-
-                # --- Paso 1: buscar por cliente final ---
-                candidatos = candidatos_base.copy()
-                if cif_col and cliente_para_busqueda:
-                    candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
-                    candidatos_final = candidatos[candidatos[cif_col] == cliente_para_busqueda]
-                else:
-                    candidatos_final = pd.DataFrame()
-
-                if not candidatos_final.empty:
-                    pago_final_used = choose_closest_by_date(candidatos_final, fecha_ref)
-
-                # --- Paso 2: si no se encontró nada, buscar por todos los CIFs del agrupado ---
-                if pago_final_used is None and cif_col and cifs_agrupado:
-                    candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
-                    candidatos_agrupado = candidatos[candidatos[cif_col].isin(cifs_agrupado)]
-                    if not candidatos_agrupado.empty:
-                        pago_final_used = choose_closest_by_date(candidatos_agrupado, fecha_ref)
-
+            if not candidatos_base.empty and "importe" in candidatos_base.columns:
+                candidatos_base = candidatos_base[candidatos_base['importe'].notna()].copy()
+                candidatos_base["IMPORTE_CENT"] = (candidatos_base["importe"].astype(float) * 100).round().astype("Int64")
+                candidatos_base = candidatos_base[candidatos_base["IMPORTE_CENT"] == objetivo_cent]
             else:
-                # Caso normal: usar el pago global
-                pago_final_used = pago_elegido if 'pago_elegido' in locals() else None
+                candidatos_base = candidatos_base.iloc[0:0]
+
+            # detectar columna CIF/NIF
+            cif_col = None
+            for c in df_cobros.columns:
+                if any(k in c.lower() for k in ["cif","nif","titular","benef","cliente","titular_nif"]):
+                    cif_col = c
+                    break
+
+            # lista de CIFs implicados en el agrupado
+            cifs_agrupado = []
+            if (not df_tss_selec.empty) and (col_cif in df_tss_selec.columns):
+                cifs_agrupado = df_tss_selec[col_cif].astype(str).fillna("").str.replace(" ", "").str.upper().unique().tolist()
+
+            # cliente final si existe
+            cliente_para_busqueda = None
+            if 'cliente_seleccionado_cif' in locals() and cliente_seleccionado_cif:
+                cliente_para_busqueda = str(cliente_seleccionado_cif).replace(" ", "").upper()
+
+            # --- Paso 1: buscar por cliente final ---
+            candidatos = candidatos_base.copy()
+            if cif_col and cliente_para_busqueda:
+                candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
+                candidatos_final = candidatos[candidatos[cif_col] == cliente_para_busqueda]
+            else:
+                candidatos_final = pd.DataFrame()
+
+            if not candidatos_final.empty:
+                pago_final_used = choose_closest_by_date(candidatos_final, fecha_ref)
+
+            # --- Paso 2: si no se encontró nada, buscar por todos los CIFs del agrupado ---
+            if pago_final_used is None and cif_col and cifs_agrupado:
+                candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
+                candidatos_agrupado = candidatos[candidatos[cif_col].isin(cifs_agrupado)]
+                if not candidatos_agrupado.empty:
+                    pago_final_used = choose_closest_by_date(candidatos_agrupado, fecha_ref)
+
+        else:
+            # Caso normal: usar el pago global
+            pago_final_used = pago_elegido if 'pago_elegido' in locals() else None
 
 
             # --- Construir filas para la carta ---
