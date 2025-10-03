@@ -823,55 +823,63 @@ if archivo:
             # --- Generar carta de pago (un único bloque corregido) ---
             rows = []
 
-            # Decide pago a usar: si AGRUPADO, buscamos uno específico restringido al cliente; si no, usamos pago_elegido (si existe)
+            # --- AGRUPADO: buscar pago, priorizando cliente final si existe ---
             pago_final_used = None
 
-            # Recalcular pago específico para AGRUPADO (buscar solo entre pagos del cliente seleccionado)
             if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
-                # importe total real del agrupado (suma de TSS seleccionadas)
-                try:
-                    importe_total_agrupado = float(df_tss_selec["IMPORTE_CORRECTO"].sum())
-                except Exception:
-                    importe_total_agrupado = 0.0
-
+                # importe total real del agrupado
+                importe_total_agrupado = float(df_tss_selec["IMPORTE_CORRECTO"].sum())
                 objetivo_cent = int(round(importe_total_agrupado * 100))
 
-                candidatos = df_cobros.copy() if not df_cobros.empty else pd.DataFrame()
+                # candidatos iniciales (pagos)
+                candidatos_base = df_cobros.copy() if (not df_cobros.empty) else pd.DataFrame()
 
-                if not candidatos.empty and "importe" in candidatos.columns:
-                    candidatos = candidatos[candidatos['importe'].notna()].copy()
-                    candidatos["IMPORTE_CENT"] = (candidatos["importe"].astype(float) * 100).round().astype("Int64")
-                    candidatos = candidatos[candidatos["IMPORTE_CENT"] == objetivo_cent]
+                if not candidatos_base.empty and "importe" in candidatos_base.columns:
+                    candidatos_base = candidatos_base[candidatos_base['importe'].notna()].copy()
+                    candidatos_base["IMPORTE_CENT"] = (candidatos_base["importe"].astype(float) * 100).round().astype("Int64")
+                    candidatos_base = candidatos_base[candidatos_base["IMPORTE_CENT"] == objetivo_cent]
                 else:
-                    candidatos = candidatos.iloc[0:0]
+                    candidatos_base = candidatos_base.iloc[0:0]
 
-                # detectar columna CIF/NIF en df_cobros
+                # detectar columna CIF/NIF
                 cif_col = None
                 for c in df_cobros.columns:
-                    if any(k in c.lower() for k in ["cif", "nif", "titular", "benef", "cliente", "titular_nif"]):
+                    if any(k in c.lower() for k in ["cif","nif","titular","benef","cliente","titular_nif"]):
                         cif_col = c
                         break
 
-                if cif_col and not candidatos.empty:
-                    candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
-                    # preferir filtrar por el cliente seleccionado si existe
-                    if 'cliente_seleccionado_cif' in locals() and cliente_seleccionado_cif:
-                        cif_search = cliente_seleccionado_cif.replace(" ", "").upper()
-                        candidatos = candidatos[candidatos[cif_col] == cif_search]
-                    else:
-                        # fallback: filtrar por los CIFs implicados en el agrupado (por si no hay cliente seleccionado)
-                        cifs_agrupado = df_tss_selec[col_cif].astype(str).fillna("").str.replace(" ", "").str.upper().unique().tolist()
-                        candidatos = candidatos[candidatos[cif_col].isin(cifs_agrupado)]
+                # lista de CIFs implicados en el agrupado
+                cifs_agrupado = []
+                if (not df_tss_selec.empty) and (col_cif in df_tss_selec.columns):
+                    cifs_agrupado = df_tss_selec[col_cif].astype(str).fillna("").str.replace(" ", "").str.upper().unique().tolist()
 
-                # elegir el pago (por fecha más cercana si hay varios)
-                if not candidatos.empty:
-                    pago_candidate = choose_closest_by_date(candidatos, fecha_ref)
-                    if pago_candidate:
-                        pago_final_used = pago_candidate
-                # si no encontramos candidatos, dejamos pago_final_used = None (no hay pago)
+                # cliente final si existe
+                cliente_para_busqueda = None
+                if 'cliente_seleccionado_cif' in locals() and cliente_seleccionado_cif:
+                    cliente_para_busqueda = str(cliente_seleccionado_cif).replace(" ", "").upper()
+
+                # --- Paso 1: buscar por cliente final ---
+                candidatos = candidatos_base.copy()
+                if cif_col and cliente_para_busqueda:
+                    candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
+                    candidatos_final = candidatos[candidatos[cif_col] == cliente_para_busqueda]
+                else:
+                    candidatos_final = pd.DataFrame()
+
+                if not candidatos_final.empty:
+                    pago_final_used = choose_closest_by_date(candidatos_final, fecha_ref)
+
+                # --- Paso 2: si no se encontró nada, buscar por todos los CIFs del agrupado ---
+                if pago_final_used is None and cif_col and cifs_agrupado:
+                    candidatos[cif_col] = candidatos[cif_col].astype(str).fillna("").str.replace(" ", "").str.upper()
+                    candidatos_agrupado = candidatos[candidatos[cif_col].isin(cifs_agrupado)]
+                    if not candidatos_agrupado.empty:
+                        pago_final_used = choose_closest_by_date(candidatos_agrupado, fecha_ref)
+
             else:
-                # caso normal: usar el pago que ya hayas calculado antes (pago_elegido), si existe
+                # Caso normal: usar el pago global
                 pago_final_used = pago_elegido if 'pago_elegido' in locals() else None
+
 
             # --- Construir filas para la carta ---
             if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
