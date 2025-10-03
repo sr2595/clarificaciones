@@ -924,7 +924,7 @@ if archivo:
                                     "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
                                                 if pago_elegido.get("fec_operacion") is not None else "",
                                     "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
-                                    "CIF CLIENTE": tss_row.get(col_cif, ""),
+                                    "CIF CLIENTE": tss_row.get(col_cif, "").replace("L-00", ""),
                                     "NOMBRE CLIENTE": tss_row.get(col_nombre_cliente, ""),
                                     "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(tss_row.get(col_fecha_emision)).strftime("%d/%m/%Y")
                                                                                 if pd.notna(tss_row.get(col_fecha_emision)) else "",
@@ -948,7 +948,7 @@ if archivo:
                                 "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
                                             if pago_elegido.get("fec_operacion") is not None else "",
                                 "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
-                                "CIF CLIENTE": factura_final.get(col_cif, "") if isinstance(factura_final, pd.Series) else factura_final[col_cif],
+                                "CIF CLIENTE": (factura_final.get(col_cif, "") if isinstance(factura_final, pd.Series) else factura_final[col_cif]).replace("L-00", ""),
                                 "NOMBRE CLIENTE": factura_final.get(col_nombre_cliente, "") if isinstance(factura_final, pd.Series) else factura_final[col_nombre_cliente],
                                 "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(factura_final.get(col_fecha_emision)).strftime("%d/%m/%Y")
                                                                             if isinstance(factura_final, pd.Series) and pd.notna(factura_final.get(col_fecha_emision))
