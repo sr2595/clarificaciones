@@ -693,17 +693,19 @@ if archivo:
 
             pago_elegido = None
 
-            # --- Paso A: buscar por posible_factura EXACTA + importe total dentro de tolerancia
+            # --- Paso A: buscar por posible_factura EXACTA + importe total (comparación exacta en céntimos) ---
             if not df_cobros.empty and fact_final_id:
                 cand_pf = df_cobros[df_cobros.get('posible_factura', '').astype(str) == fact_final_id].copy()
                 if not cand_pf.empty and 'importe' in cand_pf.columns:
-                    cand_pf = cand_pf[cand_pf['importe'].notna()]
-                    cand_pf = cand_pf[(cand_pf['importe'] >= (importe_total_final - TOLERANCIA)) &
-                                    (cand_pf['importe'] <= (importe_total_final + TOLERANCIA))]
+                    cand_pf = cand_pf[cand_pf['importe'].notna()].copy()
+                    # comparar en céntimos para evitar floats
+                    cand_pf['IMPORTE_CENT'] = (cand_pf['importe'].astype(float) * 100).round().astype('Int64')
+                    objetivo_cent = int(round(importe_total_final * 100))
+                    cand_pf = cand_pf[cand_pf['IMPORTE_CENT'] == objetivo_cent]
                     if not cand_pf.empty:
                         pago_elegido = choose_closest_by_date(cand_pf, fecha_ref)
 
-            # --- Paso B: si no hay, buscar por IMPORTE + CIF (CIF debe pertenecer a socios_list)
+            # --- Paso B: si no hay, buscar por IMPORTE + CIF (CIF debe pertenecer a socios_list) ---
             if pago_elegido is None and not df_cobros.empty:
                 # detectar columna de CIF/NIF en df_cobros
                 cif_col = None
@@ -714,9 +716,10 @@ if archivo:
 
                 candidatos = df_cobros.copy()
                 if 'importe' in candidatos.columns:
-                    candidatos = candidatos[candidatos['importe'].notna()]
-                    candidatos = candidatos[(candidatos['importe'] >= (importe_total_final - TOLERANCIA)) &
-                                            (candidatos['importe'] <= (importe_total_final + TOLERANCIA))]
+                    candidatos = candidatos[candidatos['importe'].notna()].copy()
+                    candidatos['IMPORTE_CENT'] = (candidatos['importe'].astype(float) * 100).round().astype('Int64')
+                    objetivo_cent = int(round(importe_total_final * 100))
+                    candidatos = candidatos[candidatos['IMPORTE_CENT'] == objetivo_cent]
                 else:
                     candidatos = candidatos.iloc[0:0]
 
@@ -729,16 +732,17 @@ if archivo:
                         if not pf_match.empty:
                             pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
                         else:
-                            # fallback: por fecha
+                            # fallback: por fecha entre los candidatos con mismo importe
                             pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
 
-                # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF)
+                # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF) ---
                 if pago_elegido is None and not candidatos.empty:
                     pf_match = candidatos[candidatos.get('posible_factura','').astype(str) == fact_final_id]
                     if not pf_match.empty:
                         pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
                     else:
                         pago_elegido = choose_closest_by_date(candidatos, fecha_ref)
+
 
             # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
             # inicializamos columnas de pago en df_resultado
