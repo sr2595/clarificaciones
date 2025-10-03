@@ -659,9 +659,6 @@ if archivo:
                 else:
                     socios_list = []
         
-            # tolerance en euros
-            TOLERANCIA = 1.0
-
             # --- auxiliar: elegir candidato más cercano por fecha ---
             # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
             def choose_closest_by_date(cand_df, fecha_ref_local):
