@@ -202,11 +202,7 @@ if archivo:
             # --- Filtrar TSS del grupo ---
             df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
             df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS"]
-
-         
-            
-
-            
+                               
 
             # --- Input opcional: importe de pago para solver de TSS ---
             importe_pago_str = st.text_input("💶 Introduce importe de pago (opcional, formato europeo: 96.893,65)")
@@ -924,7 +920,7 @@ if archivo:
                                 rows.append({
                                     "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
                                     "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
-                                    "CIF UTE": " - ".join(df_resultado[col_cif].unique()) if col_cif in df_resultado.columns else "",
+                                    "CIF UTE": " - ".join([c.replace("L-00", "") for c in df_resultado[col_cif].unique()]) if col_cif in df_resultado.columns else "",
                                     "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
                                                 if pago_elegido.get("fec_operacion") is not None else "",
                                     "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
@@ -948,7 +944,7 @@ if archivo:
                             rows.append({
                                 "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
                                 "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
-                                "CIF UTE": " - ".join(df_resultado[col_cif].unique()) if col_cif in df_resultado.columns else "",
+                                "CIF UTE": " - ".join([c.replace("L-00", "") for c in df_resultado[col_cif].unique()]) if col_cif in df_resultado.columns else "",
                                 "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
                                             if pago_elegido.get("fec_operacion") is not None else "",
                                 "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
