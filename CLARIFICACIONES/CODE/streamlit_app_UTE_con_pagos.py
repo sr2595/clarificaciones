@@ -900,26 +900,33 @@ if archivo:
 
                     # --- Caso AGRUPADO: varias facturas TSS seleccionadas ---
                     if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
+                            
+                            # --- recalcular pago específico para agrupado ---
+                            importe_total_agrupado = df_tss_selec["IMPORTE_CORRECTO"].sum()
 
-                        link_col = 'TSS_90' if 'TSS_90' in df_resultado.columns else col_factura
+                            candidatos = df_cobros.copy()
+                            if "importe" in candidatos.columns:
+                                candidatos["IMPORTE_CENT"] = (candidatos["importe"].astype(float) * 100).round().astype("Int64")
+                                objetivo_cent = int(round(importe_total_agrupado * 100))
+                                candidatos = candidatos[candidatos["IMPORTE_CENT"] == objetivo_cent]
 
-                        for _, tss_row in df_tss_selec.iterrows():
-                            tss_num = tss_row[col_factura]
+                            cif_col = None
+                            for c in df_cobros.columns:
+                                if any(k in c for k in ["cif","nif","titular","benef","cliente"]):
+                                    cif_col = c
+                                    break
+                            if cif_col:
+                                cifs_agrupado = df_tss_selec[col_cif].astype(str).str.replace(" ","").str.upper().unique().tolist()
+                                candidatos[cif_col] = candidatos[cif_col].astype(str).str.replace(" ","").str.upper()
+                                candidatos = candidatos[candidatos[cif_col].isin(cifs_agrupado)]
 
-                            if link_col in df_resultado.columns:
-                                socios_factura = df_resultado[df_resultado[link_col] == tss_num].copy()
+                            if not candidatos.empty:
+                                pago_elegido = choose_closest_by_date(candidatos, fecha_ref)
                             else:
-                                socios_factura = df_resultado[df_resultado[col_factura] == tss_num].copy()
+                                pago_elegido = None
 
-                            if socios_factura.empty:
-                                continue
-
-                            if col_sociedad in socios_factura.columns:
-                                socios_unicos = socios_factura.drop_duplicates(subset=[col_sociedad])
-                            else:
-                                socios_unicos = socios_factura.drop_duplicates()
-
-                            for _, socio in socios_unicos.iterrows():
+                            # --- ahora sí tu bucle de rows ---
+                            for _, tss_row in df_tss_selec.iterrows():                                
                                 rows.append({
                                     "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
                                     "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
