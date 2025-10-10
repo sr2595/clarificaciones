@@ -470,7 +470,9 @@ if archivo:
             if df_internas_available.empty:
                 continue
 
-            df_cuadras = cuadrar_internas(tss_row, df_internas_available)
+            # pasar tolerancia_cent (céntimos) al solver de internas
+            tol_cent = tolerancia_cent if 'tolerancia_cent' in locals() else 0
+            df_cuadras = cuadrar_internas(tss_row, df_internas_available, tol=tol_cent)
             if df_cuadras is None or df_cuadras.empty:
                 continue
 
@@ -498,7 +500,8 @@ if archivo:
     # ==========================================
     df_resultado_factura = pd.DataFrame()
     if factura_final is not None and not df_internas.empty:
-        df_resultado_factura = cuadrar_internas(factura_final, df_internas)
+        tol_cent = tolerancia_cent if 'tolerancia_cent' in locals() else 0
+        df_resultado_factura = cuadrar_internas(factura_final, df_internas, tol=tol_cent)
         if df_resultado_factura.empty:
             st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
         else:
