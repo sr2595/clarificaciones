@@ -675,7 +675,7 @@ if archivo:
             st.write(f"🔍 Se aplicará una tolerancia de ±{TOLERANCIA:.2f} € en la búsqueda del pago.")
 
 
-            # --- auxiliar: elegir candidato más cercano por fecha ---
+           
             # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
             def choose_closest_by_date(cand_df, fecha_ref_local):
                 if cand_df is None or cand_df.empty:
@@ -748,13 +748,8 @@ if archivo:
                             # fallback: por fecha
                             pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
 
-                # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF)
-                if pago_elegido is None and not candidatos.empty:
-                    pf_match = candidatos[candidatos.get('posible_factura','').astype(str) == fact_final_id]
-                    if not pf_match.empty:
-                        pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
-                    else:
-                        pago_elegido = choose_closest_by_date(candidatos, fecha_ref)
+                if pago_elegido is None:
+                    st.warning("⚠️ No se encontró un pago que coincida por importe y cliente")
 
             # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
             # inicializamos columnas de pago en df_resultado
