@@ -754,21 +754,7 @@ if archivo:
                     if any(k in c for k in ['cif', 'nif', 'titular', 'benef', 'beneficiario', 'cliente', 'titular_nif']):
                         cif_col = c
                         break
-
-                # --- Depuración rápida: mostrar valores clave para entender fallos
-                st.write("🔎 Depuración: importe_total_final:", importe_total_final)
-                # mostrar tolerancia si existe (si definiste TOLERANCIA antes)
-                try:
-                    st.write(f"🔎 Depuración: Tolerancia aplicada: ±{TOLERANCIA:.2f} €")
-                except Exception:
-                    st.write("🔎 Depuración: Tolerancia no definida aún")
-
-                st.write("🔎 Depuración: socios_list (normalizados):", socios_list)
-                if cif_col:
-                    st.write(f"🔎 Depuración: columna CIF detectada: '{cif_col}' - primeros 10 valores:", df_cobros[cif_col].astype(str).head(10).tolist())
-                else:
-                    st.write("🔎 Depuración: no se detectó columna CIF en df_cobros")
-
+                                
                 # --- Normalizar lista de socios y columna cif del dataframe para comparar correctamente
                 def norm_cif(s):
                     if s is None:
@@ -824,9 +810,7 @@ if archivo:
                     candidatos['_cif_norm'] = candidatos['_cif_norm'].astype(str).fillna('')
                     candidatos_por_cif = candidatos[candidatos['_cif_norm'].isin(socios_list_norm)].copy()
 
-                    st.write("🔎 Depuración: candidatos por importe encontrados:", len(candidatos))
-                    st.write("🔎 Depuración: candidatos por importe y CIF match:", len(candidatos_por_cif))
-
+                   
                     if not candidatos_por_cif.empty:
                         # priorizar posible_factura dentro de este subset
                         pf_match = candidatos_por_cif[candidatos_por_cif.get('posible_factura', '').astype(str) == fact_final_id]
