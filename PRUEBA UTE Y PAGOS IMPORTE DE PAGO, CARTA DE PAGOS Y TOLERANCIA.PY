@@ -660,10 +660,22 @@ if archivo:
                 else:
                     socios_list = []
         
-            # tolerance en euros
-            TOLERANCIA = 0
+            # --- definir tolerancia configurable ---
+            tolerancia_str = st.text_input(
+                "🎯 Tolerancia en céntimos (opcional, 0 = exacto, ej: 100 = ±1€). Si no indicas nada, buscará importe exacto.",
+                value="0"
+            )
 
-            # --- auxiliar: elegir candidato más cercano por fecha ---
+            # convertir a euros
+            try:
+                TOLERANCIA = float(tolerancia_str.strip().replace(',', '.')) / 100.0
+            except Exception:
+                TOLERANCIA = 0.0
+
+            st.write(f"🔍 Se aplicará una tolerancia de ±{TOLERANCIA:.2f} € en la búsqueda del pago.")
+
+
+           
             # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
             def choose_closest_by_date(cand_df, fecha_ref_local):
                 if cand_df is None or cand_df.empty:
@@ -736,13 +748,82 @@ if archivo:
                             # fallback: por fecha
                             pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
 
-                # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF)
-                if pago_elegido is None and not candidatos.empty:
-                    pf_match = candidatos[candidatos.get('posible_factura','').astype(str) == fact_final_id]
-                    if not pf_match.empty:
-                        pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
-                    else:
-                        pago_elegido = choose_closest_by_date(candidatos, fecha_ref)
+                # --- Detectar columna de CIF/NIF en df_cobros (mejor búsqueda)
+                cif_col = None
+                for c in df_cobros.columns:
+                    if any(k in c for k in ['cif', 'nif', 'titular', 'benef', 'beneficiario', 'cliente', 'titular_nif']):
+                        cif_col = c
+                        break
+                                
+                # --- Normalizar lista de socios y columna cif del dataframe para comparar correctamente
+                def norm_cif(s):
+                    if s is None:
+                        return ""
+                    s = str(s).upper().strip()
+                    # quitar espacios, guiones y prefijos del tipo 'L-00'
+                    s = s.replace(" ", "").replace("-", "")
+                    if s.startswith("L00"):
+                        s = s.replace("L00", "")
+                    s = s.replace("L-00", "").replace("L", "") if s.startswith("L-00") or s.startswith("L") and len(s) > 1 else s
+                    return s
+
+                # normalizar socios_list
+                socios_list_norm = []
+                for s in socios_list:
+                    try:
+                        socios_list_norm.append(norm_cif(s))
+                    except Exception:
+                        pass
+                socios_list_norm = [s for s in socios_list_norm if s]
+
+                # normalizar columna cif_col en df_cobros si existe
+                if cif_col:
+                    df_cobros['_cif_norm'] = df_cobros[cif_col].astype(str).fillna('').map(norm_cif)
+                else:
+                    df_cobros['_cif_norm'] = ''
+
+                # --- Preselección por importe (si existe columna 'importe') y no más búsqueda global sin CIF ---
+                candidatos = df_cobros.copy()
+                if 'importe' in candidatos.columns:
+                    candidatos = candidatos[candidatos['importe'].notna()]
+                    lower = (importe_total_final - TOLERANCIA) if importe_total_final is not None else None
+                    upper = (importe_total_final + TOLERANCIA) if importe_total_final is not None else None
+                    if lower is not None and upper is not None:
+                        candidatos = candidatos[(candidatos['importe'] >= lower) & (candidatos['importe'] <= upper)]
+                else:
+                    candidatos = candidatos.iloc[0:0]  # sin importe no podemos buscar
+
+                # --- Paso A: por posible_factura exacta (si existe) y dentro de importe/tolerancia ---
+                pago_elegido = None
+                if not df_cobros.empty and fact_final_id:
+                    cand_pf = df_cobros[df_cobros.get('posible_factura', '').astype(str) == fact_final_id].copy()
+                    if not cand_pf.empty and 'importe' in cand_pf.columns:
+                        cand_pf = cand_pf[cand_pf['importe'].notna()]
+                        cand_pf = cand_pf[(cand_pf['importe'] >= (importe_total_final - TOLERANCIA)) &
+                                        (cand_pf['importe'] <= (importe_total_final + TOLERANCIA))]
+                        if not cand_pf.empty:
+                            pago_elegido = choose_closest_by_date(cand_pf, fecha_ref)
+
+                # --- Paso B: por IMPORTE + CIF (CIF debe pertenecer a socios_list_norm) ---
+                if pago_elegido is None and not candidatos.empty and cif_col and socios_list_norm:
+                    # filtrar candidatos normalizando su cif
+                    candidatos['_cif_norm'] = candidatos['_cif_norm'].astype(str).fillna('')
+                    candidatos_por_cif = candidatos[candidatos['_cif_norm'].isin(socios_list_norm)].copy()
+
+                   
+                    if not candidatos_por_cif.empty:
+                        # priorizar posible_factura dentro de este subset
+                        pf_match = candidatos_por_cif[candidatos_por_cif.get('posible_factura', '').astype(str) == fact_final_id]
+                        if not pf_match.empty:
+                            pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
+                        else:
+                            # si no hay 'posible_factura', elegir por fecha dentro del mismo CIF
+                            pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
+
+                # --- Si no encontramos nada, NO hacemos Paso C global: informar por depuración ---
+                if pago_elegido is None:
+                    st.warning("⚠️ No se encontró un pago seguro para esta factura: se requiere match por factura o por CIF del socio. No se asignará ningún pago para evitar cruces entre clientes.")
+
 
             # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
             # inicializamos columnas de pago en df_resultado
@@ -986,3 +1067,4 @@ if archivo:
                         file_name="Carta_de_Pago.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
+
