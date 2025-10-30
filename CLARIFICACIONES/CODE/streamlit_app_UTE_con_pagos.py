@@ -660,8 +660,20 @@ if archivo:
                 else:
                     socios_list = []
         
-            # tolerance en euros
-            TOLERANCIA = 0
+            # --- definir tolerancia configurable ---
+            tolerancia_str = st.text_input(
+                "🎯 Tolerancia en céntimos (opcional, 0 = exacto, ej: 100 = ±1€). Si no indicas nada, buscará importe exacto.",
+                value="0"
+            )
+
+            # convertir a euros
+            try:
+                TOLERANCIA = float(tolerancia_str.strip().replace(',', '.')) / 100.0
+            except Exception:
+                TOLERANCIA = 0.0
+
+            st.write(f"🔍 Se aplicará una tolerancia de ±{TOLERANCIA:.2f} € en la búsqueda del pago.")
+
 
             # --- auxiliar: elegir candidato más cercano por fecha ---
             # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
