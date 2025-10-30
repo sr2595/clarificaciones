@@ -661,7 +661,7 @@ if archivo:
                     socios_list = []
         
             # tolerance en euros
-            TOLERANCIA = 1.0
+            TOLERANCIA = 0
 
             # --- auxiliar: elegir candidato más cercano por fecha ---
             # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
