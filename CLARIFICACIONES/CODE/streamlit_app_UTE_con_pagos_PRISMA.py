@@ -706,293 +706,368 @@ if archivo:
                 df_resultado['IMPORTE_CORRECTO'] = df_resultado.get('IMPORTE_CORRECTO', pd.NA).fillna(0.0)
     
     # --- 2) leer/normalizar cobros ---
-        cobros_file = st.file_uploader(
-            "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
-            type=['xlsm', 'xlsx', 'csv'],
-            key="cobros"
-        )
+    cobros_file = st.file_uploader(
+        "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
+        type=['xlsm', 'xlsx', 'csv'],
+        key="cobros"
+    )
 
-        df_cobros = pd.DataFrame()
-        if cobros_file:
-            try:
-                if cobros_file.name.endswith(('.xlsm', '.xlsx')):
-                    # Guardamos en BytesIO para poder leer varias veces
-                    data = BytesIO(cobros_file.read())
+    df_cobros = pd.DataFrame()
+    if cobros_file:
+        try:
+            if cobros_file.name.endswith(('.xlsm', '.xlsx')):
+                # Guardamos en BytesIO para poder leer varias veces
+                data = BytesIO(cobros_file.read())
 
-                    # 1) Detectar hojas
-                    xls = pd.ExcelFile(data, engine="openpyxl")
-                    
+                # 1) Detectar hojas
+                xls = pd.ExcelFile(data, engine="openpyxl")
+                
 
-                    # 2) Seleccionar la hoja
-                    sheet = "Cruce_Movs" if "Cruce_Movs" in xls.sheet_names else xls.sheet_names[0]
+                # 2) Seleccionar la hoja
+                sheet = "Cruce_Movs" if "Cruce_Movs" in xls.sheet_names else xls.sheet_names[0]
 
-                    # resetear puntero y leer la hoja
-                    data.seek(0)
-                    df_cobros = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
+                # resetear puntero y leer la hoja
+                data.seek(0)
+                df_cobros = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
 
-                else:  # CSV
-                    df_cobros = pd.read_csv(cobros_file, sep=None, engine="python")
+            else:  # CSV
+                df_cobros = pd.read_csv(cobros_file, sep=None, engine="python")
 
-            
-            except Exception as e:
-                st.error(f"Error al leer el archivo de pagos: {e}")
-                df_cobros = pd.DataFrame()
-
-
-        # Si no hay resultado interno, paramos aquí (nada que asignar)
-        if df_resultado.empty:
-            st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
-        else:
-            # Normalizamos columnas de df_cobros para poder mapear
-            if not df_cobros.empty:
-                df_cobros.columns = (
-                    df_cobros.columns
-                    .astype(str)
-                    .str.strip()
-                    .str.lower()
-                    .str.replace(r'[áàäâ]', 'a', regex=True)
-                    .str.replace(r'[éèëê]', 'e', regex=True)
-                    .str.replace(r'[íìïî]', 'i', regex=True)
-                    .str.replace(r'[óòöô]', 'o', regex=True)
-                    .str.replace(r'[úùüû]', 'u', regex=True)
-                    .str.replace(r'[^0-9a-z]', '_', regex=True)
-                    .str.replace(r'__+', '_', regex=True)
-                    .str.strip('_')
-                )
-
-            
-                # Mapeo seguro de columnas que usamos
-                col_map = {
-                    'fec_operacion': ['fec_operacion', 'fecha_operacion', 'fec_oper'],
-                    'importe': ['importe', 'imp', 'monto', 'amount', 'valor'],
-                    'posible_factura': ['posible_factura', 'factura', 'posiblefactura'],
-                    'norma_43': ['norma_43', 'norma43']
-                }
-                for target, possibles in col_map.items():
-                    for p in possibles:
-                        if p in df_cobros.columns:
-                            df_cobros.rename(columns={p: target}, inplace=True)
-                            break
-
-                # aseguramos tipos
-                if 'fec_operacion' in df_cobros.columns:
-                    df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
-                if 'importe' in df_cobros.columns:
-                    df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
-                # columnas textuales
-                if 'posible_factura' in df_cobros.columns:
-                    df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
-                if 'norma_43' in df_cobros.columns:
-                    df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
-
-            # --- 3) preparar referencia: id factura final, fecha y importe total ---
-            # obtener id y fecha de la factura final (manejamos Series o DataFrame-row)
-            try:
-                if isinstance(factura_final, pd.Series):
-                    fact_final_id = str(factura_final[col_factura])
-                    fecha_ref = factura_final[col_fecha_emision]
-                else:
-                    fact_final_id = str(factura_final.iloc[0][col_factura])
-                    fecha_ref = factura_final.iloc[0][col_fecha_emision]
-            except Exception:
-                # fallback robusto
-                fact_final_id = str(factura_final.get(col_factura, '')) if hasattr(factura_final, 'get') else ''
-                fecha_ref = factura_final.get(col_fecha_emision, pd.NaT) if hasattr(factura_final, 'get') else pd.NaT
-
-            # importe de referencia: debe ser el importe de la FACTURA FINAL TSS
-            # preferimos IMPORTE_CORRECTO si existe en df_resultado o en factura_final
-            importe_total_final = None
-            if 'IMPORTE_CORRECTO' in df_resultado.columns:
-                importe_total_final = float(pd.to_numeric(df_resultado['IMPORTE_CORRECTO'].sum(), errors='coerce') or 0.0)
-            elif 'importe_correcto' in df_resultado.columns:
-                importe_total_final = float(pd.to_numeric(df_resultado['importe_correcto'].sum(), errors='coerce') or 0.0)
-            else:
-                # intentar leer importe de factura_final (columna detectada antes)
-                col_importe_factura = None
-                posibles_importes = ['IMPORTE_CORRECTO', 'Importe', 'importe', 'TOTAL', 'total']
-                for p in posibles_importes:
-                    if hasattr(factura_final, 'get') and factura_final.get(p) is not None:
-                        col_importe_factura = p
-                        break
-                    if not isinstance(factura_final, pd.Series) and p in factura_final.columns:
-                        col_importe_factura = p
-                        break
-                try:
-                    if isinstance(factura_final, pd.Series) and col_importe_factura:
-                        importe_total_final = float(factura_final[col_importe_factura])
-                    elif col_importe_factura:
-                        importe_total_final = float(factura_final.iloc[0][col_importe_factura])
-                    else:
-                        importe_total_final = 0.0
-                except Exception:
-                    importe_total_final = 0.0
-
-            
-            # --- 4) normalizar lista de socios CIF que vinieron del selector (socios_cifs) ---
-            try:
-                socios_list = [s.replace(' ', '').upper() for s in socios_cifs]  # variable creada arriba en tu script
-            except Exception:
-                # fallback: extraer CIFs de df_resultado si existe columna t_doc_n_m_doc o col_cif
-                if 't_doc_n_m_doc' in df_resultado.columns:
-                    socios_list = df_resultado['t_doc_n_m_doc'].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
-                elif col_cif in df_resultado.columns:
-                    socios_list = df_resultado[col_cif].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
-                else:
-                    socios_list = []
         
-            # tolerance en euros
-            TOLERANCIA = 1.0
-
-            # --- auxiliar: elegir candidato más cercano por fecha ---
-            # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
-            def choose_closest_by_date(cand_df, fecha_ref_local):
-                if cand_df is None or cand_df.empty:
-                    return None
-
-                tmp = cand_df.copy()
-                fecha_ref_dt = pd.to_datetime(fecha_ref_local, errors='coerce')
-
-                if 'fec_operacion' in tmp.columns:
-                    tmp['fec_operacion'] = pd.to_datetime(tmp['fec_operacion'], errors='coerce')
-                    # Filtrar solo pagos posteriores o iguales a fecha_ref
-                    tmp = tmp[tmp['fec_operacion'] >= fecha_ref_dt]
-
-                # Filtrar solo filas con importe válido
-                if 'importe' in tmp.columns:
-                    tmp = tmp[tmp['importe'].notna()]
-
-                if tmp.empty:
-                    return None
-
-                # Elegir pago más cercano posterior (min diferencia)
-                if 'fec_operacion' in tmp.columns and tmp['fec_operacion'].notna().any():
-                    tmp['diff'] = (tmp['fec_operacion'] - fecha_ref_dt).dt.total_seconds()
-                    chosen = tmp.sort_values('diff').iloc[0]
-                else:
-                    # Si no hay fechas, coger el primero disponible
-                    chosen = tmp.iloc[0]
-
-                return chosen.to_dict()
+        except Exception as e:
+            st.error(f"Error al leer el archivo de pagos: {e}")
+            df_cobros = pd.DataFrame()
 
 
-            pago_elegido = None
-
-            # --- Paso A: buscar por posible_factura EXACTA + importe total dentro de tolerancia
-            if not df_cobros.empty and fact_final_id:
-                cand_pf = df_cobros[df_cobros.get('posible_factura', '').astype(str) == fact_final_id].copy()
-                if not cand_pf.empty and 'importe' in cand_pf.columns:
-                    cand_pf = cand_pf[cand_pf['importe'].notna()]
-                    cand_pf = cand_pf[(cand_pf['importe'] >= (importe_total_final - TOLERANCIA)) &
-                                    (cand_pf['importe'] <= (importe_total_final + TOLERANCIA))]
-                    if not cand_pf.empty:
-                        pago_elegido = choose_closest_by_date(cand_pf, fecha_ref)
-
-            # --- Paso B: si no hay, buscar por IMPORTE + CIF (CIF debe pertenecer a socios_list)
-            if pago_elegido is None and not df_cobros.empty:
-                # detectar columna de CIF/NIF en df_cobros
-                cif_col = None
-                for c in df_cobros.columns:
-                    if any(k in c for k in ['cif', 'nif', 'titular', 'benef', 'beneficiario', 'cliente', 'titular_nif']):
-                        cif_col = c
-                        break
-
-                candidatos = df_cobros.copy()
-                if 'importe' in candidatos.columns:
-                    candidatos = candidatos[candidatos['importe'].notna()]
-                    candidatos = candidatos[(candidatos['importe'] >= (importe_total_final - TOLERANCIA)) &
-                                            (candidatos['importe'] <= (importe_total_final + TOLERANCIA))]
-                else:
-                    candidatos = candidatos.iloc[0:0]
-
-                if cif_col and socios_list:
-                    candidatos[cif_col] = candidatos[cif_col].astype(str).fillna('').str.replace(' ', '').str.upper()
-                    candidatos_por_cif = candidatos[candidatos[cif_col].isin(socios_list)].copy()
-                    if not candidatos_por_cif.empty:
-                        # priorizamos posible_factura dentro de este subset
-                        pf_match = candidatos_por_cif[candidatos_por_cif.get('posible_factura','').astype(str) == fact_final_id]
-                        if not pf_match.empty:
-                            pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
-                        else:
-                            # fallback: por fecha
-                            pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
-
-               
-            # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
-            # inicializamos columnas de pago en df_resultado
-            df_resultado.loc[:, 'posible_pago'] = 'No'
-            df_resultado.loc[:, 'pagos_detalle'] = None
-            df_resultado.loc[:, 'Pago_Importe'] = pd.NA
-            df_resultado.loc[:, 'Pago_Fecha'] = pd.NaT
-            df_resultado.loc[:, 'Pago_Norma43'] = pd.NA
-            df_resultado.loc[:, 'Pago_CIF'] = pd.NA
-
-            if pago_elegido is not None:
-                p = pago_elegido
-                importe_pago = p.get('importe') if p.get('importe') is not None else 0.0
-                fecha_pago = p.get('fec_operacion') if 'fec_operacion' in p else None
-                norma_pago = p.get('norma_43') if 'norma_43' in p else ''
-
-                # intentar extraer cif si detectamos columna cif_col
-                cif_pago_text = ''
-                try:
-                    if 'cif_col' in locals() and cif_col in p:
-                        cif_pago_text = p.get(cif_col, '')
-                except Exception:
-                    cif_pago_text = ''
-
-                resumen = f"Pago: {float(importe_pago):.2f} € ({pd.to_datetime(fecha_pago, errors='coerce').date() if pd.notna(fecha_pago) else ''}) Norma43: {norma_pago} CIF: {cif_pago_text}"
-                df_resultado.loc[:, 'posible_pago'] = 'Sí'
-                df_resultado.loc[:, 'pagos_detalle'] = resumen
-                df_resultado.loc[:, 'Pago_Importe'] = importe_pago
-                df_resultado.loc[:, 'Pago_Fecha'] = fecha_pago
-                df_resultado.loc[:, 'Pago_Norma43'] = norma_pago
-                if cif_pago_text:
-                    df_resultado.loc[:, 'Pago_CIF'] = cif_pago_text
-
-                st.success(f"✅ Pago encontrado y asignado al total: {float(importe_pago):.2f} € (Factura final: {fact_final_id})")
-            else:
-                st.info("⚠️ No se encontró un pago único que cuadre con la factura final según la lógica solicitada.")
-
-            # --- 6) mostrar tabla final con info de pago ---
-
-            # --- columnas base de df_resultado ---
-            columnas_base = [col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]
-            columnas_base = [c for c in columnas_base if c in df_resultado.columns]
-
-            # --- columnas de pago ---
-            columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago') or c in ['posible_pago', 'pagos_detalle']]
-
-            # --- añadir info de factura final ---
-            df_resultado['Factura_Final'] = fact_final_id
-            df_resultado['Fecha_Factura_Final'] = fecha_ref
-            df_resultado['Importe_Factura_Final'] = importe_total_final
-
-            # --- quitar duplicados ---
-            df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
-
-            # --- definir columnas finales con factura final primero ---
-            columnas_finales = ['Factura_Final', 'Fecha_Factura_Final', 'Importe_Factura_Final'] + columnas_base + columnas_pago
-            # eliminar posibles duplicados conservando el orden
-            columnas_finales = list(dict.fromkeys(columnas_finales))
-
-            # --- mostrar en Streamlit ---
-            st.dataframe(df_resultado[columnas_finales], use_container_width=True)
-
-            # --- 7) descargar ---
-            def to_excel(df_out):
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    df_out.to_excel(writer, index=False, sheet_name="Resultado")
-                return output.getvalue()
-
-            excel_data = to_excel(df_resultado[columnas_finales])
-            st.download_button(
-                label="📥 Descargar Excel con facturas internas seleccionadas y pagos",
-                data=excel_data,
-                file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    # Si no hay resultado interno, paramos aquí (nada que asignar)
+    if df_resultado.empty:
+        st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
+    else:
+        # Normalizamos columnas de df_cobros para poder mapear
+        if not df_cobros.empty:
+            df_cobros.columns = (
+                df_cobros.columns
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .str.replace(r'[áàäâ]', 'a', regex=True)
+                .str.replace(r'[éèëê]', 'e', regex=True)
+                .str.replace(r'[íìïî]', 'i', regex=True)
+                .str.replace(r'[óòöô]', 'o', regex=True)
+                .str.replace(r'[úùüû]', 'u', regex=True)
+                .str.replace(r'[^0-9a-z]', '_', regex=True)
+                .str.replace(r'__+', '_', regex=True)
+                .str.strip('_')
             )
 
+        
+            # Mapeo seguro de columnas que usamos
+            col_map = {
+                'fec_operacion': ['fec_operacion', 'fecha_operacion', 'fec_oper'],
+                'importe': ['importe', 'imp', 'monto', 'amount', 'valor'],
+                'posible_factura': ['posible_factura', 'factura', 'posiblefactura'],
+                'norma_43': ['norma_43', 'norma43']
+            }
+            for target, possibles in col_map.items():
+                for p in possibles:
+                    if p in df_cobros.columns:
+                        df_cobros.rename(columns={p: target}, inplace=True)
+                        break
+
+            # aseguramos tipos
+            if 'fec_operacion' in df_cobros.columns:
+                df_cobros['fec_operacion'] = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
+            if 'importe' in df_cobros.columns:
+                df_cobros['importe'] = pd.to_numeric(df_cobros['importe'], errors='coerce')
+            # columnas textuales
+            if 'posible_factura' in df_cobros.columns:
+                df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
+            if 'norma_43' in df_cobros.columns:
+                df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
+
+        # --- 3) preparar referencia: id factura final, fecha y importe total ---
+        # obtener id y fecha de la factura final (manejamos Series o DataFrame-row)
+        try:
+            if isinstance(factura_final, pd.Series):
+                fact_final_id = str(factura_final[col_factura])
+                fecha_ref = factura_final[col_fecha_emision]
+            else:
+                fact_final_id = str(factura_final.iloc[0][col_factura])
+                fecha_ref = factura_final.iloc[0][col_fecha_emision]
+        except Exception:
+            # fallback robusto
+            fact_final_id = str(factura_final.get(col_factura, '')) if hasattr(factura_final, 'get') else ''
+            fecha_ref = factura_final.get(col_fecha_emision, pd.NaT) if hasattr(factura_final, 'get') else pd.NaT
+
+        # importe de referencia: debe ser el importe de la FACTURA FINAL TSS
+        # preferimos IMPORTE_CORRECTO si existe en df_resultado o en factura_final
+        importe_total_final = None
+        if 'IMPORTE_CORRECTO' in df_resultado.columns:
+            importe_total_final = float(pd.to_numeric(df_resultado['IMPORTE_CORRECTO'].sum(), errors='coerce') or 0.0)
+        elif 'importe_correcto' in df_resultado.columns:
+            importe_total_final = float(pd.to_numeric(df_resultado['importe_correcto'].sum(), errors='coerce') or 0.0)
+        else:
+            # intentar leer importe de factura_final (columna detectada antes)
+            col_importe_factura = None
+            posibles_importes = ['IMPORTE_CORRECTO', 'Importe', 'importe', 'TOTAL', 'total']
+            for p in posibles_importes:
+                if hasattr(factura_final, 'get') and factura_final.get(p) is not None:
+                    col_importe_factura = p
+                    break
+                if not isinstance(factura_final, pd.Series) and p in factura_final.columns:
+                    col_importe_factura = p
+                    break
+            try:
+                if isinstance(factura_final, pd.Series) and col_importe_factura:
+                    importe_total_final = float(factura_final[col_importe_factura])
+                elif col_importe_factura:
+                    importe_total_final = float(factura_final.iloc[0][col_importe_factura])
+                else:
+                    importe_total_final = 0.0
+            except Exception:
+                importe_total_final = 0.0
+
+        
+        # --- 4) normalizar lista de socios CIF que vinieron del selector (socios_cifs) ---
+        try:
+            socios_list = [s.replace(' ', '').upper() for s in socios_cifs]  # variable creada arriba en tu script
+        except Exception:
+            # fallback: extraer CIFs de df_resultado si existe columna t_doc_n_m_doc o col_cif
+            if 't_doc_n_m_doc' in df_resultado.columns:
+                socios_list = df_resultado['t_doc_n_m_doc'].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
+            elif col_cif in df_resultado.columns:
+                socios_list = df_resultado[col_cif].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
+            else:
+                socios_list = []
+    
+        # tolerance en euros
+        TOLERANCIA = 1.0
+
+        # --- auxiliar: elegir candidato más cercano por fecha ---
+        # --- auxiliar: elegir candidato más cercano por fecha (solo pagos posteriores o iguales) ---
+        def choose_closest_by_date(cand_df, fecha_ref_local):
+            if cand_df is None or cand_df.empty:
+                return None
+
+            tmp = cand_df.copy()
+            fecha_ref_dt = pd.to_datetime(fecha_ref_local, errors='coerce')
+
+            if 'fec_operacion' in tmp.columns:
+                tmp['fec_operacion'] = pd.to_datetime(tmp['fec_operacion'], errors='coerce')
+                # Filtrar solo pagos posteriores o iguales a fecha_ref
+                tmp = tmp[tmp['fec_operacion'] >= fecha_ref_dt]
+
+            # Filtrar solo filas con importe válido
+            if 'importe' in tmp.columns:
+                tmp = tmp[tmp['importe'].notna()]
+
+            if tmp.empty:
+                return None
+
+            # Elegir pago más cercano posterior (min diferencia)
+            if 'fec_operacion' in tmp.columns and tmp['fec_operacion'].notna().any():
+                tmp['diff'] = (tmp['fec_operacion'] - fecha_ref_dt).dt.total_seconds()
+                chosen = tmp.sort_values('diff').iloc[0]
+            else:
+                # Si no hay fechas, coger el primero disponible
+                chosen = tmp.iloc[0]
+
+            return chosen.to_dict()
+
+
+        pago_elegido = None
+
+        # --- Paso A: buscar por posible_factura EXACTA + importe total dentro de tolerancia
+        if not df_cobros.empty and fact_final_id:
+            cand_pf = df_cobros[df_cobros.get('posible_factura', '').astype(str) == fact_final_id].copy()
+            if not cand_pf.empty and 'importe' in cand_pf.columns:
+                cand_pf = cand_pf[cand_pf['importe'].notna()]
+                cand_pf = cand_pf[(cand_pf['importe'] >= (importe_total_final - TOLERANCIA)) &
+                                (cand_pf['importe'] <= (importe_total_final + TOLERANCIA))]
+                if not cand_pf.empty:
+                    pago_elegido = choose_closest_by_date(cand_pf, fecha_ref)
+
+        # --- Paso B: si no hay, buscar por IMPORTE + CIF (CIF debe pertenecer a socios_list)
+        if pago_elegido is None and not df_cobros.empty:
+            # detectar columna de CIF/NIF en df_cobros
+            cif_col = None
+            for c in df_cobros.columns:
+                if any(k in c for k in ['cif', 'nif', 'titular', 'benef', 'beneficiario', 'cliente', 'titular_nif']):
+                    cif_col = c
+                    break
+
+            candidatos = df_cobros.copy()
+            if 'importe' in candidatos.columns:
+                candidatos = candidatos[candidatos['importe'].notna()]
+                candidatos = candidatos[(candidatos['importe'] >= (importe_total_final - TOLERANCIA)) &
+                                        (candidatos['importe'] <= (importe_total_final + TOLERANCIA))]
+            else:
+                candidatos = candidatos.iloc[0:0]
+
+            if cif_col and socios_list:
+                candidatos[cif_col] = candidatos[cif_col].astype(str).fillna('').str.replace(' ', '').str.upper()
+                candidatos_por_cif = candidatos[candidatos[cif_col].isin(socios_list)].copy()
+                if not candidatos_por_cif.empty:
+                    # priorizamos posible_factura dentro de este subset
+                    pf_match = candidatos_por_cif[candidatos_por_cif.get('posible_factura','').astype(str) == fact_final_id]
+                    if not pf_match.empty:
+                        pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
+                    else:
+                        # fallback: por fecha
+                        pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
+
+            
+        # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
+        # inicializamos columnas de pago en df_resultado
+        df_resultado.loc[:, 'posible_pago'] = 'No'
+        df_resultado.loc[:, 'pagos_detalle'] = None
+        df_resultado.loc[:, 'Pago_Importe'] = pd.NA
+        df_resultado.loc[:, 'Pago_Fecha'] = pd.NaT
+        df_resultado.loc[:, 'Pago_Norma43'] = pd.NA
+        df_resultado.loc[:, 'Pago_CIF'] = pd.NA
+
+        if pago_elegido is not None:
+            p = pago_elegido
+            importe_pago = p.get('importe') if p.get('importe') is not None else 0.0
+            fecha_pago = p.get('fec_operacion') if 'fec_operacion' in p else None
+            norma_pago = p.get('norma_43') if 'norma_43' in p else ''
+
+            # intentar extraer cif si detectamos columna cif_col
+            cif_pago_text = ''
+            try:
+                if 'cif_col' in locals() and cif_col in p:
+                    cif_pago_text = p.get(cif_col, '')
+            except Exception:
+                cif_pago_text = ''
+
+            resumen = f"Pago: {float(importe_pago):.2f} € ({pd.to_datetime(fecha_pago, errors='coerce').date() if pd.notna(fecha_pago) else ''}) Norma43: {norma_pago} CIF: {cif_pago_text}"
+            df_resultado.loc[:, 'posible_pago'] = 'Sí'
+            df_resultado.loc[:, 'pagos_detalle'] = resumen
+            df_resultado.loc[:, 'Pago_Importe'] = importe_pago
+            df_resultado.loc[:, 'Pago_Fecha'] = fecha_pago
+            df_resultado.loc[:, 'Pago_Norma43'] = norma_pago
+            if cif_pago_text:
+                df_resultado.loc[:, 'Pago_CIF'] = cif_pago_text
+
+            st.success(f"✅ Pago encontrado y asignado al total: {float(importe_pago):.2f} € (Factura final: {fact_final_id})")
+        else:
+            st.info("⚠️ No se encontró un pago único que cuadre con la factura final según la lógica solicitada.")
+
+        # --- 6) mostrar tabla final con info de pago ---
+
+        # --- columnas base de df_resultado ---
+        columnas_base = [col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]
+        columnas_base = [c for c in columnas_base if c in df_resultado.columns]
+
+        # --- columnas de pago ---
+        columnas_pago = [c for c in df_resultado.columns if c.lower().startswith('pago') or c in ['posible_pago', 'pagos_detalle']]
+
+        # --- añadir info de factura final ---
+        df_resultado['Factura_Final'] = fact_final_id
+        df_resultado['Fecha_Factura_Final'] = fecha_ref
+        df_resultado['Importe_Factura_Final'] = importe_total_final
+
+        # --- quitar duplicados ---
+        df_resultado = df_resultado.loc[:, ~df_resultado.columns.duplicated()]
+
+        # --- definir columnas finales con factura final primero ---
+        columnas_finales = ['Factura_Final', 'Fecha_Factura_Final', 'Importe_Factura_Final'] + columnas_base + columnas_pago
+        # eliminar posibles duplicados conservando el orden
+        columnas_finales = list(dict.fromkeys(columnas_finales))
+
+        # --- mostrar en Streamlit ---
+        st.dataframe(df_resultado[columnas_finales], use_container_width=True)
+
+        # --- 7) descargar ---
+        def to_excel(df_out):
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                df_out.to_excel(writer, index=False, sheet_name="Resultado")
+            return output.getvalue()
+
+        excel_data = to_excel(df_resultado[columnas_finales])
+        st.download_button(
+            label="📥 Descargar Excel con facturas internas seleccionadas y pagos",
+            data=excel_data,
+            file_name=f"resultado_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        if pago_elegido is not None:
+            rows = []
+
+            # --- Caso AGRUPADO: varias facturas TSS seleccionadas ---
+            if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
+
+                link_col = 'TSS_90' if 'TSS_90' in df_resultado.columns else col_factura
+
+                for _, tss_row in df_tss_selec.iterrows():
+                    tss_num = tss_row[col_factura]
+
+                    if link_col in df_resultado.columns:
+                        socios_factura = df_resultado[df_resultado[link_col] == tss_num].copy()
+                    else:
+                        socios_factura = df_resultado[df_resultado[col_factura] == tss_num].copy()
+
+                    if socios_factura.empty:
+                        continue
+
+                    if col_sociedad in socios_factura.columns:
+                        socios_unicos = socios_factura.drop_duplicates(subset=[col_sociedad])
+                    else:
+                        socios_unicos = socios_factura.drop_duplicates()
+
+                    for _, socio in socios_unicos.iterrows():
+                        rows.append({
+                            "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
+                            "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
+                            "CIF UTE": " - ".join(df_resultado[col_cif].unique()) if col_cif in df_resultado.columns else "",
+                            "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
+                                        if pago_elegido.get("fec_operacion") is not None else "",
+                            "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
+                            "CIF CLIENTE": tss_row.get(col_cif, ""),
+                            "NOMBRE CLIENTE": tss_row.get(col_nombre_cliente, ""),
+                            "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(tss_row.get(col_fecha_emision)).strftime("%d/%m/%Y")
+                                                                        if pd.notna(tss_row.get(col_fecha_emision)) else "",
+                            "Nº FRA. UTE (de la ute a cliente final)": tss_row.get(col_factura, ""),
+                            "IMPORTE FRA. UTE (de la ute a cliente final)": tss_row.get("IMPORTE_CORRECTO", 0.0),
+                            "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio.get(col_fecha_emision)).strftime("%d/%m/%Y") 
+                                                                if pd.notna(socio.get(col_fecha_emision)) else "",
+                            "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio.get(col_factura, ""),
+                            "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio.get("IMPORTE_CORRECTO", 0.0),
+                            "SOCIO A PAGAR": socio.get(col_sociedad, ""),
+                            "ID MOVIMIENTO": pago_elegido.get("id_movimiento", ""),
+                        })
+
+            else:
+                # --- Caso normal: solo una factura final ---
+                for _, socio in df_resultado.iterrows():
+                    rows.append({
+                        "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
+                        "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
+                        "CIF UTE": " - ".join(df_resultado[col_cif].unique()) if col_cif in df_resultado.columns else "",
+                        "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
+                                    if pago_elegido.get("fec_operacion") is not None else "",
+                        "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
+                        "CIF CLIENTE": factura_final.get(col_cif, "") if isinstance(factura_final, pd.Series) else factura_final[col_cif],
+                        "NOMBRE CLIENTE": factura_final.get(col_nombre_cliente, "") if isinstance(factura_final, pd.Series) else factura_final[col_nombre_cliente],
+                        "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(factura_final.get(col_fecha_emision)).strftime("%d/%m/%Y")
+                                                                    if isinstance(factura_final, pd.Series) and pd.notna(factura_final.get(col_fecha_emision))
+                                                                    else (pd.to_datetime(factura_final.iloc[0][col_fecha_emision]).strftime("%d/%m/%Y") if not isinstance(factura_final, pd.Series) else ""),
+                        "Nº FRA. UTE (de la ute a cliente final)": factura_final.get(col_factura, "") if isinstance(factura_final, pd.Series) else factura_final.iloc[0][col_factura],
+                        "IMPORTE FRA. UTE (de la ute a cliente final)": factura_final.get("IMPORTE_CORRECTO", 0.0) if isinstance(factura_final, pd.Series) else factura_final.iloc[0].get("IMPORTE_CORRECTO", 0.0),
+                        "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio.get(col_fecha_emision)).strftime("%d/%m/%Y") 
+                                                            if pd.notna(socio.get(col_fecha_emision)) else "",
+                        "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio.get(col_factura, ""),
+                        "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio.get("IMPORTE_CORRECTO", 0.0),
+                        "SOCIO A PAGAR": socio.get(col_sociedad, ""),
+                        "ID MOVIMIENTO": pago_elegido.get("id_movimiento", ""),
+                    })
+
+            df_carta_pago = pd.DataFrame(rows)
+
+                
+        # --- 8) generar carta de pago ---
             if pago_elegido is not None:
                 rows = []
 
@@ -1066,89 +1141,14 @@ if archivo:
 
                 df_carta_pago = pd.DataFrame(rows)
 
-                  
-            # --- 8) generar carta de pago ---
-                if pago_elegido is not None:
-                    rows = []
+                # --- Exportación a Excel ---
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                    df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
 
-                    # --- Caso AGRUPADO: varias facturas TSS seleccionadas ---
-                    if isinstance(factura_final, pd.Series) and factura_final.get(col_cif) == "AGRUPADO":
-
-                        link_col = 'TSS_90' if 'TSS_90' in df_resultado.columns else col_factura
-
-                        for _, tss_row in df_tss_selec.iterrows():
-                            tss_num = tss_row[col_factura]
-
-                            if link_col in df_resultado.columns:
-                                socios_factura = df_resultado[df_resultado[link_col] == tss_num].copy()
-                            else:
-                                socios_factura = df_resultado[df_resultado[col_factura] == tss_num].copy()
-
-                            if socios_factura.empty:
-                                continue
-
-                            if col_sociedad in socios_factura.columns:
-                                socios_unicos = socios_factura.drop_duplicates(subset=[col_sociedad])
-                            else:
-                                socios_unicos = socios_factura.drop_duplicates()
-
-                            for _, socio in socios_unicos.iterrows():
-                                rows.append({
-                                    "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
-                                    "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
-                                    "CIF UTE": " - ".join(df_resultado[col_cif].unique()) if col_cif in df_resultado.columns else "",
-                                    "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
-                                                if pago_elegido.get("fec_operacion") is not None else "",
-                                    "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
-                                    "CIF CLIENTE": tss_row.get(col_cif, ""),
-                                    "NOMBRE CLIENTE": tss_row.get(col_nombre_cliente, ""),
-                                    "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(tss_row.get(col_fecha_emision)).strftime("%d/%m/%Y")
-                                                                                if pd.notna(tss_row.get(col_fecha_emision)) else "",
-                                    "Nº FRA. UTE (de la ute a cliente final)": tss_row.get(col_factura, ""),
-                                    "IMPORTE FRA. UTE (de la ute a cliente final)": tss_row.get("IMPORTE_CORRECTO", 0.0),
-                                    "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio.get(col_fecha_emision)).strftime("%d/%m/%Y") 
-                                                                        if pd.notna(socio.get(col_fecha_emision)) else "",
-                                    "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio.get(col_factura, ""),
-                                    "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio.get("IMPORTE_CORRECTO", 0.0),
-                                    "SOCIO A PAGAR": socio.get(col_sociedad, ""),
-                                    "ID MOVIMIENTO": pago_elegido.get("id_movimiento", ""),
-                                })
-
-                    else:
-                        # --- Caso normal: solo una factura final ---
-                        for _, socio in df_resultado.iterrows():
-                            rows.append({
-                                "GESTOR DE COBROS": pago_elegido.get("gestor_de_cobros", ""),
-                                "NOMBRE UTE": " ".join(df_resultado[col_nombre_cliente].unique()) if col_nombre_cliente in df_resultado.columns else "",
-                                "CIF UTE": " - ".join(df_resultado[col_cif].unique()) if col_cif in df_resultado.columns else "",
-                                "FECHA COBRO": pd.to_datetime(pago_elegido.get("fec_operacion")).strftime("%d/%m/%Y") 
-                                            if pago_elegido.get("fec_operacion") is not None else "",
-                                "IMPORTE TOTAL COBRADO": pago_elegido.get("importe", 0.0),
-                                "CIF CLIENTE": factura_final.get(col_cif, "") if isinstance(factura_final, pd.Series) else factura_final[col_cif],
-                                "NOMBRE CLIENTE": factura_final.get(col_nombre_cliente, "") if isinstance(factura_final, pd.Series) else factura_final[col_nombre_cliente],
-                                "FECHA FRA. UTE (de la ute a cliente final)": pd.to_datetime(factura_final.get(col_fecha_emision)).strftime("%d/%m/%Y")
-                                                                            if isinstance(factura_final, pd.Series) and pd.notna(factura_final.get(col_fecha_emision))
-                                                                            else (pd.to_datetime(factura_final.iloc[0][col_fecha_emision]).strftime("%d/%m/%Y") if not isinstance(factura_final, pd.Series) else ""),
-                                "Nº FRA. UTE (de la ute a cliente final)": factura_final.get(col_factura, "") if isinstance(factura_final, pd.Series) else factura_final.iloc[0][col_factura],
-                                "IMPORTE FRA. UTE (de la ute a cliente final)": factura_final.get("IMPORTE_CORRECTO", 0.0) if isinstance(factura_final, pd.Series) else factura_final.iloc[0].get("IMPORTE_CORRECTO", 0.0),
-                                "FECHA FRA. DEL SOCIO (RR,ADM,TSOL)": pd.to_datetime(socio.get(col_fecha_emision)).strftime("%d/%m/%Y") 
-                                                                    if pd.notna(socio.get(col_fecha_emision)) else "",
-                                "NºFRA. DEL SOCIO (RR,ADM,TSOL)": socio.get(col_factura, ""),
-                                "IMPORTE FRA. DEL SOCIO (RR,ADM,TSOL)": socio.get("IMPORTE_CORRECTO", 0.0),
-                                "SOCIO A PAGAR": socio.get(col_sociedad, ""),
-                                "ID MOVIMIENTO": pago_elegido.get("id_movimiento", ""),
-                            })
-
-                    df_carta_pago = pd.DataFrame(rows)
-
-                    # --- Exportación a Excel ---
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                        df_carta_pago.to_excel(writer, index=False, sheet_name="Carta de Pago")
-
-                    st.download_button(
-                        label="📥 Descargar Carta de Pago",
-                        data=output.getvalue(),
-                        file_name="Carta_de_Pago.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                st.download_button(
+                    label="📥 Descargar Carta de Pago",
+                    data=output.getvalue(),
+                    file_name="Carta_de_Pago.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
