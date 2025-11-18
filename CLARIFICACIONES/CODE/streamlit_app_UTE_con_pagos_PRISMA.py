@@ -911,14 +911,7 @@ if archivo:
                             # fallback: por fecha
                             pago_elegido = choose_closest_by_date(candidatos_por_cif, fecha_ref)
 
-                # --- Paso C fallback: por importe en todo df_cobros (sin filtro CIF)
-                if pago_elegido is None and not candidatos.empty:
-                    pf_match = candidatos[candidatos.get('posible_factura','').astype(str) == fact_final_id]
-                    if not pf_match.empty:
-                        pago_elegido = choose_closest_by_date(pf_match, fecha_ref)
-                    else:
-                        pago_elegido = choose_closest_by_date(candidatos, fecha_ref)
-
+               
             # --- 5) asignar UNICO pago encontrado (si existe) a TODO df_resultado ---
             # inicializamos columnas de pago en df_resultado
             df_resultado.loc[:, 'posible_pago'] = 'No'
