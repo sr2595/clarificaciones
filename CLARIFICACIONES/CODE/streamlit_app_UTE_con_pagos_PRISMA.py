@@ -699,6 +699,11 @@ if archivo:
     else:
         st.warning("⚠️ No se ha seleccionado un grupo válido. No se pueden filtrar UTES ni ejecutar el solver.")
                 
+        if not df_resultado.empty:
+            try:
+                df_resultado['IMPORTE_CORRECTO'] = float(importe_total_final or 0.0)
+            except Exception:
+                df_resultado['IMPORTE_CORRECTO'] = df_resultado.get('IMPORTE_CORRECTO', pd.NA).fillna(0.0)
     
     # --- 2) leer/normalizar cobros ---
         cobros_file = st.file_uploader(
