@@ -717,6 +717,12 @@ if archivo:
             else:
                 # Aquí NO SE PONE importe_total_final — se pone más adelante antes del Excel de pagos
                 pass
+            # --- asegurar importe_total_final definido ---
+            if 'importe_total_final' not in locals():
+                try:
+                    importe_total_final = float(df_resultado['IMPORTE_CORRECTO'].sum())
+                except Exception:
+                    importe_total_final = 0.0
 
 
     # --- 2) leer/normalizar cobros ---
