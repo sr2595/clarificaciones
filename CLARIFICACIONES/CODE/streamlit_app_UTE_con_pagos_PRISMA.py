@@ -663,6 +663,11 @@ if archivo:
                     return df_internas.loc[seleccionadas]
                 else:
                     return pd.DataFrame()
+                
+            # DEBUG: comprobar si df_tss_selec tiene datos
+            st.write("DEBUG: df_tss_selec está vacío?", df_tss_selec.empty)
+            st.write("DEBUG: número de filas en df_tss_selec:", len(df_tss_selec))
+
 
             # ==========================================
             # 🔹 1) Cuadrar TSS con internas (opcional)
