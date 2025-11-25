@@ -124,115 +124,87 @@ if archivo_prisma:
         st.write(f"- Número de facturas únicas: {df_debug['FACTURA_NORMALIZADA'].nunique()}")
         st.write(f"- Facturas con espacios: {df_debug['CONTIENE_ESPACIOS'].sum()}")
 
-def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma, col_importe_prisma, col_id_ute_prisma, col_tipo_impuesto='tipo_impuesto'):
-    prisma_cubierto = False
-    pendiente_prisma = None
-
-    # Función auxiliar para aplicar impuesto según la columna tipo_impuesto
-    def aplicar_impuesto_prisma(importe, tipo_impuesto):
-        factores = {
-            "IGIC - 7": 1.07,
-            "IPSIC - 10": 1.10,
-            "IPSIM - 8": 1.08,
-            "IVA - 0": 1.00,
-            "IVA - 21": 1.21,
-            "EXENTO": 1.0,
-            "IVA - EXENTO": 1.0,
-        }
-        return float(importe * factores.get(str(tipo_impuesto).strip().upper(), 1.0))
-
-    try:
-        factura_90_val = str(factura_final[col_factura]).strip()
-    except Exception:
-        factura_90_val = None
-
-    if factura_90_val:
-        fila_90_prisma = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.strip() == factura_90_val]
-
-        if fila_90_prisma.empty:
-            st.warning(f"⚠️ La factura {factura_90_val} NO se encuentra en PRISMA. Se continuará usando solo COBRA.")
+# --------- Hook PRISMA ---------
+        def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma, col_importe_prisma, col_id_ute_prisma, col_tipo_impuesto='tipo_impuesto'):
             prisma_cubierto = False
-        else:
-            fila_90_prisma = fila_90_prisma.iloc[0]
-            id_ute_90 = str(fila_90_prisma[col_id_ute_prisma]).strip()
-            st.success(f"✅ Factura 90 encontrada en PRISMA. id UTE = {id_ute_90}")
+            pendiente_prisma = None
 
-            df_parejas = df_prisma[df_prisma[col_id_ute_prisma].astype(str).str.strip() == id_ute_90].copy()
-            df_socios_prisma = df_parejas[df_parejas[col_num_factura_prisma].astype(str).str.strip() != factura_90_val].copy()
-
-            # Aplicar impuesto a los importes
-            df_socios_prisma['importe_con_impuesto'] = df_socios_prisma.apply(
-                lambda row: aplicar_impuesto_prisma(row[col_importe_prisma], row.get(col_tipo_impuesto, 'EXENTO')), axis=1
-            )
-            fila_90_prisma['importe_con_impuesto'] = aplicar_impuesto_prisma(fila_90_prisma[col_importe_prisma], fila_90_prisma.get(col_tipo_impuesto, 'EXENTO'))
-
-            st.subheader("📂 PRISMA: filas relacionadas con id UTE")
-            st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
-            st.dataframe(df_parejas[[col_num_factura_prisma, col_cif_prisma, col_importe_prisma, 'IMPORTE_CORRECTO', col_tipo_impuesto]].head(30), use_container_width=True)
-
-            importe_90_prisma = fila_90_prisma.get('importe_con_impuesto', 0.0)
-            importe_socios_prisma = float(df_socios_prisma['importe_con_impuesto'].sum()) if not df_socios_prisma.empty else 0.0
-            diferencia = (importe_90_prisma or 0.0) - importe_socios_prisma
-
-            st.info(f"💶 PRISMA → importe 90 (con impuesto): {importe_90_prisma:,.2f} €")
-            st.info(f"💶 PRISMA → suma socios (TDE/TME) con impuesto: {importe_socios_prisma:,.2f} €")
-            st.info(f"🔢 PRISMA → diferencia (90 - socios): {diferencia:,.2f} €")
-
-            tol_euros = 0.01
-            if abs(diferencia) <= tol_euros:
-                prisma_cubierto = True
-                st.success("🎉 La UTE queda cuadrada con PRISMA (no hace falta buscar en COBRA).")
-                st.session_state["resultado_prisma_directo"] = {
-                    "id_ute": id_ute_90,
-                    "factura_90": factura_90_val,
-                    "socios_df": df_socios_prisma,
-                    "fila_90": fila_90_prisma
+            # Función auxiliar para aplicar impuesto según la columna tipo_impuesto
+            def aplicar_impuesto_prisma(importe, tipo_impuesto):
+                factores = {
+                    "IGIC - 7": 1.07,
+                    "IPSIC - 10": 1.10,
+                    "IPSIM - 8": 1.08,
+                    "IVA - 0": 1.00,
+                    "IVA - 21": 1.21,
+                    "EXENTO": 1.0,
+                    "IVA - EXENTO": 1.0,
                 }
-            else:
-                prisma_cubierto = False
-                resto_cent = int(round(diferencia * 100))
-                st.warning(f"⚠️ PRISMA no cubre totalmente la 90 — resta {diferencia:,.2f} € ({resto_cent} cént.) que habrá que cuadrar en COBRA")
-                pendiente_prisma = {
-                    "id_ute": id_ute_90,
-                    "factura_90": factura_90_val,
-                    "importe_90_prisma": importe_90_prisma,
-                    "importe_socios_prisma": importe_socios_prisma,
-                    "resto_euros": diferencia,
-                    "resto_cent": resto_cent,
-                    "df_socios_prisma": df_socios_prisma
-                }
-                st.session_state["pendiente_prisma"] = pendiente_prisma
+                return float(importe * factores.get(str(tipo_impuesto).strip().upper(), 1.0))
 
-    return prisma_cubierto, pendiente_prisma
+            try:
+                factura_90_val = str(factura_final[col_factura]).strip()
+            except Exception:
+                factura_90_val = None
 
-prisma_cubierto, pendiente_prisma = hook_prisma(
-    factura_final,
-    df_prisma,
-    col_num_factura_prisma,
-    col_cif_prisma,
-    col_importe_prisma,
-    col_id_ute_prisma
-)
+            if factura_90_val:
+                fila_90_prisma = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.strip() == factura_90_val]
 
-st.subheader("🐛 Debug completo PRISMA")
-st.write(f"- prisma_cubierto: {prisma_cubierto}")
-st.write(f"- pendiente_prisma: {pendiente_prisma}")
+                if fila_90_prisma.empty:
+                    st.warning(f"⚠️ La factura {factura_90_val} NO se encuentra en PRISMA. Se continuará usando solo COBRA.")
+                    prisma_cubierto = False
+                else:
+                    fila_90_prisma = fila_90_prisma.iloc[0]
+                    id_ute_90 = str(fila_90_prisma[col_id_ute_prisma]).strip()
+                    st.success(f"✅ Factura 90 encontrada en PRISMA. id UTE = {id_ute_90}")
 
-# Si hay resultado directo (cuadra al 100%)
-resultado_prisma = st.session_state.get("resultado_prisma_directo")
-if resultado_prisma:
-    st.write("✅ Resultado PRISMA directo")
-    st.dataframe(pd.DataFrame([resultado_prisma['fila_90']]))
-    st.dataframe(resultado_prisma['socios_df'])
-# Si quedó pendiente (no cuadra al 100%)
-pendiente_prisma = st.session_state.get("pendiente_prisma")
-if pendiente_prisma:
-    st.write("⚠️ PRISMA pendiente")
-    st.write(f"Factura 90: {pendiente_prisma['factura_90']}")
-    st.write(f"Importe 90 PRISMA: {pendiente_prisma['importe_90_prisma']}")
-    st.write(f"Suma socios: {pendiente_prisma['importe_socios_prisma']}")
-    st.write(f"Diferencia/resto: {pendiente_prisma['resto_euros']} €")
-    st.dataframe(pendiente_prisma['df_socios_prisma'])
+                    df_parejas = df_prisma[df_prisma[col_id_ute_prisma].astype(str).str.strip() == id_ute_90].copy()
+                    df_socios_prisma = df_parejas[df_parejas[col_num_factura_prisma].astype(str).str.strip() != factura_90_val].copy()
+
+                    # Aplicar impuesto a los importes
+                    df_socios_prisma['importe_con_impuesto'] = df_socios_prisma.apply(
+                        lambda row: aplicar_impuesto_prisma(row[col_importe_prisma], row.get(col_tipo_impuesto, 'EXENTO')), axis=1
+                    )
+                    fila_90_prisma['importe_con_impuesto'] = aplicar_impuesto_prisma(fila_90_prisma[col_importe_prisma], fila_90_prisma.get(col_tipo_impuesto, 'EXENTO'))
+
+                    st.subheader("📂 PRISMA: filas relacionadas con id UTE")
+                    st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
+                    st.dataframe(df_parejas[[col_num_factura_prisma, col_cif_prisma, col_importe_prisma, 'IMPORTE_CORRECTO', col_tipo_impuesto]].head(30), use_container_width=True)
+
+                    importe_90_prisma = fila_90_prisma.get('importe_con_impuesto', 0.0)
+                    importe_socios_prisma = float(df_socios_prisma['importe_con_impuesto'].sum()) if not df_socios_prisma.empty else 0.0
+                    diferencia = (importe_90_prisma or 0.0) - importe_socios_prisma
+
+                    st.info(f"💶 PRISMA → importe 90 (con impuesto): {importe_90_prisma:,.2f} €")
+                    st.info(f"💶 PRISMA → suma socios (TDE/TME) con impuesto: {importe_socios_prisma:,.2f} €")
+                    st.info(f"🔢 PRISMA → diferencia (90 - socios): {diferencia:,.2f} €")
+
+                    tol_euros = 0.01
+                    if abs(diferencia) <= tol_euros:
+                        prisma_cubierto = True
+                        st.success("🎉 La UTE queda cuadrada con PRISMA (no hace falta buscar en COBRA).")
+                        st.session_state["resultado_prisma_directo"] = {
+                            "id_ute": id_ute_90,
+                            "factura_90": factura_90_val,
+                            "socios_df": df_socios_prisma,
+                            "fila_90": fila_90_prisma
+                        }
+                    else:
+                        prisma_cubierto = False
+                        resto_cent = int(round(diferencia * 100))
+                        st.warning(f"⚠️ PRISMA no cubre totalmente la 90 — resta {diferencia:,.2f} € ({resto_cent} cént.) que habrá que cuadrar en COBRA")
+                        pendiente_prisma = {
+                            "id_ute": id_ute_90,
+                            "factura_90": factura_90_val,
+                            "importe_90_prisma": importe_90_prisma,
+                            "importe_socios_prisma": importe_socios_prisma,
+                            "resto_euros": diferencia,
+                            "resto_cent": resto_cent,
+                            "df_socios_prisma": df_socios_prisma
+                        }
+                        st.session_state["pendiente_prisma"] = pendiente_prisma
+
+            return prisma_cubierto, pendiente_prisma
 
 
 # --------- subida y normalizacion de COBRA ---------
