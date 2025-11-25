@@ -99,7 +99,7 @@ if archivo_prisma:
     df_prisma['IMPORTE_CORRECTO'] = df_prisma[col_importe_prisma].apply(convertir_importe_europeo)
     df_prisma['IMPORTE_CENT'] = (df_prisma['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
     df_prisma[col_fecha_prisma] = pd.to_datetime(df_prisma[col_fecha_prisma], dayfirst=True, errors='coerce')
-
+    df_prisma[col_tipo_imp_prisma] = df_prisma[col_tipo_imp_prisma].astype(str).str.strip().str.upper()
     st.success(f"✅ Archivo PRISMA cargado correctamente con {len(df_prisma)} filas")
 
     with st.expander("🔎 Ver columnas detectadas en PRISMA"):
@@ -166,7 +166,7 @@ if archivo_prisma:
                         lambda row: aplicar_impuesto_prisma(row['IMPORTE_CORRECTO'], row.get(col_tipo_impuesto, 'EXENTO')), axis=1
                     )
                     fila_90_prisma['importe_con_impuesto'] = aplicar_impuesto_prisma(fila_90_prisma['IMPORTE_CORRECTO'], fila_90_prisma.get(col_tipo_impuesto, 'EXENTO'))
-                    
+
                     st.write("Columnas en df_prisma / df_parejas:")
                     st.write(list(df_prisma.columns))
                     st.write(list(df_parejas.columns))
