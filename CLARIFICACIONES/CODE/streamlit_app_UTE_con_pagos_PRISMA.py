@@ -163,9 +163,9 @@ if archivo_prisma:
 
                     # Aplicar impuesto a los importes
                     df_socios_prisma['importe_con_impuesto'] = df_socios_prisma.apply(
-                        lambda row: aplicar_impuesto_prisma(row['IMPORTE_CORRECTO'], row.get(col_tipo_impuesto, 'EXENTO')), axis=1
+                        lambda row: aplicar_impuesto_prisma(row[col_importe_prisma], row.get(col_tipo_impuesto, 'EXENTO')), axis=1
                     )
-                    fila_90_prisma['importe_con_impuesto'] = aplicar_impuesto_prisma(fila_90_prisma['IMPORTE_CORRECTO'], fila_90_prisma.get(col_tipo_impuesto, 'EXENTO'))
+                    fila_90_prisma['importe_con_impuesto'] = aplicar_impuesto_prisma(fila_90_prisma[col_importe_prisma], fila_90_prisma.get(col_tipo_impuesto, 'EXENTO'))
 
                     st.subheader("📂 PRISMA: filas relacionadas con id UTE")
                     st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
