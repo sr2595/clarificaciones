@@ -100,10 +100,15 @@ if archivo_prisma:
     df_prisma['IMPORTE_CENT'] = (df_prisma['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
     df_prisma[col_fecha_prisma] = pd.to_datetime(df_prisma[col_fecha_prisma], dayfirst=True, errors='coerce')
     df_prisma[col_tipo_imp_prisma] = df_prisma[col_tipo_imp_prisma].astype(str).str.strip().str.upper()
-    st.success(f"✅ Archivo PRISMA cargado correctamente con {len(df_prisma)} filas")
+    col_tipo_imp_prisma = find_col(df_prisma, ["Tipo Impuesto"])
+    if col_tipo_imp_prisma:
+        # Limpiar espacios y convertir a mayúsculas para evitar errores de coincidencia
+        df_prisma[col_tipo_imp_prisma] = df_prisma[col_tipo_imp_prisma].astype(str).str.strip().str.upper()
+    else:
+        st.error("❌ No se encontró la columna Tipo Impuesto en PRISMA")
+        st.stop()
 
-    with st.expander("🔎 Ver columnas detectadas en PRISMA"):
-        st.write(list(df_prisma.columns))
+    st.success(f"✅ Archivo PRISMA cargado correctamente con {len(df_prisma)} filas")
 
     with st.expander("👀 Primeras filas PRISMA normalizado"):
         st.dataframe(df_prisma.head(10))
