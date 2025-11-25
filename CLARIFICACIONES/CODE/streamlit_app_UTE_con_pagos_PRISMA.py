@@ -205,7 +205,6 @@ def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma
 
     return prisma_cubierto, pendiente_prisma
 
-
 # --------- subida y normalizacion de COBRA ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
 if archivo:
@@ -711,18 +710,15 @@ if archivo:
             else:
                 df_resultado = pd.DataFrame()
 
+            # Mostrar aviso si no hay facturas internas seleccionadas
             if df_resultado.empty:
                 st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
 
-    else:
-        st.warning("⚠️ No se ha seleccionado un grupo válido. No se pueden filtrar UTES ni ejecutar el solver.")
-                
-        if not df_resultado.empty:
-            try:
-                df_resultado['IMPORTE_CORRECTO'] = float(importe_total_final or 0.0)
-            except Exception:
-                df_resultado['IMPORTE_CORRECTO'] = df_resultado.get('IMPORTE_CORRECTO', pd.NA).fillna(0.0)
-    
+            else:
+                # Aquí NO SE PONE importe_total_final — se pone más adelante antes del Excel de pagos
+                pass
+
+
     # --- 2) leer/normalizar cobros ---
     cobros_file = st.file_uploader(
         "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
