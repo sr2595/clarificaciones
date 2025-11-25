@@ -130,7 +130,7 @@ if archivo_prisma:
         st.write(f"- Facturas con espacios: {df_debug['CONTIENE_ESPACIOS'].sum()}")
 
 # --------- Hook PRISMA ---------
-        def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma, col_importe_prisma, col_id_ute_prisma, col_tipo_impuesto='tipo_impuesto'):
+        def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma, col_importe_prisma, col_id_ute_prisma, col_tipo_impuesto=col_tipo_imp_prisma):
             prisma_cubierto = False
             pendiente_prisma = None
 
