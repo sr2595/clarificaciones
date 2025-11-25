@@ -205,6 +205,36 @@ def hook_prisma(factura_final, df_prisma, col_num_factura_prisma, col_cif_prisma
 
     return prisma_cubierto, pendiente_prisma
 
+prisma_cubierto, pendiente_prisma = hook_prisma(
+    factura_final,
+    df_prisma,
+    col_num_factura_prisma,
+    col_cif_prisma,
+    col_importe_prisma,
+    col_id_ute_prisma
+)
+
+st.subheader("🐛 Debug completo PRISMA")
+st.write(f"- prisma_cubierto: {prisma_cubierto}")
+st.write(f"- pendiente_prisma: {pendiente_prisma}")
+
+# Si hay resultado directo (cuadra al 100%)
+resultado_prisma = st.session_state.get("resultado_prisma_directo")
+if resultado_prisma:
+    st.write("✅ Resultado PRISMA directo")
+    st.dataframe(pd.DataFrame([resultado_prisma['fila_90']]))
+    st.dataframe(resultado_prisma['socios_df'])
+# Si quedó pendiente (no cuadra al 100%)
+pendiente_prisma = st.session_state.get("pendiente_prisma")
+if pendiente_prisma:
+    st.write("⚠️ PRISMA pendiente")
+    st.write(f"Factura 90: {pendiente_prisma['factura_90']}")
+    st.write(f"Importe 90 PRISMA: {pendiente_prisma['importe_90_prisma']}")
+    st.write(f"Suma socios: {pendiente_prisma['importe_socios_prisma']}")
+    st.write(f"Diferencia/resto: {pendiente_prisma['resto_euros']} €")
+    st.dataframe(pendiente_prisma['df_socios_prisma'])
+
+
 # --------- subida y normalizacion de COBRA ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
 if archivo:
