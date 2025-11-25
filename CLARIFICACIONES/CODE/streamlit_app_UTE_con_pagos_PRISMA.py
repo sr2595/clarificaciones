@@ -213,62 +213,6 @@ if archivo_prisma:
                         }
                         st.session_state["pendiente_prisma"] = pendiente_prisma
 
-                        # ==========================================
-                # 🔹 1) Preparar importe a cuadrar (factura final o pendiente PRISMA)
-                # ==========================================
-
-                df_resultado_tss = pd.DataFrame()
-
-                # Determinar la "factura externa" a cuadrar
-                if factura_final is not None:
-                    if 'pendiente_prisma' in locals() and pendiente_prisma is not None:
-                        # PRISMA dejó pendiente: usamos el importe restante
-                        externa_a_cuadrar = pd.Series({
-                            'IMPORTE_CENT': pendiente_prisma['resto_cent'],
-                            col_fecha_emision: factura_final[col_fecha_emision]
-                        })
-                        st.info(f"⚠️ PRISMA dejó pendiente {pendiente_prisma['resto_euros']:,.2f} €")
-                    else:
-                        # Factura completa
-                        externa_a_cuadrar = factura_final.copy()
-                        externa_a_cuadrar['IMPORTE_CENT'] = int(round(factura_final['IMPORTE_CORRECTO']*100))
-                else:
-                    st.warning("❌ No hay factura externa para cuadrar")
-                    externa_a_cuadrar = None
-
-                # Solo seguimos si hay algo que cuadrar y COBRA no está vacío
-                if externa_a_cuadrar is not None and not df_internas.empty:
-
-                    # Filtrar COBRA por grupo y eliminar negativas
-                    df_internas_validas = df_internas[
-                        (df_internas[col_grupo].astype(str).str.replace(" ", "") == grupo_seleccionado) &
-                        (df_internas['IMPORTE_CORRECTO'].fillna(0) > 0)
-                    ].copy()
-
-                    if df_internas_validas.empty:
-                        st.warning("⚠️ No hay facturas internas válidas en COBRA para este grupo")
-                    else:
-                        # ✅ Convertir importes a céntimos y deduplicar
-                        df_internas_validas['IMPORTE_CENT'] = (df_internas_validas['IMPORTE_CORRECTO']*100).round().astype("Int64")
-                        df_internas_validas = df_internas_validas.drop_duplicates(subset=[col_sociedad, col_factura])
-
-                        st.write("💶 Total internas disponibles (céntimos):", df_internas_validas['IMPORTE_CENT'].sum())
-
-                        # Llamar al solver usando la “externa_a_cuadrar”
-                        df_resultado_tss = cuadrar_internas(externa_a_cuadrar, df_internas_validas)
-
-                        if df_resultado_tss.empty:
-                            st.warning("❌ No se encontró combinación de facturas internas que cuadre con la externa/pendiente")
-                        else:
-                            st.success(f"✅ Se han seleccionado {len(df_resultado_tss)} facturas internas que cuadran con la externa/pendiente")
-                            df_resultado_tss['TSS_90'] = factura_final[col_factura] if factura_final is not None else "PENDIENTE"
-                            st.dataframe(
-                                df_resultado_tss[[col_factura, col_cif, col_nombre_cliente,
-                                                'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad, 'TSS_90']], 
-                                use_container_width=True
-                            )
-
-
             return prisma_cubierto, pendiente_prisma
 
 # --------- subida y normalizacion de COBRA ---------
