@@ -669,6 +669,16 @@ if archivo:
             # ==========================================
             df_resultado_tss = pd.DataFrame()
             if not df_tss_selec.empty:
+                # --- Inserta aquí las líneas de debug ---
+                df_internas['IMPORTE_CENT'] = (df_internas['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
+                df_tss['IMPORTE_CENT'] = (df_tss['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
+                
+                df_internas = df_internas.drop_duplicates(subset=[col_sociedad, col_factura])
+                df_tss = df_tss.drop_duplicates(subset=[col_sociedad, col_factura])
+                
+                st.write("💶 Total internas (céntimos):", df_internas['IMPORTE_CENT'].sum())
+                st.write("💶 Total TSS (céntimos):", df_tss['IMPORTE_CENT'].sum())
+    
                 resultados_internas = []
                 used_interna_idxs = set()  # control global de internas ya usadas
 
