@@ -697,15 +697,7 @@ if archivo:
                         df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
                     st.success("✅ Se cuadraron las TSS con las internas")
                     st.dataframe(df_resultado_tss, use_container_width=True)
-                    # Mostrar totales en céntimos
-                    df_internas['IMPORTE_CENT'] = (df_internas['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
-                    df_tss['IMPORTE_CENT'] = (df_tss['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
                     
-                    df_internas = df_internas.drop_duplicates(subset=[col_sociedad, col_factura])
-                    df_tss = df_tss.drop_duplicates(subset=[col_sociedad, col_factura])
-                    
-                    st.write("💶 Total internas (céntimos):", df_internas['IMPORTE_CENT'].sum())
-                    st.write("💶 Total TSS (céntimos):", df_tss['IMPORTE_CENT'].sum())
 
             # ==========================================
             # 🔹 2) Cuadrar factura final con internas
