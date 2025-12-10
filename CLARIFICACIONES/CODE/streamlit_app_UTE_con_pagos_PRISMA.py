@@ -215,6 +215,7 @@ if archivo_prisma:
 
             return prisma_cubierto, pendiente_prisma
 
+
 # --------- subida y normalizacion de COBRA ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
 if archivo:
@@ -337,7 +338,7 @@ if archivo:
                 else:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
                     factura_final = None
-                    # 🔹 Llamada al hook PRISMA
+             # 🔹 Llamada al hook PRISMA
                 if factura_final is not None and not df_prisma.empty:
                     prisma_cubierto, pendiente_prisma = hook_prisma(
                         factura_final,
@@ -348,8 +349,19 @@ if archivo:
                         col_id_ute_prisma
                     )
 
+                    # ===============================================
+                    # ✅ PRISMA CUADRA COMPLETAMENTE LA FACTURA 90
+                    # ===============================================
                     if prisma_cubierto:
                         res = st.session_state.get("resultado_prisma_directo", {})
+
+                        # Guardamos qué internas ha usado PRISMA (TDE/TME)
+                        if "df_socios_prisma" in res:
+                            usadas = res["df_socios_prisma"][col_num_factura_prisma].astype(str).tolist()
+                            st.session_state["internas_usadas_prisma"] = usadas
+                        else:
+                            st.session_state["internas_usadas_prisma"] = []
+
                         if res:
                             st.subheader("✅ Resultado final (PRISMA)")
                             st.write(f"ID UTE: {res['id_ute']}, Factura 90: {res['factura_90']}")
@@ -359,9 +371,18 @@ if archivo:
                                 ],
                                 use_container_width=True
                             )
+
+                    # ===============================================
+                    # ❌ PRISMA NO CUBRE → preparar COBRA
+                    # ===============================================
                     else:
                         if pendiente_prisma is not None:
-                            # Aquí se podría crear la serie pendiente para COBRA usando importe en céntimos
+
+                            # Guardamos internas usadas para excluirlas en COBRA
+                            usadas = pendiente_prisma["df_socios_prisma"][col_num_factura_prisma].astype(str).tolist()
+                            st.session_state["internas_usadas_prisma"] = usadas
+
+                            # Crear "externa" pendiente para COBRA
                             externa_pendiente = pd.Series({
                                 'IMPORTE_CENT': pendiente_prisma["resto_cent"],
                                 col_fecha_emision: factura_final[col_fecha_emision] 
@@ -369,10 +390,16 @@ if archivo:
                                                     else factura_final.get(col_fecha_emision, pd.NaT)
                             })
                             st.session_state["externa_pendiente"] = externa_pendiente
-                            st.warning(f"⚠️ PRISMA no cubrió totalmente la factura 90, pendiente {pendiente_prisma['resto_euros']:,.2f} € que se cuadrará en COBRA")  
-            else:
-                st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
-                st.stop()
+
+                            st.warning(
+                                f"⚠️ PRISMA no cubrió totalmente la factura 90, "
+                                f"pendiente {pendiente_prisma['resto_euros']:,.2f} € que se cuadrará en COBRA"
+                            )
+
+                else:
+                    st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
+                    st.stop()
+
 
     elif modo_busqueda == "Por cliente/grupo":
      
