@@ -783,7 +783,10 @@ if archivo:
                     importe_total_final = float(df_resultado['IMPORTE_CORRECTO'].sum())
                 except Exception:
                     importe_total_final = 0.0
-
+            st.subheader("🔍 Debug restantes COBRA")
+            st.write(f"Resto a cuadrar: {pendiente_prisma['resto_euros']:,.2f} € ({pendiente_prisma['resto_cent']} cént.)")
+            st.write(f"Facturas internas disponibles para CIF {cif_ute}:")
+            st.dataframe(df_internas_filtrado[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO', 'IMPORTE_CENT']], use_container_width=True)
 
     # --- 2) leer/normalizar cobros ---
     cobros_file = st.file_uploader(
