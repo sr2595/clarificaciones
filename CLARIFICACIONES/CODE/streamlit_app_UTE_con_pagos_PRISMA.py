@@ -369,6 +369,13 @@ if archivo:
                                                     if col_fecha_emision in factura_final 
                                                     else factura_final.get(col_fecha_emision, pd.NaT)
                             })
+                            #🔍 Debug: ver qué se está pasando a COBRA
+                            st.write("💡 DEBUG → fila pendiente enviada a COBRA")
+                            st.write({
+                                "resto_euros": pendiente_prisma["resto_euros"],
+                                "resto_cent": pendiente_prisma["resto_cent"],
+                                "fila_externa_pendiente": externa_pendiente.to_dict()
+})
 
                             # Filtrar internas por CIF de la UTE usada en PRISMA
                             cif_ute = pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]
