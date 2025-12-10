@@ -361,16 +361,28 @@ if archivo:
                                 use_container_width=True
                             )
                     else:
-                        if pendiente_prisma is not None:
-                            # Aquí se podría crear la serie pendiente para COBRA usando importe en céntimos
+                        if pendiente_prisma is not None and not df_internas.empty:
+                            # Construir la serie externa con el restante de PRISMA
                             externa_pendiente = pd.Series({
                                 'IMPORTE_CENT': pendiente_prisma["resto_cent"],
                                 col_fecha_emision: factura_final[col_fecha_emision] 
                                                     if col_fecha_emision in factura_final 
                                                     else factura_final.get(col_fecha_emision, pd.NaT)
                             })
-                            st.session_state["externa_pendiente"] = externa_pendiente
-                            st.warning(f"⚠️ PRISMA no cubrió totalmente la factura 90, pendiente {pendiente_prisma['resto_euros']:,.2f} € que se cuadrará en COBRA")  
+
+                            # Filtrar internas por CIF de la UTE usada en PRISMA
+                            cif_ute = pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]
+                            df_internas_filtrado = df_internas[df_internas[col_cif] == cif_ute].copy()
+
+                            # Ejecutar el solver para cuadrar
+                            df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas_filtrado)
+
+                            if not df_resultado_restante.empty:
+                                st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
+                                st.dataframe(df_resultado_restante[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO']], use_container_width=True)
+                            else:
+                                st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
+
             else:
                 st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
                 st.stop()
