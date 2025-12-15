@@ -404,6 +404,11 @@ if archivo:
                                 ],
                                 use_container_width=True
                             )
+                            st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
+                            st.dataframe(
+                                df_internas_filtrado[[col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]],
+                                use_container_width=True
+                            )
 
                             # ----------------------------------
                             # 4️⃣ Ejecutar solver COBRA
