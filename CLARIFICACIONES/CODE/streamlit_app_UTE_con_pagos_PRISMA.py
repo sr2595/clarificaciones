@@ -419,9 +419,6 @@ if archivo:
                         # 🔹 4️⃣ Filtrar solo sociedades internas relevantes
                         df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
 
-                        # 🔹 5️⃣ Definir un CIF representativo para debug
-                        cif_ute = socios_prisma[0].replace(" ", "") if socios_prisma else "SIN_CIF"
-
                         # 🔹 6️⃣ DEBUG: mostrar incluso si está vacío
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
                         st.write(f"CIF UTE limpio: {cif_ute}")
