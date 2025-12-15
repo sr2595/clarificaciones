@@ -729,57 +729,7 @@ if archivo:
 
             df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
 
-            # --- Solver ---
-            def cuadrar_internas(externa, df_internas, tol=0):
-                if externa is None or df_internas.empty:
-                    return pd.DataFrame()
-
-                objetivo = int(externa['IMPORTE_CENT'])
-                fecha_ref = externa[col_fecha_emision]
-
-                data = list(zip(
-                    df_internas.index.tolist(),
-                    df_internas['IMPORTE_CENT'].astype(int).tolist(),
-                    (df_internas[col_fecha_emision] - fecha_ref).dt.days.fillna(0).astype(int).tolist(),
-                    df_internas[col_sociedad].tolist()
-                ))
-
-                n = len(data)
-                if n == 0:
-                    return pd.DataFrame()
-
-                model = cp_model.CpModel()
-                x = [model.NewBoolVar(f"sel_{i}") for i in range(n)]
-
-                # 🎯 Exacto o con tolerancia
-                if tol == 0:
-                    model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
-                else:
-                    model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
-                    model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
-
-                # Restricción: no repetir sociedad
-                sociedades = set(d[3] for d in data)
-                for s in sociedades:
-                    indices = [i for i, d in enumerate(data) if d[3] == s]
-                    if indices:
-                        model.Add(sum(x[i] for i in indices) <= 1)
-
-                # Minimizar desviación de fechas (opcional)
-                costs = [abs(d[2]) for d in data]
-                model.Minimize(sum(x) + sum(x[i] * costs[i] for i in range(n)))
-
-                solver = cp_model.CpSolver()
-                solver.parameters.max_time_in_seconds = 10
-                status = solver.Solve(model)
-
-                if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                    seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i]) == 1]
-                    return df_internas.loc[seleccionadas]
-                else:
-                    return pd.DataFrame()
-                    
-            
+                       
             # ==========================================
             # 🔹 1) Cuadrar TSS con internas (opcional)
             # ==========================================
