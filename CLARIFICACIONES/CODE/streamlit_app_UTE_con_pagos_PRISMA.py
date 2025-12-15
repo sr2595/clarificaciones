@@ -424,6 +424,10 @@ if archivo:
                         st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas)} filas")
                         st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, "IMPORTE_CORRECTO"]], use_container_width=True)
                   
+                        st.write("CIF UTE limpio:", cif_ute)
+                        st.write("CIFs en df:", df[col_cif].astype(str).unique())
+                        st.write("Sociedades disponibles en df:", df[col_sociedad].astype(str).unique())
+
                                                
                         # 4️⃣ Ejecutar solver COBRA con el restante PRISMA
                         df_resultado_restante = cuadrar_internas(
@@ -484,11 +488,7 @@ if archivo:
                                 df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
                             ].copy()
 
-                            st.write("CIF UTE limpio:", cif_ute)
-                            st.write("CIFs en df:", df[col_cif].astype(str).unique())
-                            st.write("Sociedades disponibles en df:", df[col_sociedad].astype(str).unique())
-
-                    
+                                             
                 else:
                     st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
                     st.stop()
