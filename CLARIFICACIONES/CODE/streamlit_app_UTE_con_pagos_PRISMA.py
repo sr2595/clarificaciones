@@ -402,34 +402,37 @@ if archivo:
                         col_id_ute_prisma
                     )
                     if pendiente_prisma is not None:
-                        # 1️⃣ Obtenemos todos los CIFs de los socios de la UTE que generan pendiente
-                        socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
-                        
-                        # 2️⃣ Rellenamos df_internas automáticamente con todas las internas de esos socios
-                        df_internas_ute = df[df[col_cif].astype(str).str.replace(r"\s+", "", regex=True).str.upper().isin(
-                            [s.replace(" ", "").upper() for s in socios_prisma]
-                        )].copy()
-                        
-                        # 3️⃣ Si df_internas ya tiene datos seleccionados, hacemos unión sin duplicados
-                        if not df_internas.empty:
-                            df_internas = pd.concat([df_internas, df_internas_ute]).drop_duplicates(subset=[col_cif, col_factura])
-                        else:
-                            df_internas = df_internas_ute
+                # 🔹 1️⃣ Limpiar CIF en df de manera uniforme
+                        df['CIF_LIMPIO'] = (
+                            df[col_cif].astype(str)
+                            .str.replace(r"[^A-Za-z0-9]", "", regex=True)  # elimina espacios, guiones, etc.
+                            .str.upper()
+                        )
 
-                        # 4️⃣ Definir un CIF representativo para debug
+                        # 🔹 2️⃣ Obtener todos los CIFs de los socios de la UTE que generan pendiente
+                        socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
+                        socios_prisma_limpios = [s.replace(" ", "").upper() for s in socios_prisma]
+
+                        # 🔹 3️⃣ Rellenar df_internas automáticamente con todas las internas de esos socios
+                        df_internas = df[df['CIF_LIMPIO'].isin(socios_prisma_limpios)].copy()
+
+                        # 🔹 4️⃣ Filtrar solo sociedades internas relevantes
+                        df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
+
+                        # 🔹 5️⃣ Definir un CIF representativo para debug
                         cif_ute = socios_prisma[0].replace(" ", "") if socios_prisma else "SIN_CIF"
 
-                        # 🔹 DEBUG: mostrar lo que se va a usar
+                        # 🔹 6️⃣ DEBUG: mostrar incluso si está vacío
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
-                        st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas)} filas")
+                        st.write(f"CIF UTE limpio: {cif_ute}")
+                        st.write(f"Filas encontradas: {len(df_internas)}")
                         st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, "IMPORTE_CORRECTO"]], use_container_width=True)
-                  
-                        st.write("CIF UTE limpio:", cif_ute)
+
+                        # 🔹 7️⃣ Opcional: mostrar todas las sociedades y CIFs presentes para verificar coincidencias
                         st.write("CIFs en df:", df[col_cif].astype(str).unique())
                         st.write("Sociedades disponibles en df:", df[col_sociedad].astype(str).unique())
-
                                                
-                        # 4️⃣ Ejecutar solver COBRA con el restante PRISMA
+                        # Ejecutar solver COBRA con el restante PRISMA
                         df_resultado_restante = cuadrar_internas(
                             pd.Series({
                                 'IMPORTE_CENT': pendiente_prisma["resto_cent"],
