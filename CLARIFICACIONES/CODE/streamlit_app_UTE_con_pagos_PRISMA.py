@@ -410,12 +410,12 @@ if archivo:
                             .str.upper()
                         )
                         # 🔹 Quitar cualquier letra inicial seguida de 0
-                        df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]0', '', regex=True)
+                        df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
 
                         # 🔹 Obtener todos los CIFs de los socios de la UTE que generan pendiente
                         socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
                         socios_prisma_limpios = socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
-                        socios_prisma_limpios = [re.sub(r'^[A-Z]0', '', s) for s in socios_prisma_limpios]
+                        socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
 
                         # 🔹 Rellenar df_internas automáticamente con todas las internas de esos socios
                         df_internas = df[df['CIF_LIMPIO'].isin(socios_prisma_limpios)].copy()
