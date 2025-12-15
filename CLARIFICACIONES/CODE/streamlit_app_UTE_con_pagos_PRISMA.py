@@ -376,7 +376,8 @@ if archivo:
                             df_internas = pd.concat([df_internas, df_internas_ute]).drop_duplicates(subset=[col_cif, col_factura])
                         else:
                             df_internas = df_internas_ute
-
+                        # 4️⃣ Definir un CIF representativo para el debug (el primero de la lista de socios)
+                            cif_ute = socios_prisma[0].replace(" ", "") if socios_prisma else "SIN_CIF"
                         # Mostrar debug
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
                         st.write("💶 Restante PRISMA:")
