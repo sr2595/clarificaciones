@@ -339,6 +339,10 @@ if archivo:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
                     factura_final = None
 
+                # Después de seleccionar factura_final
+                st.write("DEBUG: factura_final seleccionada =", factura_final)
+                st.write("DEBUG: df_prisma.shape =", df_prisma.shape)
+
                     
                  # 🔹 Llamada al hook PRISMA
                 if factura_final is not None and not df_prisma.empty:
@@ -350,13 +354,6 @@ if archivo:
                         col_importe_prisma,
                         col_id_ute_prisma
                     )
-
-                     # Mostrar información del restante PRISMA
-                    st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
-                    st.write("💶 Restante PRISMA:")
-                    st.write(f"- Euros: {pendiente_prisma['resto_euros']:,.2f} €")
-                    st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
-                    
                     # ----------------------------------
                     # 3️⃣ DEBUG PRISMA → COBRA
                     # ----------------------------------
@@ -370,7 +367,12 @@ if archivo:
                             df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
                         ].copy()
                         
-                       
+                        # Mostrar información del restante PRISMA
+                        st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
+                        st.write("💶 Restante PRISMA:")
+                        st.write(f"- Euros: {pendiente_prisma['resto_euros']:,.2f} €")
+                        st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
+                        
                         # Mostrar las facturas TSOL disponibles en COBRA
                         st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
                         st.dataframe(
