@@ -831,6 +831,26 @@ if archivo:
                     col_importe_prisma,
                     col_id_ute_prisma
                 )
+
+                if prisma_cubierto:
+                    st.success("✅ PRISMA está cubriendo la factura 90 completamente")
+                    res = st.session_state.get("resultado_prisma_directo", {})
+                    if res:
+                        st.subheader("📄 Facturas PRISMA utilizadas:")
+                        st.dataframe(
+                            res['socios_df'][[col_num_factura_prisma, col_cif_prisma, col_importe_prisma, 'IMPORTE_CORRECTO']],
+                            use_container_width=True
+                        )
+                else:
+                    st.warning("⚠️ PRISMA NO cubre completamente la factura 90")
+                    if pendiente_prisma is not None:
+                        st.subheader("📄 Facturas PRISMA encontradas para la UTE (pero resta pendiente):")
+                        st.dataframe(
+                            pendiente_prisma['df_socios_prisma'][[col_num_factura_prisma, col_cif_prisma, col_importe_prisma, 'importe_con_impuesto']],
+                            use_container_width=True
+                        )
+                        st.info(f"💶 Importe pendiente a cuadrar con COBRA: {pendiente_prisma['resto_euros']:,.2f} €")
+
             
             if factura_final is not None and not df_internas.empty:
                 df_resultado_factura = cuadrar_internas(factura_final, df_internas)
