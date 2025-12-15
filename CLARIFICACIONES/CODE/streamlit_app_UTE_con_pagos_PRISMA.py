@@ -430,7 +430,7 @@ if archivo:
 
 
                         # 🔹 7️⃣ Opcional: mostrar todas las sociedades y CIFs presentes para verificar coincidencias
-                        st.write("CIFs en df:", df[col_cif].astype(str).unique())
+                        st.write("CIFs en df:", df['CIF_LIMPIO'].astype(str).unique())
                         st.write("Sociedades disponibles en df:", df[col_sociedad].astype(str).unique())
                                                
                         # Ejecutar solver COBRA con el restante PRISMA
