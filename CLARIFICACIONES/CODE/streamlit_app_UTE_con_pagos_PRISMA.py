@@ -392,9 +392,9 @@ if archivo:
                         st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
                         
                         # Mostrar las facturas TSOL disponibles en COBRA
-                        st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
+                        st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas)} filas")
                         st.dataframe(
-                            df_internas_filtrado[
+                            df_internas[
                                 [col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]
                             ],
                             use_container_width=True
@@ -408,7 +408,7 @@ if archivo:
                                                     if col_fecha_emision in factura_final 
                                                     else factura_final.get(col_fecha_emision, pd.NaT)
                             }),
-                            df_internas_filtrado
+                            df_internas
                         )
                         
                         if not df_resultado_restante.empty:
