@@ -405,10 +405,9 @@ if archivo:
                         # 🔹 1️⃣ Limpiar CIF en df de manera uniforme
                         df['CIF_LIMPIO'] = (
                             df[col_cif].astype(str)
-                            .str.split("-", n=1).str[-1]          # toma la parte después del guion, si existe
-                            .str.replace(r"[^A-Za-z0-9]", "", regex=True)  # elimina espacios, guiones, etc.
-                            .str.upper()
-                        )
+                              .str.extract(r'([A-Za-z0-9]+)$')[0]  # captura la última cadena alfanumérica
+                              .str.upper()
+                            )
 
                         # 🔹 2️⃣ Obtener todos los CIFs de los socios de la UTE que generan pendiente
                         socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
