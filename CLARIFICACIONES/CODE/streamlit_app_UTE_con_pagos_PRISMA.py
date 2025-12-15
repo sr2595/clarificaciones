@@ -388,27 +388,33 @@ if archivo:
                                 df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
                             ].copy()
 
-                            # ----------------------------------
+                           # ----------------------------------
                             # 3️⃣ DEBUG PRISMA → COBRA
                             # ----------------------------------
-                            st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
+                            if pendiente_prisma is not None and not df_internas.empty:
+                                # 2️⃣ Filtrar internas por CIF UTE
+                                cif_ute = str(
+                                    pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]
+                                ).replace(" ", "")
 
-                            st.write("💶 Restante PRISMA:")
-                            st.write(f"- Euros: {pendiente_prisma['resto_euros']:,.2f} €")
-                            st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
+                                df_internas_filtrado = df_internas[
+                                    df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
+                                ].copy()
 
-                            st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}:")
-                            st.dataframe(
-                                df_internas_filtrado[
-                                    [col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]
-                                ],
-                                use_container_width=True
-                            )
-                            st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
-                            st.dataframe(
-                                df_internas_filtrado[[col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]],
-                                use_container_width=True
-                            )
+                                st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
+
+                                st.write("💶 Restante PRISMA:")
+                                st.write(f"- Euros: {pendiente_prisma['resto_euros']:,.2f} €")
+                                st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
+
+                                st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
+                                st.dataframe(
+                                    df_internas_filtrado[
+                                        [col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]
+                                    ],
+                                    use_container_width=True
+                                )
+
 
                             # ----------------------------------
                             # 4️⃣ Ejecutar solver COBRA
