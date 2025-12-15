@@ -402,12 +402,13 @@ if archivo:
                         col_id_ute_prisma
                     )
                     if pendiente_prisma is not None:
-                     # 🔹 Limpiar CIF en df y extraer solo la parte real del CIF (alfanumérica)
+                        # 🔹 Limpiar CIF en df y extraer solo la parte real del CIF (alfanumérica)
                         df['CIF_LIMPIO'] = (
                             df[col_cif].astype(str)
-                            .str.extract(r'([A-Za-z0-9]+)$')[0]  # captura la última cadena alfanumérica
+                            .str.split("-", n=1).str[-1]      # tomar lo que está después del primer guion
+                            .str.replace(r"\s+", "", regex=True)  # quitar espacios
                             .str.upper()
-                        )
+    )
 
                         # 🔹 Obtener todos los CIFs de los socios de la UTE que generan pendiente
                         socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
