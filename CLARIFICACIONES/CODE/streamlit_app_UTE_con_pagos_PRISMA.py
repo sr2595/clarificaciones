@@ -360,19 +360,30 @@ if archivo:
                         col_importe_prisma,
                         col_id_ute_prisma
                     )
-                    # ----------------------------------
-                    # 3️⃣ DEBUG PRISMA → COBRA
-                    # ----------------------------------
+                   
+
                     if pendiente_prisma is not None and not df_internas.empty:
                         # 2️⃣ Filtrar internas por CIF UTE
-                        cif_ute = str(
-                            pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]
-                        ).replace(" ", "")
-                        
+                    
+                        cif_ute = str(pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]).replace(" ", "")
+
+                        # Reemplazamos filtrado antiguo por el nuevo
                         df_internas_filtrado = df_internas[
-                            df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
+                            df_internas[col_cif].astype(str).str.replace(r"\s+", "", regex=True).str.upper() == cif_ute.upper()
                         ].copy()
-                        
+
+                        # Mostrar debug
+                        st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
+                        st.write("💶 Restante PRISMA:")
+                        st.write(f"- Euros: {pendiente_prisma['resto_euros']:,.2f} €")
+                        st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
+                        st.write(f"🔢 CIF de la UTE que se usará para filtrar COBRA: {cif_ute}")
+                        st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
+                        st.dataframe(
+                            df_internas_filtrado[[col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]],
+                            use_container_width=True
+                        )
+
                         # Mostrar información del restante PRISMA
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
                         st.write("💶 Restante PRISMA:")
