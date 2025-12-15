@@ -426,7 +426,7 @@ if archivo:
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
                         st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
                         st.write(f"Filas encontradas: {len(df_internas)}")
-                        st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, "IMPORTE_CORRECTO"]], use_container_width=True)
+                        st.dataframe(df_internas[['CIF_LIMPIO', col_factura, col_sociedad, "IMPORTE_CORRECTO"]], use_container_width=True)
 
 
                         # 🔹 7️⃣ Opcional: mostrar todas las sociedades y CIFs presentes para verificar coincidencias
