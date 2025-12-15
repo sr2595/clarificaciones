@@ -403,16 +403,18 @@ if archivo:
                     )
                     if pendiente_prisma is not None:
                         # 🔹 Limpiar CIF en df y extraer solo la parte real del CIF (alfanumérica)
+        
                         df['CIF_LIMPIO'] = (
                             df[col_cif].astype(str)
-                            .str.split("-", n=1).str[-1]      # tomar lo que está después del primer guion
-                            .str.replace(r"\s+", "", regex=True)  # quitar espacios
+                            .str.replace(r"[^A-Za-z0-9]", "", regex=True)  # deja solo letras y números
                             .str.upper()
-    )
+                        )
+
 
                         # 🔹 Obtener todos los CIFs de los socios de la UTE que generan pendiente
                         socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
-                        socios_prisma_limpios = [s.replace(" ", "").upper() for s in socios_prisma]
+                        socios_prisma_limpios = socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
+
 
                         # 🔹 Rellenar df_internas automáticamente con todas las internas de esos socios
                         df_internas = df[df['CIF_LIMPIO'].isin(socios_prisma_limpios)].copy()
@@ -478,7 +480,7 @@ if archivo:
                                     else factura_final.get(col_fecha_emision, pd.NaT)
                                 )
                             })
-                            
+
                             # ----------------------------------
                             # 2️⃣ Filtrar internas por CIF UTE (usar columna limpia)
                             # ----------------------------------
