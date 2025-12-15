@@ -402,9 +402,10 @@ if archivo:
                         col_id_ute_prisma
                     )
                     if pendiente_prisma is not None:
-                # 🔹 1️⃣ Limpiar CIF en df de manera uniforme
+                        # 🔹 1️⃣ Limpiar CIF en df de manera uniforme
                         df['CIF_LIMPIO'] = (
                             df[col_cif].astype(str)
+                            .str.split("-", n=1).str[-1]          # toma la parte después del guion, si existe
                             .str.replace(r"[^A-Za-z0-9]", "", regex=True)  # elimina espacios, guiones, etc.
                             .str.upper()
                         )
