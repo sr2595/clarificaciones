@@ -213,6 +213,16 @@ if archivo_prisma:
                         }
                         st.session_state["pendiente_prisma"] = pendiente_prisma
 
+                        # 🔹 DEBUG que querías: resto y CIF que se usará para filtrar COBRA
+                        st.subheader("🧪 DEBUG INTERNO PRISMA → COBRA (TSOL)")
+                        st.write(f"💶 Restante a cuadrar en COBRA: {pendiente_prisma['resto_euros']:,.2f} € ({pendiente_prisma['resto_cent']} cént.)")
+                        cif_ute = str(pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]).replace(" ", "")
+                        st.write(f"🔢 CIF de la UTE que se usará para filtrar COBRA: {cif_ute}")
+                        st.write("📂 Detalle socios PRISMA que generan este pendiente:")
+                        st.dataframe(pendiente_prisma['df_socios_prisma'], use_container_width=True)
+
+
+
             return prisma_cubierto, pendiente_prisma
 
 
@@ -338,10 +348,6 @@ if archivo:
                 else:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
                     factura_final = None
-
-                # Después de seleccionar factura_final
-                st.write("DEBUG: factura_final seleccionada =", factura_final)
-                st.write("DEBUG: df_prisma.shape =", df_prisma.shape)
 
                     
                  # 🔹 Llamada al hook PRISMA
