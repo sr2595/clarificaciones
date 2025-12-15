@@ -362,15 +362,20 @@ if archivo:
                     )
                    
 
-                    if pendiente_prisma is not None and not df_internas.empty:
-                        # 2️⃣ Filtrar internas por CIF UTE
-                    
-                        cif_ute = str(pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]).replace(" ", "")
-
-                        # Reemplazamos filtrado antiguo por el nuevo
-                        df_internas_filtrado = df_internas[
-                            df_internas[col_cif].astype(str).str.replace(r"\s+", "", regex=True).str.upper() == cif_ute.upper()
-                        ].copy()
+                    if pendiente_prisma is not None:
+                        # 1️⃣ Obtenemos todos los CIFs de los socios de la UTE que generan pendiente
+                        socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
+                        
+                        # 2️⃣ Rellenamos df_internas automáticamente con todas las internas de esos socios
+                        df_internas_ute = df[df[col_cif].astype(str).str.replace(r"\s+", "", regex=True).str.upper().isin(
+                            [s.replace(" ", "").upper() for s in socios_prisma]
+                        )].copy()
+                        
+                        # 3️⃣ Si df_internas ya tiene datos seleccionados, hacemos unión sin duplicados
+                        if not df_internas.empty:
+                            df_internas = pd.concat([df_internas, df_internas_ute]).drop_duplicates(subset=[col_cif, col_factura])
+                        else:
+                            df_internas = df_internas_ute
 
                         # Mostrar debug
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
