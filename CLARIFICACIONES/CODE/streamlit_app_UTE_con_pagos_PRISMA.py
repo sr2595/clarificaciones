@@ -338,6 +338,11 @@ if archivo:
                 else:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
                     factura_final = None
+
+                    st.write("DEBUG INICIO BLOQUE PRISMA → COBRA")
+                    st.write("pendiente_prisma es None?", pendiente_prisma is None)
+                    st.write("df_internas vacío?", df_internas.empty)
+
                  # 🔹 Llamada al hook PRISMA
                 if factura_final is not None and not df_prisma.empty:
                     prisma_cubierto, pendiente_prisma = hook_prisma(
