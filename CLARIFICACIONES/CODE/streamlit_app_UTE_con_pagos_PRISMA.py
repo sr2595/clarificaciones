@@ -677,7 +677,19 @@ if archivo:
                 else:
                     return pd.DataFrame()
                     
+                st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
 
+                st.write("Restante PRISMA:")
+                st.write(pendiente_prisma["resto_euros"], "€")
+                st.write(pendiente_prisma["resto_cent"], "céntimos")
+
+                st.write("Facturas TSOL disponibles en COBRA (antes de solver):")
+                st.dataframe(
+                    df_internas_filtrado[
+                        [col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]
+                    ],
+                    use_container_width=True
+                )
             # ==========================================
             # 🔹 1) Cuadrar TSS con internas (opcional)
             # ==========================================
