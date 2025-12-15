@@ -339,10 +339,7 @@ if archivo:
                     st.error(f"❌ La factura {factura_input_norm} no se encuentra tras filtrar el grupo.")
                     factura_final = None
 
-                    st.write("DEBUG INICIO BLOQUE PRISMA → COBRA")
-                    st.write("pendiente_prisma es None?", pendiente_prisma is None)
-                    st.write("df_internas vacío?", df_internas.empty)
-
+                    
                  # 🔹 Llamada al hook PRISMA
                 if factura_final is not None and not df_prisma.empty:
                     prisma_cubierto, pendiente_prisma = hook_prisma(
@@ -353,6 +350,53 @@ if archivo:
                         col_importe_prisma,
                         col_id_ute_prisma
                     )
+                    # ----------------------------------
+                    # 3️⃣ DEBUG PRISMA → COBRA
+                    # ----------------------------------
+                    if pendiente_prisma is not None and not df_internas.empty:
+                        # 2️⃣ Filtrar internas por CIF UTE
+                        cif_ute = str(
+                            pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]
+                        ).replace(" ", "")
+                        
+                        df_internas_filtrado = df_internas[
+                            df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
+                        ].copy()
+                        
+                        # Mostrar información del restante PRISMA
+                        st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
+                        st.write("💶 Restante PRISMA:")
+                        st.write(f"- Euros: {pendiente_prisma['resto_euros']:,.2f} €")
+                        st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
+                        
+                        # Mostrar las facturas TSOL disponibles en COBRA
+                        st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
+                        st.dataframe(
+                            df_internas_filtrado[
+                                [col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]
+                            ],
+                            use_container_width=True
+                        )
+                        
+                        # 4️⃣ Ejecutar solver COBRA con el restante PRISMA
+                        df_resultado_restante = cuadrar_internas(
+                            pd.Series({
+                                'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                                col_fecha_emision: factura_final[col_fecha_emision] 
+                                                    if col_fecha_emision in factura_final 
+                                                    else factura_final.get(col_fecha_emision, pd.NaT)
+                            }),
+                            df_internas_filtrado
+                        )
+                        
+                        if not df_resultado_restante.empty:
+                            st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
+                            st.dataframe(
+                                df_resultado_restante[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO']],
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
 
                     if prisma_cubierto:
                         res = st.session_state.get("resultado_prisma_directo", {})
@@ -393,59 +437,7 @@ if archivo:
                                 df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
                             ].copy()
 
-                           # ----------------------------------
-                            # 3️⃣ DEBUG PRISMA → COBRA
-                            # ----------------------------------
-                            if pendiente_prisma is not None and not df_internas.empty:
-                                # 2️⃣ Filtrar internas por CIF UTE
-                                cif_ute = str(
-                                    pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]
-                                ).replace(" ", "")
-
-                                df_internas_filtrado = df_internas[
-                                    df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
-                                ].copy()
-
-                                st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL)")
-
-                                st.write("💶 Restante PRISMA:")
-                                st.write(f"- Euros: {pendiente_prisma['resto_euros']:,.2f} €")
-                                st.write(f"- Céntimos: {pendiente_prisma['resto_cent']}")
-
-                                st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas_filtrado)} filas")
-                                st.dataframe(
-                                    df_internas_filtrado[
-                                        [col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]
-                                    ],
-                                    use_container_width=True
-                                )
-
-
-                            # ----------------------------------
-                            # 4️⃣ Ejecutar solver COBRA
-                            # ----------------------------------
-                            df_resultado_restante = cuadrar_internas(
-                                externa_pendiente,
-                                df_internas_filtrado
-                            )
-
-                            if not df_resultado_restante.empty:
-                                st.success(
-                                    f"✅ Se cuadró el restante de PRISMA "
-                                    f"({pendiente_prisma['resto_euros']:,.2f} €) con COBRA"
-                                )
-                                st.dataframe(
-                                    df_resultado_restante[
-                                        [col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO']
-                                    ],
-                                    use_container_width=True
-                                )
-                            else:
-                                st.warning(
-                                    "⚠️ No se encontró combinación de facturas internas "
-                                    "que cuadre con el restante de PRISMA"
-                                )
-
+                    
                 else:
                     st.error(f"❌ No se encontró la factura TSS nº {factura_input_norm}")
                     st.stop()
