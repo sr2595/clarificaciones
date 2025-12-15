@@ -423,17 +423,8 @@ if archivo:
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
                         st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas)} filas")
                         st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, "IMPORTE_CORRECTO"]], use_container_width=True)
-
-                                           
-                        # Mostrar las facturas TSOL disponibles en COBRA
-                        st.write(f"📄 Facturas TSOL disponibles en COBRA para CIF {cif_ute}: {len(df_internas)} filas")
-                        st.dataframe(
-                            df_internas[
-                                [col_factura, col_cif, col_sociedad, "IMPORTE_CORRECTO", "IMPORTE_CENT"]
-                            ],
-                            use_container_width=True
-                        )
-                        
+                  
+                                               
                         # 4️⃣ Ejecutar solver COBRA con el restante PRISMA
                         df_resultado_restante = cuadrar_internas(
                             pd.Series({
