@@ -478,16 +478,12 @@ if archivo:
                                     else factura_final.get(col_fecha_emision, pd.NaT)
                                 )
                             })
-
+                            
                             # ----------------------------------
-                            # 2️⃣ Filtrar internas por CIF UTE
+                            # 2️⃣ Filtrar internas por CIF UTE (usar columna limpia)
                             # ----------------------------------
-                            cif_ute = str(
-                                pendiente_prisma['df_socios_prisma'][col_cif_prisma].iloc[0]
-                            ).replace(" ", "")
-
                             df_internas_filtrado = df_internas[
-                                df_internas[col_cif].astype(str).str.replace(" ", "") == cif_ute
+                                df_internas['CIF_LIMPIO'].isin(socios_prisma_limpios)
                             ].copy()
 
                                              
