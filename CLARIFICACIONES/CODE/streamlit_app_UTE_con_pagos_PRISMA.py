@@ -402,28 +402,29 @@ if archivo:
                         col_id_ute_prisma
                     )
                     if pendiente_prisma is not None:
-                        # 🔹 1️⃣ Limpiar CIF en df de manera uniforme
+                     # 🔹 Limpiar CIF en df y extraer solo la parte real del CIF (alfanumérica)
                         df['CIF_LIMPIO'] = (
                             df[col_cif].astype(str)
-                              .str.extract(r'([A-Za-z0-9]+)$')[0]  # captura la última cadena alfanumérica
-                              .str.upper()
-                            )
+                            .str.extract(r'([A-Za-z0-9]+)$')[0]  # captura la última cadena alfanumérica
+                            .str.upper()
+                        )
 
-                        # 🔹 2️⃣ Obtener todos los CIFs de los socios de la UTE que generan pendiente
+                        # 🔹 Obtener todos los CIFs de los socios de la UTE que generan pendiente
                         socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
                         socios_prisma_limpios = [s.replace(" ", "").upper() for s in socios_prisma]
 
-                        # 🔹 3️⃣ Rellenar df_internas automáticamente con todas las internas de esos socios
+                        # 🔹 Rellenar df_internas automáticamente con todas las internas de esos socios
                         df_internas = df[df['CIF_LIMPIO'].isin(socios_prisma_limpios)].copy()
 
-                        # 🔹 4️⃣ Filtrar solo sociedades internas relevantes
+                        # 🔹 Filtrar solo sociedades internas relevantes
                         df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
 
-                        # 🔹 6️⃣ DEBUG: mostrar incluso si está vacío
+                        # 🔹 DEBUG: mostrar incluso si está vacío
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
-                        st.write(f"CIF UTE limpio: {cif_ute}")
+                        st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
                         st.write(f"Filas encontradas: {len(df_internas)}")
                         st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, "IMPORTE_CORRECTO"]], use_container_width=True)
+
 
                         # 🔹 7️⃣ Opcional: mostrar todas las sociedades y CIFs presentes para verificar coincidencias
                         st.write("CIFs en df:", df[col_cif].astype(str).unique())
