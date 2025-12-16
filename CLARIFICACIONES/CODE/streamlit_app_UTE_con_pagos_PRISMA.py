@@ -438,18 +438,34 @@ if archivo:
                         # 🔹 7️⃣ Opcional: mostrar todas las sociedades y CIFs presentes para verificar coincidencias
                         st.write("CIFs en df:", df['CIF_LIMPIO'].astype(str).unique())
                         st.write("Sociedades disponibles en df:", df[col_sociedad].astype(str).unique())
+
+                        # 🔹 Priorizar internas por cercanía a la fecha 90 PRISMA
+                        fecha_ref = pendiente_prisma.get("fecha_90_prisma")
+
+                        if fecha_ref is not None and col_fecha_emision in df_internas.columns:
+                            df_internas = df_internas.copy()
+                            df_internas[col_fecha_emision] = pd.to_datetime(
+                                df_internas[col_fecha_emision],
+                                errors="coerce"
+                            )
+
+                            df_internas["DIST_FECHA_90"] = (
+                                df_internas[col_fecha_emision] - fecha_ref
+                            ).abs()
+
+                            df_internas = df_internas.sort_values(
+                                by=["DIST_FECHA_90", col_fecha_emision]
+                            )
                                                
                         # Ejecutar solver COBRA con el restante PRISMA
                         df_resultado_restante = cuadrar_internas(
-                            pd.Series({
-                                'IMPORTE_CENT': pendiente_prisma["resto_cent"],
-                                col_fecha_emision: factura_final[col_fecha_emision] 
-                                                    if col_fecha_emision in factura_final 
-                                                    else factura_final.get(col_fecha_emision, pd.NaT)
-                            }),
-                            df_internas
-                        )
-                        
+                        pd.Series({
+                            'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                            col_fecha_emision: pendiente_prisma.get("fecha_90_prisma")
+                        }),
+                        df_internas )
+                                  
+
                         if not df_resultado_restante.empty:
                             st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
                             st.dataframe(
