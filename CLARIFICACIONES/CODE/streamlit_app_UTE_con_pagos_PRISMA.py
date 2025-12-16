@@ -232,7 +232,7 @@ if archivo_prisma:
 
                     st.subheader("📂 PRISMA: filas relacionadas con id UTE")
                     st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
-                    st.dataframe(df_parejas[[col_num_factura_prisma, col_cif_prisma, col_importe_prisma, 'IMPORTE_CORRECTO', col_tipo_impuesto]].head(30), use_container_width=True)
+                    st.dataframe(df_parejas[[col_num_factura_prisma, col_cif_prisma, col_importe_prisma, col_fecha_emision, 'IMPORTE_CORRECTO', col_tipo_impuesto]].head(30), use_container_width=True)
 
                     importe_90_prisma = fila_90_prisma.get('importe_con_impuesto', 0.0)
                     importe_socios_prisma = float(df_socios_prisma['importe_con_impuesto'].sum()) if not df_socios_prisma.empty else 0.0
@@ -432,7 +432,7 @@ if archivo:
                         st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
                         st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
                         st.write(f"Filas encontradas: {len(df_internas)}")
-                        st.dataframe(df_internas[['CIF_LIMPIO', col_factura, col_sociedad, "IMPORTE_CORRECTO"]], use_container_width=True)
+                        st.dataframe(df_internas[['CIF_LIMPIO', col_factura, col_sociedad, "IMPORTE_CORRECTO", col_fecha_emision]], use_container_width=True)
 
 
                         # 🔹 7️⃣ Opcional: mostrar todas las sociedades y CIFs presentes para verificar coincidencias
@@ -469,7 +469,7 @@ if archivo:
                         if not df_resultado_restante.empty:
                             st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
                             st.dataframe(
-                                df_resultado_restante[[col_factura, col_cif, col_nombre_cliente, 'IMPORTE_CORRECTO']],
+                                df_resultado_restante[[ col_cif, col_nombre_cliente, col_factura,'IMPORTE_CORRECTO', col_fecha_emision]],
                                 use_container_width=True
                             )
                         else:
