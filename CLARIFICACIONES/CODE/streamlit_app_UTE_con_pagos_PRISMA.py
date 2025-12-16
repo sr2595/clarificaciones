@@ -516,6 +516,10 @@ if archivo:
                     st.stop()
   
 
+
+
+
+
     elif modo_busqueda == "Por cliente/grupo":
      
             # --- Opciones de grupos ---
@@ -769,7 +773,24 @@ if archivo:
                     df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
                     if df_internas_available.empty:
                         continue
+                # 🔹 0) PRISMA para esta TSS (90)
+                    prisma_cubierto, pendiente_prisma = hook_prisma(
+                        tss_row,
+                        df_prisma,
+                        col_num_factura_prisma,
+                        col_cif_prisma,
+                        col_importe_prisma,
+                        col_id_ute_prisma
+                    )
 
+                    if prisma_cubierto:
+                        st.info(f"🟢 TSS {tss_row[col_factura]} cubierta por PRISMA — se omite COBRA")
+                        continue   # ⛔ NO pasar por cuadrar_internas
+
+                    # 🔹 1) Si PRISMA no cubre, ir a COBRA
+                    df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
+                    if df_internas_available.empty:
+                        continue
                     df_cuadras = cuadrar_internas(tss_row, df_internas_available)
                     if df_cuadras is None or df_cuadras.empty:
                         continue
