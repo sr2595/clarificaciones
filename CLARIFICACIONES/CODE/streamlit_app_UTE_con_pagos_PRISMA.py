@@ -232,7 +232,7 @@ if archivo_prisma:
 
                     st.subheader("📂 PRISMA: filas relacionadas con id UTE")
                     st.write(f"Filas totales con id UTE = {len(df_parejas)} (excluyendo la 90 -> {len(df_socios_prisma)})")
-                    st.dataframe(df_parejas[[ col_cif_prisma, col_importe_prisma, col_fecha_emision, col_num_factura_prisma, col_tipo_impuesto]].head(30), use_container_width=True)
+                    st.dataframe(df_parejas[[ col_cif_prisma, col_fecha_emision, col_num_factura_prisma, col_importe_prisma, col_tipo_impuesto]].head(30), use_container_width=True)
 
                     importe_90_prisma = fila_90_prisma.get('importe_con_impuesto', 0.0)
                     importe_socios_prisma = float(df_socios_prisma['importe_con_impuesto'].sum()) if not df_socios_prisma.empty else 0.0
