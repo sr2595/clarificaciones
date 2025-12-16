@@ -210,6 +210,10 @@ if archivo_prisma:
                     prisma_cubierto = False
                 else:
                     fila_90_prisma = fila_90_prisma.iloc[0]
+                    fecha_90_prisma = pd.to_datetime(
+                        fila_90_prisma.get(col_fecha_emision, None),
+                        errors="coerce")                                        
+
                     id_ute_90 = str(fila_90_prisma[col_id_ute_prisma]).strip()
                     st.success(f"✅ Factura 90 encontrada en PRISMA. id UTE = {id_ute_90}")
 
@@ -255,6 +259,7 @@ if archivo_prisma:
                         pendiente_prisma = {
                             "id_ute": id_ute_90,
                             "factura_90": factura_90_val,
+                            "fecha_90_prisma": fecha_90_prisma,
                             "importe_90_prisma": importe_90_prisma,
                             "importe_socios_prisma": importe_socios_prisma,
                             "resto_euros": diferencia,
