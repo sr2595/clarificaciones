@@ -819,12 +819,12 @@ if archivo:
             st.dataframe(df_resultado_tss, use_container_width=True)
 
 
-        # --- 2) leer/normalizar cobros ---
-        cobros_file = st.file_uploader(
-            "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
-            type=['xlsm', 'xlsx', 'csv'],
-            key="cobros"
-        )
+    # --- 2) leer/normalizar cobros ---
+    cobros_file = st.file_uploader(
+        "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
+        type=['xlsm', 'xlsx', 'csv'],
+        key="cobros"
+    )
 
     df_cobros = pd.DataFrame()
     if cobros_file:
