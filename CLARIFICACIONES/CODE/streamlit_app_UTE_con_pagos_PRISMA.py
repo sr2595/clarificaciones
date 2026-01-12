@@ -773,7 +773,7 @@ if archivo:
                     df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
                     if df_internas_available.empty:
                         continue
-                # 🔹 0) PRISMA para esta TSS (90)
+                    # 🔹 0) PRISMA para esta TSS (90)
                     prisma_cubierto, pendiente_prisma = hook_prisma(
                         tss_row,
                         df_prisma,
@@ -783,24 +783,30 @@ if archivo:
                         col_id_ute_prisma
                     )
 
-                    if prisma_cubierto:
-                        st.info(f"🟢 TSS {tss_row[col_factura]} cubierta por PRISMA — se omite COBRA")
-                        continue   # ⛔ NO pasar por cuadrar_internas
+                    # Construir la TSS que entra a COBRA
+                    tss_para_cuadrar = tss_row.copy()
+
+                    if prisma_cubierto and pendiente_prisma is not None:
+                        # PRISMA cubre parcialmente → solo el resto va a COBRA
+                        tss_para_cuadrar["IMPORTE_CORRECTO"] = pendiente_prisma["resto_euros"]
+                        tss_para_cuadrar["IMPORTE_CENT"] = pendiente_prisma["resto_cent"]
+
 
                     # 🔹 1) Si PRISMA no cubre, ir a COBRA
                     df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
                     if df_internas_available.empty:
                         continue
-
+                    df_cuadras = cuadrar_internas(tss_para_cuadrar, df_internas_available)
+                    if df_cuadras is None or df_cuadras.empty:
+                        continue
                     st.subheader("🧪 DEBUG COBRA — ENTRADA AL SOLVER (POR GRUPO)")
+
                     st.write("📄 TSS original:")
-                    st.dataframe(
-                        pd.DataFrame([{
-                            "FACTURA_TSS": tss_row[col_factura],
-                            "IMPORTE_TSS": tss_row["IMPORTE_CORRECTO"],
-                            "FECHA_TSS": tss_row.get(col_fecha_emision, None)
-                        }])
-                    )
+                    st.dataframe(pd.DataFrame([{
+                        "FACTURA_TSS": tss_row[col_factura],
+                        "IMPORTE_TSS": tss_row["IMPORTE_CORRECTO"],
+                        "FECHA_TSS": tss_row.get(col_fecha_emision)
+                    }]))
 
                     st.write("🧮 Datos tras PRISMA:")
                     st.write({
@@ -810,30 +816,11 @@ if archivo:
                     })
 
                     st.write("🎯 Externa que entra a COBRA:")
-                    st.dataframe(
-                        pd.DataFrame([{
-                            "IMPORTE_CORRECTO": tss_para_cuadrar.get("IMPORTE_CORRECTO"),
-                            "IMPORTE_CENT": tss_para_cuadrar.get("IMPORTE_CENT"),
-                            "FECHA_REF": tss_para_cuadrar.get(col_fecha_emision)
-                        }])
-                    )
-
-                    st.write("📦 Internas disponibles para COBRA:")
-                    st.write(f"Filas: {len(df_internas_available)}")
-
-                    if not df_internas_available.empty:
-                        st.dataframe(
-                            df_internas_available[
-                                ['CIF_LIMPIO', col_sociedad, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]
-                            ].sort_values(by='IMPORTE_CORRECTO', ascending=False).head(30),
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning("❌ df_internas_available está VACÍO")
-
-                    df_cuadras = cuadrar_internas(tss_row, df_internas_available)
-                    if df_cuadras is None or df_cuadras.empty:
-                        continue
+                    st.dataframe(pd.DataFrame([{
+                        "IMPORTE_CORRECTO": tss_para_cuadrar.get("IMPORTE_CORRECTO"),
+                        "IMPORTE_CENT": tss_para_cuadrar.get("IMPORTE_CENT"),
+                        "FECHA_REF": tss_para_cuadrar.get(col_fecha_emision)
+                    }]))
 
                     try:
                         idx_col_doc = df_cuadras.columns.get_loc(col_factura)
