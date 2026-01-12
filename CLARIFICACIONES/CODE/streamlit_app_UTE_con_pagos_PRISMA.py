@@ -726,7 +726,7 @@ if archivo:
                     st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** "
                             f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
                     
-    # ==========================================
+   # ==========================================
     # 🔹 1) Cuadrar TSS con internas (automático, PRISMA → COBRA)
     # ==========================================
     df_resultado_tss = pd.DataFrame()
@@ -735,6 +735,15 @@ if archivo:
 
         resultados_internas = []
         used_interna_idxs = set()  # control global de internas ya usadas
+
+        # 🔹 Todas las internas TSOL disponibles para COBRA
+        df_internas = df[df[col_sociedad].astype(str).str.upper() == "TSOL"].copy()
+
+        st.subheader("🧪 DEBUG PRE-BUCLE")
+        st.write("df_tss_selec vacío?", df_tss_selec.empty)
+        st.write("df_internas (TSOL) disponible para COBRA:", len(df_internas))
+        st.dataframe(df_tss_selec)
+        st.dataframe(df_internas.head(20))
 
         for _, tss_row in df_tss_selec.iterrows():
 
@@ -752,36 +761,31 @@ if archivo:
                 tss_para_cuadrar["IMPORTE_CENT"] = pendiente_prisma["resto_cent"]
 
             # 🔹 DEBUG inicial
-            st.subheader("🧪 DEBUG COBRA — ENTRADA AL SOLVER")
+            st.subheader(f"🧪 DEBUG COBRA — TSS {tss_row[col_factura]}")
             st.write("📄 TSS original:")
             st.dataframe(pd.DataFrame([{
                 "FACTURA_TSS": tss_row[col_factura],
                 "IMPORTE_TSS": tss_row["IMPORTE_CORRECTO"],
                 "FECHA_TSS": tss_row.get(col_fecha_emision)
             }]))
-
-            st.write("🧮 Datos tras PRISMA:")
-            st.write({
+            st.write("🧮 Datos tras PRISMA:", {
                 "prisma_cubierto": prisma_cubierto,
                 "resto_euros": None if pendiente_prisma is None else pendiente_prisma.get("resto_euros"),
                 "resto_cent": None if pendiente_prisma is None else pendiente_prisma.get("resto_cent")
             })
 
             # 🔹 1️⃣ Filtrar internas para COBRA
-            # Solo TSOL y mismo CIF de la TSS
             df_internas_available = df_internas[
                 (df_internas[col_cif] == tss_row[col_cif]) &
-                (df_internas[col_sociedad].astype(str).str.upper() == "TSOL") &
                 (~df_internas.index.isin(used_interna_idxs))
             ].copy()
 
-            st.write("📦 Internas disponibles para COBRA (TSOL):")
-            st.write(f"Filas: {len(df_internas_available)}")
+            st.write(f"📦 Internas disponibles para COBRA (TSOL) del CIF {tss_row[col_cif]}: {len(df_internas_available)}")
             if not df_internas_available.empty:
                 st.dataframe(
-                    df_internas_available[
-                        [col_cif, col_sociedad, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]
-                    ].sort_values(by='IMPORTE_CORRECTO', ascending=False).head(20),
+                    df_internas_available[[col_cif, col_sociedad, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]]
+                    .sort_values(by='IMPORTE_CORRECTO', ascending=False)
+                    .head(20),
                     use_container_width=True
                 )
             else:
