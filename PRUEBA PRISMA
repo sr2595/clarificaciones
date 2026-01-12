@@ -760,20 +760,68 @@ if archivo:
             df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
 
                        
-        # ==========================================
-        # 🔹 1) Cuadrar TSS con internas (PRISMA + COBRA)
-        # ==========================================
-        df_resultado_tss = pd.DataFrame()
-        resultados_internas = []
-        used_interna_idxs = set()
+            # ==========================================
+            # 🔹 1) Cuadrar TSS con internas (opcional)
+            # ==========================================
+            df_resultado_tss = pd.DataFrame()
+            if not df_tss_selec.empty:
+                
+                resultados_internas = []
+                used_interna_idxs = set()  # control global de internas ya usadas
 
-        if not df_tss_selec.empty:
+                for _, tss_row in df_tss_selec.iterrows():
+                    df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
+                    if df_internas_available.empty:
+                        continue
+                # 🔹 0) PRISMA para esta TSS (90)
+                    prisma_cubierto, pendiente_prisma = hook_prisma(
+                        tss_row,
+                        df_prisma,
+                        col_num_factura_prisma,
+                        col_cif_prisma,
+                        col_importe_prisma,
+                        col_id_ute_prisma
+                    )
 
-            for _, tss_row in df_tss_selec.iterrows():
+                    if prisma_cubierto:
+                        st.info(f"🟢 TSS {tss_row[col_factura]} cubierta por PRISMA — se omite COBRA")
+                        continue   # ⛔ NO pasar por cuadrar_internas
 
-                # 0️⃣ PRISMA
+                    # 🔹 1) Si PRISMA no cubre, ir a COBRA
+                    df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
+                    if df_internas_available.empty:
+                        continue
+                    df_cuadras = cuadrar_internas(tss_row, df_internas_available)
+                    if df_cuadras is None or df_cuadras.empty:
+                        continue
+
+                    try:
+                        idx_col_doc = df_cuadras.columns.get_loc(col_factura)
+                        df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
+                    except Exception:
+                        df_cuadras["TSS_90"] = tss_row[col_factura]
+
+                    resultados_internas.append(df_cuadras)
+                    used_interna_idxs.update(df_cuadras.index.tolist())
+
+                if resultados_internas:
+                    df_resultado_tss = pd.concat(resultados_internas, ignore_index=False)
+                    if col_sociedad in df_resultado_tss.columns and col_factura in df_resultado_tss.columns:
+                        df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
+                    st.success("✅ Se cuadraron las TSS con las internas")
+                    st.dataframe(df_resultado_tss, use_container_width=True)
+                    
+
+            # ==========================================
+            # 🔹 2) Cuadrar factura final con internas
+            # ==========================================
+            
+            df_resultado_factura = pd.DataFrame()
+
+            # 🔹 Chivato PRISMA
+            if factura_final is not None and not df_prisma.empty:
                 prisma_cubierto, pendiente_prisma = hook_prisma(
-                    tss_row,
+                    factura_final,
                     df_prisma,
                     col_num_factura_prisma,
                     col_cif_prisma,
@@ -781,50 +829,40 @@ if archivo:
                     col_id_ute_prisma
                 )
 
-                # PRISMA cubre todo → no ir a COBRA
-                if prisma_cubierto and pendiente_prisma['resto_euros'] == 0:
-                    st.info(f"🟢 TSS {tss_row[col_factura]} cubierta por PRISMA — se omite COBRA")
-                    continue
+                           
+            if factura_final is not None and not df_internas.empty:
+                df_resultado_factura = cuadrar_internas(factura_final, df_internas)
+                if df_resultado_factura.empty:
+                    st.warning("❌ No se encontró combinación de facturas internas que cuadre con la factura externa")
+                else:
+                    st.success(f"✅ Se han seleccionado {len(df_resultado_factura)} factura(s) interna(s) que cuadran con la externa")
+                    st.dataframe(df_resultado_factura[[col_factura, col_cif, col_nombre_cliente,
+                                                    'IMPORTE_CORRECTO', col_fecha_emision, col_sociedad]],
+                                use_container_width=True)
 
-                # 1️⃣ Preparar TSS (total o resto)
-                tss_para_cuadrar = tss_row.copy()
+            # ==========================================
+            # 🔹 3) Determinar el DataFrame final a usar
+            # ==========================================
+            if not df_resultado_tss.empty:
+                df_resultado = df_resultado_tss.copy()
+            elif not df_resultado_factura.empty:
+                df_resultado = df_resultado_factura.copy()
+            else:
+                df_resultado = pd.DataFrame()
 
-                if prisma_cubierto:
-                    tss_para_cuadrar['IMPORTE_CORRECTO'] = pendiente_prisma['resto_euros']
-                    tss_para_cuadrar['IMPORTE_CENT'] = int(pendiente_prisma['resto_cent'])
+            # Mostrar aviso si no hay facturas internas seleccionadas
+            if df_resultado.empty:
+                st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
 
-                # 2️⃣ COBRA
-                df_internas_available = df_internas[
-                    ~df_internas.index.isin(used_interna_idxs)
-                ].copy()
-
-                if df_internas_available.empty:
-                    st.warning(f"⚠️ No quedan internas disponibles para cuadrar TSS {tss_row[col_factura]}")
-                    continue
-
-                df_cuadras = cuadrar_internas(tss_para_cuadrar, df_internas_available)
-
-                if df_cuadras is None or df_cuadras.empty:
-                    st.warning(f"❌ No se pudo cuadrar TSS {tss_row[col_factura]} con COBRA")
-                    continue
-
-                # 3️⃣ Insertar referencia TSS original
+            else:
+                # Aquí NO SE PONE importe_total_final — se pone más adelante antes del Excel de pagos
+                pass
+            # --- asegurar importe_total_final definido ---
+            if 'importe_total_final' not in locals():
                 try:
-                    idx_col_doc = df_cuadras.columns.get_loc(col_factura)
-                    df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
+                    importe_total_final = float(df_resultado['IMPORTE_CORRECTO'].sum())
                 except Exception:
-                    df_cuadras["TSS_90"] = tss_row[col_factura]
-
-                resultados_internas.append(df_cuadras)
-                used_interna_idxs.update(df_cuadras.index.tolist())
-
-            if resultados_internas:
-                df_resultado_tss = pd.concat(resultados_internas, ignore_index=False)
-                if col_sociedad in df_resultado_tss.columns and col_factura in df_resultado_tss.columns:
-                    df_resultado_tss = df_resultado_tss.drop_duplicates(subset=[col_sociedad, col_factura])
-
-                st.success("✅ Se cuadraron las TSS con las internas")
-                st.dataframe(df_resultado_tss, use_container_width=True)
+                    importe_total_final = 0.0
 
 
     # --- 2) leer/normalizar cobros ---
