@@ -771,27 +771,21 @@ if archivo:
 
                 for _, tss_row in df_tss_selec.iterrows():
                     df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
-                    if df_internas_available.empty:
-                        continue
-                    # 🔹 0) PRISMA para esta TSS (90)
-                    prisma_cubierto, pendiente_prisma = hook_prisma(
-                        tss_row,
-                        df_prisma,
-                        col_num_factura_prisma,
-                        col_cif_prisma,
-                        col_importe_prisma,
-                        col_id_ute_prisma
-                    )
-                
 
                     # Construir la TSS que entra a COBRA
                     tss_para_cuadrar = tss_row.copy()
 
+                    # PRISMA
+                    prisma_cubierto, pendiente_prisma = hook_prisma(
+                        tss_row, df_prisma, col_num_factura_prisma, col_cif_prisma,
+                        col_importe_prisma, col_id_ute_prisma
+                    )
+
                     if prisma_cubierto and pendiente_prisma is not None:
-                        # PRISMA cubre parcialmente → solo el resto va a COBRA
                         tss_para_cuadrar["IMPORTE_CORRECTO"] = pendiente_prisma["resto_euros"]
                         tss_para_cuadrar["IMPORTE_CENT"] = pendiente_prisma["resto_cent"]
-                    
+
+                    # 🔹 DEBUG ANTES DE CUALQUIER CONTINUE
                     st.subheader("🧪 DEBUG COBRA — ENTRADA AL SOLVER (POR GRUPO)")
 
                     st.write("📄 TSS original:")
@@ -817,24 +811,31 @@ if archivo:
 
                     st.write("📦 Internas disponibles para COBRA:")
                     st.write(f"Filas: {len(df_internas_available)}")
-
                     if not df_internas_available.empty:
                         st.dataframe(
                             df_internas_available[
-                                ['CIF_LIMPIO', col_sociedad, col_factura,
-                                'IMPORTE_CORRECTO', col_fecha_emision]
+                                ['CIF_LIMPIO', col_sociedad, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]
                             ].sort_values(by='IMPORTE_CORRECTO', ascending=False).head(20),
                             use_container_width=True
                         )
 
-                    # 🔹 1) Si PRISMA no cubre, ir a COBRA
-                    df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
+                    # 🔹 Ahora sí: si no hay internas, saltar
                     if df_internas_available.empty:
-                        continue
-                    df_cuadras = cuadrar_internas(tss_para_cuadrar, df_internas_available)
-                    if df_cuadras is None or df_cuadras.empty:
+                        st.warning("⚠️ No quedan internas para COBRA")
                         continue
 
+                    # 🔹 También saltar si PRISMA cubrió todo
+                    if prisma_cubierto and pendiente_prisma is not None and pendiente_prisma["resto_cent"] == 0:
+                        st.info(f"🟢 TSS {tss_row[col_factura]} totalmente cubierta por PRISMA")
+                        continue
+
+                    # 🔹 Ejecutar COBRA
+                    df_cuadras = cuadrar_internas(tss_para_cuadrar, df_internas_available)
+                    if df_cuadras is None or df_cuadras.empty:
+                        st.warning(f"❌ COBRA no encontró combinación para TSS {tss_row[col_factura]}")
+                        continue
+
+                    # Insertar columna TSS_90
                     try:
                         idx_col_doc = df_cuadras.columns.get_loc(col_factura)
                         df_cuadras.insert(idx_col_doc, "TSS_90", tss_row[col_factura])
