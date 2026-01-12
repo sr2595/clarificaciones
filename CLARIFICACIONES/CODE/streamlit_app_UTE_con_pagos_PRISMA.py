@@ -790,15 +790,7 @@ if archivo:
                         # PRISMA cubre parcialmente → solo el resto va a COBRA
                         tss_para_cuadrar["IMPORTE_CORRECTO"] = pendiente_prisma["resto_euros"]
                         tss_para_cuadrar["IMPORTE_CENT"] = pendiente_prisma["resto_cent"]
-
-
-                    # 🔹 1) Si PRISMA no cubre, ir a COBRA
-                    df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
-                    if df_internas_available.empty:
-                        continue
-                    df_cuadras = cuadrar_internas(tss_para_cuadrar, df_internas_available)
-                    if df_cuadras is None or df_cuadras.empty:
-                        continue
+                    # 🔍 DEBUG ANTES DEL SOLVER
                     st.subheader("🧪 DEBUG COBRA — ENTRADA AL SOLVER (POR GRUPO)")
 
                     st.write("📄 TSS original:")
@@ -821,6 +813,26 @@ if archivo:
                         "IMPORTE_CENT": tss_para_cuadrar.get("IMPORTE_CENT"),
                         "FECHA_REF": tss_para_cuadrar.get(col_fecha_emision)
                     }]))
+
+                    st.write("📦 Internas disponibles para COBRA:")
+                    st.write(f"Filas: {len(df_internas_available)}")
+
+                    if not df_internas_available.empty:
+                        st.dataframe(
+                            df_internas_available[
+                                ['CIF_LIMPIO', col_sociedad, col_factura,
+                                'IMPORTE_CORRECTO', col_fecha_emision]
+                            ].sort_values(by='IMPORTE_CORRECTO', ascending=False).head(30),
+                            use_container_width=True
+                        )
+
+                    # 🔹 1) Si PRISMA no cubre, ir a COBRA
+                    df_internas_available = df_internas[~df_internas.index.isin(used_interna_idxs)].copy()
+                    if df_internas_available.empty:
+                        continue
+                    df_cuadras = cuadrar_internas(tss_para_cuadrar, df_internas_available)
+                    if df_cuadras is None or df_cuadras.empty:
+                        continue
 
                     try:
                         idx_col_doc = df_cuadras.columns.get_loc(col_factura)
