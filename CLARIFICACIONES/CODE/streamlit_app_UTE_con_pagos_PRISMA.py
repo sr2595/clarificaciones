@@ -759,6 +759,13 @@ if archivo:
 
             df_internas = df_utes_grupo[df_utes_grupo[col_cif].isin(socios_cifs)].copy()
 
+            # 🔹 DEBUG PRE-BUCLE
+            st.subheader("🧪 DEBUG PRE-BUCLE TSS_SELEC")
+            st.write("df_tss_selec vacío?", df_tss_selec.empty)
+            st.write("df_internas vacío?", df_internas.empty)
+            st.dataframe(df_tss_selec)
+            st.dataframe(df_internas)
+
                        
             # ==========================================
             # 🔹 1) Cuadrar TSS con internas (opcional)
@@ -785,39 +792,6 @@ if archivo:
                         tss_para_cuadrar["IMPORTE_CORRECTO"] = pendiente_prisma["resto_euros"]
                         tss_para_cuadrar["IMPORTE_CENT"] = pendiente_prisma["resto_cent"]
 
-                    # 🔹 DEBUG ANTES DE CUALQUIER CONTINUE
-                    st.subheader("🧪 DEBUG COBRA — ENTRADA AL SOLVER (POR GRUPO)")
-
-                    st.write("📄 TSS original:")
-                    st.dataframe(pd.DataFrame([{
-                        "FACTURA_TSS": tss_row[col_factura],
-                        "IMPORTE_TSS": tss_row["IMPORTE_CORRECTO"],
-                        "FECHA_TSS": tss_row.get(col_fecha_emision)
-                    }]))
-
-                    st.write("🧮 Datos tras PRISMA:")
-                    st.write({
-                        "prisma_cubierto": prisma_cubierto,
-                        "resto_euros": None if pendiente_prisma is None else pendiente_prisma.get("resto_euros"),
-                        "resto_cent": None if pendiente_prisma is None else pendiente_prisma.get("resto_cent")
-                    })
-
-                    st.write("🎯 Externa que entra a COBRA:")
-                    st.dataframe(pd.DataFrame([{
-                        "IMPORTE_CORRECTO": tss_para_cuadrar.get("IMPORTE_CORRECTO"),
-                        "IMPORTE_CENT": tss_para_cuadrar.get("IMPORTE_CENT"),
-                        "FECHA_REF": tss_para_cuadrar.get(col_fecha_emision)
-                    }]))
-
-                    st.write("📦 Internas disponibles para COBRA:")
-                    st.write(f"Filas: {len(df_internas_available)}")
-                    if not df_internas_available.empty:
-                        st.dataframe(
-                            df_internas_available[
-                                ['CIF_LIMPIO', col_sociedad, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]
-                            ].sort_values(by='IMPORTE_CORRECTO', ascending=False).head(20),
-                            use_container_width=True
-                        )
 
                     # 🔹 Ahora sí: si no hay internas, saltar
                     if df_internas_available.empty:
