@@ -801,6 +801,45 @@ if archivo:
                 if df_internas_available.empty:
                     st.warning(f"⚠️ No quedan internas disponibles para cuadrar TSS {tss_row[col_factura]}")
                     continue
+                st.subheader("🧪 DEBUG COBRA — ENTRADA AL SOLVER (POR GRUPO)")
+
+                st.write("📄 TSS original:")
+                st.dataframe(
+                    pd.DataFrame([{
+                        "FACTURA_TSS": tss_row[col_factura],
+                        "IMPORTE_TSS": tss_row["IMPORTE_CORRECTO"],
+                        "FECHA_TSS": tss_row.get(col_fecha_emision, None)
+                    }])
+                )
+
+                st.write("🧮 Datos tras PRISMA:")
+                st.write({
+                    "prisma_cubierto": prisma_cubierto,
+                    "resto_euros": None if pendiente_prisma is None else pendiente_prisma.get("resto_euros"),
+                    "resto_cent": None if pendiente_prisma is None else pendiente_prisma.get("resto_cent")
+                })
+
+                st.write("🎯 Externa que entra a COBRA:")
+                st.dataframe(
+                    pd.DataFrame([{
+                        "IMPORTE_CORRECTO": tss_para_cuadrar.get("IMPORTE_CORRECTO"),
+                        "IMPORTE_CENT": tss_para_cuadrar.get("IMPORTE_CENT"),
+                        "FECHA_REF": tss_para_cuadrar.get(col_fecha_emision)
+                    }])
+                )
+
+                st.write("📦 Internas disponibles para COBRA:")
+                st.write(f"Filas: {len(df_internas_available)}")
+
+                if not df_internas_available.empty:
+                    st.dataframe(
+                        df_internas_available[
+                            ['CIF_LIMPIO', col_sociedad, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]
+                        ].sort_values(by='IMPORTE_CORRECTO', ascending=False).head(30),
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("❌ df_internas_available está VACÍO")
 
                 df_cuadras = cuadrar_internas(tss_para_cuadrar, df_internas_available)
 
