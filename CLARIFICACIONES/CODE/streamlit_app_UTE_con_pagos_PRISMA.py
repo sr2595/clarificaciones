@@ -674,11 +674,7 @@ if archivo:
             if importe_pago and importe_pago > 0 and not df_tss.empty:
                 df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
 
-                st.subheader("🧪 DEBUG SOLVER TSS RESULTADO")
-                st.write("importe_pago:", importe_pago)
-                st.write("tolerancia_cent:", tolerancia_cent)
-                st.write("df_tss_selec vacío?", df_tss_selec.empty)
-
+                
                 if not df_tss_selec.empty:
                     st.success(
                         f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
@@ -703,7 +699,7 @@ if archivo:
                 else:
                     st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
                     st.stop()
-                    
+
                 if importe_pago and importe_pago > 0 and not df_tss.empty:
                     df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
 
