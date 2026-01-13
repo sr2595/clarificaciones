@@ -604,6 +604,65 @@ if archivo:
             # -----------------------------
             df_tss_selec = pd.DataFrame()
 
+            # ==========================
+            # 🔧 SOLVER TSS PAGO (GLOBAL)
+            # ==========================
+
+            def solver_tss_pago(df_tss, importe_pago, tol=0):
+                from ortools.sat.python import cp_model
+
+                if df_tss.empty or importe_pago is None:
+                    return pd.DataFrame()
+
+                df_tss = df_tss[df_tss['IMPORTE_CORRECTO'] > 0].copy()
+                if df_tss.empty:
+                    return pd.DataFrame()
+
+                # Deduplicar por sociedad + factura
+                if col_sociedad in df_tss.columns and col_factura in df_tss.columns:
+                    df_tss['_clave_unica'] = (
+                        df_tss[col_sociedad].astype(str) + "_" +
+                        df_tss[col_factura].astype(str)
+                    )
+                    df_tss = df_tss.drop_duplicates(subset=['_clave_unica'])
+
+                seleccion_total = []
+
+                for cif, df_cliente in df_tss.groupby(col_cif):
+                    df_cliente = df_cliente.copy()
+                    df_cliente['IMPORTE_CENT'] = (
+                        df_cliente['IMPORTE_CORRECTO'] * 100
+                    ).round().astype(int)
+
+                    objetivo = int(round(importe_pago * 100))
+
+                    data = list(zip(df_cliente.index.tolist(), df_cliente['IMPORTE_CENT'].tolist()))
+                    n = len(data)
+
+                    model = cp_model.CpModel()
+                    x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
+
+                    if tol == 0:
+                        model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+                    else:
+                        model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
+                        model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
+
+                    solver = cp_model.CpSolver()
+                    solver.parameters.max_time_in_seconds = 10
+                    status = solver.Solve(model)
+
+                    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                        seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i])]
+                        seleccion_total.append(df_cliente.loc[seleccionadas])
+
+                if seleccion_total:
+                    return pd.concat(seleccion_total).drop_duplicates(
+                        subset=[col_sociedad, col_factura]
+                    )
+
+                return pd.DataFrame()
+
             if importe_pago and importe_pago > 0 and not df_tss.empty:
 
                 df_tss_selec = solver_tss_pago(
