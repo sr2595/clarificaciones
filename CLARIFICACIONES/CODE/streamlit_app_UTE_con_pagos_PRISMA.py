@@ -522,36 +522,58 @@ if archivo:
 
 
     # ==========================================
-    # POR CLIENTE/GRUPO con PRISMA → COBRA
-    # ==========================================
-    elif modo_busqueda == "Por cliente/grupo":
-        # -----------------------------
-        # 1️⃣ Selección de grupo
-        # -----------------------------
-        df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
-        df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
-        df_grupos_unicos = df[[col_grupo, col_nombre_grupo]].drop_duplicates().sort_values([col_nombre_grupo, col_grupo])
-        opciones_grupos = [f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}" 
-                        for _, row in df_grupos_unicos.iterrows()]
-        grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
-        grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]
-        st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
-
-        # -----------------------------
-        # 2️⃣ Filtrar TSS del grupo
-        # -----------------------------
-        df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
-        df_tss = df_filtrado[
-            (df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS") &
-            (df_filtrado["IMPORTE_CORRECTO"].fillna(0) > 0)
-        ].copy()
-
-
-        if df_tss.empty:
-            st.warning("⚠️ No hay facturas TSS en este grupo")
-        else:
+        # POR CLIENTE/GRUPO con PRISMA → COBRA
+        # ==========================================
+        elif modo_busqueda == "Por cliente/grupo":
             # -----------------------------
-            # 3️⃣ Input opcional: importe de pago
+            # 1️⃣ Selección de grupo
+            # -----------------------------
+            df[col_grupo] = df[col_grupo].astype(str).str.replace(" ", "")
+            df[col_nombre_grupo] = df[col_nombre_grupo].fillna("").str.strip()
+            df_grupos_unicos = df[[col_grupo, col_nombre_grupo]].drop_duplicates().sort_values([col_nombre_grupo, col_grupo])
+            opciones_grupos = [
+                f"{row[col_grupo]} - {row[col_nombre_grupo]}" if row[col_nombre_grupo] else f"{row[col_grupo]}"
+                for _, row in df_grupos_unicos.iterrows()
+            ]
+            grupo_seleccionado_display = st.selectbox("Selecciona CIF grupal", opciones_grupos)
+            grupo_seleccionado = grupo_seleccionado_display.split(" - ")[0]
+            st.write("Grupo seleccionado (CIF):", grupo_seleccionado)
+
+            # -----------------------------
+            # 2️⃣ Filtrar cliente final (opcional)
+            # -----------------------------
+            df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
+            df_clientes_unicos = df[(~df['ES_UTE']) & (df[col_grupo] == grupo_seleccionado)][[col_cif, col_nombre_cliente]].drop_duplicates()
+            df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
+            df_clientes_unicos[col_cif] = df_clientes_unicos[col_cif].fillna("").str.strip()
+            df_clientes_unicos = df_clientes_unicos.sort_values(col_nombre_cliente)
+
+            opciones_clientes = ["(Todos los clientes del grupo)"] + [
+                f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
+                for _, row in df_clientes_unicos.iterrows()
+            ]
+            cliente_final_display = st.selectbox("Selecciona cliente final (opcional)", opciones_clientes)
+
+            if cliente_final_display == "(Todos los clientes del grupo)":
+                df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
+            else:
+                cliente_final_cif = cliente_final_display.split(" - ")[0].replace(" ", "")
+                df_filtrado = df[df[col_cif] == cliente_final_cif].copy()
+
+            # -----------------------------
+            # 3️⃣ Filtrar facturas TSS del grupo/cliente
+            # -----------------------------
+            df_tss = df_filtrado[
+                (df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS") &
+                (df_filtrado["IMPORTE_CORRECTO"].fillna(0) > 0)
+            ].copy()
+
+            if df_tss.empty:
+                st.warning("⚠️ No hay facturas TSS en este grupo/cliente seleccionado")
+                st.stop()
+
+            # -----------------------------
+            # 4️⃣ Input opcional: importe de pago
             # -----------------------------
             importe_pago_str = st.text_input("💶 Introduce importe de pago (opcional, formato europeo: 96.893,65)")
             tolerancia_str = st.text_input("🎯 Tolerancia en céntimos (0 = exacto, ej: 100 = ±1€)", "0")
@@ -573,125 +595,37 @@ if archivo:
             except:
                 tolerancia_cent = 0
 
-            # -----------------------------
-            # 4️⃣ Selector opcional de cliente final
-            # -----------------------------
-            df[col_cif] = df[col_cif].astype(str).str.replace(" ", "")
-            df_clientes_unicos = df[(~df['ES_UTE']) & (df[col_grupo] == grupo_seleccionado)][[col_cif, col_nombre_cliente]].drop_duplicates()
-            df_clientes_unicos[col_nombre_cliente] = df_clientes_unicos[col_nombre_cliente].fillna("").str.strip()
-            df_clientes_unicos[col_cif] = df_clientes_unicos[col_cif].fillna("").str.strip()
-            df_clientes_unicos = df_clientes_unicos.sort_values(col_nombre_cliente)
-
-            opciones_clientes = ["(Todos los clientes del grupo)"] + [
-                f"{row[col_cif]} - {row[col_nombre_cliente]}" if row[col_nombre_cliente] else f"{row[col_cif]}"
-                for _, row in df_clientes_unicos.iterrows()
-            ]
-            cliente_final_display = st.selectbox("Selecciona cliente final (opcional)", opciones_clientes)
-
-            if cliente_final_display == "(Todos los clientes del grupo)":
-                df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
-            else:
-                cliente_final_cif = cliente_final_display.split(" - ")[0].replace(" ", "")
-                df_filtrado = df[df[col_cif] == cliente_final_cif].copy()
-            df_tss = df_filtrado[
-                (df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS") &
-                (df_filtrado["IMPORTE_CORRECTO"].fillna(0) > 0)
-            ].copy()
-            
-
-            # -----------------------------
-            # 5️⃣ Solver para importe de pago
-            # ==========================
-            st.subheader("🧪 DEBUG SOLVER TSS")
-            st.write("Importe pago:", importe_pago)
-            st.write("Tolerancia (cent):", tolerancia_cent)
-            st.write("df_tss filas:", len(df_tss))
-
-            if not df_tss.empty:
-                st.write("Suma TSS:", df_tss['IMPORTE_CORRECTO'].sum())
-                st.dataframe(df_tss[[col_cif, col_factura, 'IMPORTE_CORRECTO']].head(20))
-
-            def solver_tss_pago(df_tss, importe_pago, tol=0):
-                from ortools.sat.python import cp_model
-
-                if df_tss.empty or importe_pago is None:
-                    return pd.DataFrame()
-
-                df_tss = df_tss[df_tss['IMPORTE_CORRECTO'] > 0].copy()
-                if df_tss.empty:
-                    return pd.DataFrame()
-
-                # Deduplicar por sociedad + factura
-                if col_sociedad in df_tss.columns and col_factura in df_tss.columns:
-                    df_tss['_clave_unica'] = (
-                        df_tss[col_sociedad].astype(str) + "_" +
-                        df_tss[col_factura].astype(str)
-                    )
-                    df_tss = df_tss.drop_duplicates(subset=['_clave_unica'])
-
-                seleccion_total = []
-
-                for cif, df_cliente in df_tss.groupby(col_cif):
-                    df_cliente = df_cliente.copy()
-                    df_cliente['IMPORTE_CENT'] = (
-                        df_cliente['IMPORTE_CORRECTO'] * 100
-                    ).round().astype(int)
-
-                    objetivo = int(round(importe_pago * 100))
-                    data = list(zip(df_cliente.index.tolist(), df_cliente['IMPORTE_CENT'].tolist()))
-                    n = len(data)
-
-                    model = cp_model.CpModel()
-                    x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
-
-                    if tol == 0:
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
-                    else:
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tol)
-                        model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tol)
-
-                    solver = cp_model.CpSolver()
-                    solver.parameters.max_time_in_seconds = 10
-                    status = solver.Solve(model)
-
-                    if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-                        seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i])]
-                        seleccion_total.append(df_cliente.loc[seleccionadas])
-
-                if seleccion_total:
-                    return pd.concat(seleccion_total).drop_duplicates(
-                        subset=[col_sociedad, col_factura]
-                    )
-
-                return pd.DataFrame()
-
-            # =====================================
-            # Usar solver si hay importe_pago
-            # =====================================
-            df_tss_selec = pd.DataFrame()
             factura_final = None
 
-            if importe_pago and importe_pago > 0 and not df_tss.empty:
-                df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
+            # -----------------------------
+            # 5️⃣ Usar solver SOLO si se introdujo importe
+            # ==========================
+            if importe_pago and importe_pago > 0:
+                from ortools.sat.python import cp_model
 
-                st.subheader("🧪 DEBUG SOLVER TSS RESULTADO")
-                st.write("importe_pago:", importe_pago)
-                st.write("tolerancia_cent:", tolerancia_cent)
-                st.write("df_tss_selec vacío?", df_tss_selec.empty)
+                df_tss = df_tss.copy()
+                df_tss['IMPORTE_CENT'] = (df_tss['IMPORTE_CORRECTO'] * 100).round().astype(int)
+                objetivo = int(round(importe_pago * 100))
 
-                if not df_tss_selec.empty:
-                    st.success(
-                        f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
-                        f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
-                    )
-                    st.dataframe(
-                        df_tss_selec[
-                            [col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]
-                        ],
-                        use_container_width=True
-                    )
+                data = list(zip(df_tss.index.tolist(), df_tss['IMPORTE_CENT'].tolist()))
+                n = len(data)
 
-                    # Crear factura final agrupada a partir de df_tss_selec
+                model = cp_model.CpModel()
+                x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
+
+                if tolerancia_cent == 0:
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) == objetivo)
+                else:
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) >= objetivo - tolerancia_cent)
+                    model.Add(sum(x[i] * data[i][1] for i in range(n)) <= objetivo + tolerancia_cent)
+
+                solver = cp_model.CpSolver()
+                solver.parameters.max_time_in_seconds = 10
+                status = solver.Solve(model)
+
+                if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    seleccionadas = [data[i][0] for i in range(n) if solver.Value(x[i])]
+                    df_tss_selec = df_tss.loc[seleccionadas]
                     factura_final = pd.Series({
                         col_cif: "AGRUPADO",
                         col_nombre_cliente: "Facturas TSS agrupadas",
@@ -700,10 +634,15 @@ if archivo:
                         "IMPORTE_CORRECTO": df_tss_selec["IMPORTE_CORRECTO"].sum(),
                         "IMPORTE_CENT": int(round(df_tss_selec["IMPORTE_CORRECTO"].sum() * 100))
                     })
+                    st.success(f"✅ Se encontró combinación de facturas TSS ({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)")
+                    st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]], use_container_width=True)
+                else:
+                    st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
+                    st.stop()
 
-            # =====================================
-            # Si no hay solver o combinación → selectbox normal
-            # =====================================
+            # -----------------------------
+            # 6️⃣ Si no se introdujo importe → flujo normal con selectbox
+            # ==========================
             if factura_final is None:
                 facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO', col_cif, col_nombre_cliente]].dropna()
                 facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
@@ -717,6 +656,7 @@ if archivo:
                 factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
 
             st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** ({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+
 
 
             # ==========================
