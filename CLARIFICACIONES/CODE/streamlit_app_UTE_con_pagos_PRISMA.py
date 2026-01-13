@@ -602,6 +602,15 @@ if archivo:
             # -----------------------------
             # 5️⃣ Solver para importe de pago
             # ==========================
+            st.subheader("🧪 DEBUG SOLVER TSS")
+
+            st.write("Importe pago:", importe_pago)
+            st.write("Tolerancia (cent):", tolerancia_cent)
+
+            st.write("df_tss filas:", len(df_tss))
+            if not df_tss.empty:
+                st.write("Suma TSS:", df_tss['IMPORTE_CORRECTO'].sum())
+                st.dataframe(df_tss[[col_cif, col_factura, 'IMPORTE_CORRECTO']].head(20))
 
             def solver_tss_pago(df_tss, importe_pago, tol=0):
                 from ortools.sat.python import cp_model
