@@ -703,6 +703,90 @@ if archivo:
                 else:
                     st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
                     st.stop()
+                    
+                if importe_pago and importe_pago > 0 and not df_tss.empty:
+                    df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
+
+                    st.subheader("🧪 DEBUG SOLVER TSS RESULTADO")
+                    st.write("importe_pago:", importe_pago)
+                    st.write("tolerancia_cent:", tolerancia_cent)
+                    st.write("df_tss_selec vacío?", df_tss_selec.empty)
+
+                    if df_tss_selec.empty:
+                        st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
+                        st.stop()
+                    
+                    # 🔹 Se encontró combinación de TSS
+                    st.success(
+                        f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
+                        f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
+                    )
+                    st.dataframe(
+                        df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]],
+                        use_container_width=True
+                    )
+
+                    # Crear factura final agrupada
+                    factura_final = pd.Series({
+                        col_cif: "AGRUPADO",
+                        col_nombre_cliente: "Facturas TSS agrupadas",
+                        col_factura: "AGRUPADO",
+                        col_fecha_emision: df_tss_selec[col_fecha_emision].min(),
+                        "IMPORTE_CORRECTO": df_tss_selec["IMPORTE_CORRECTO"].sum(),
+                        "IMPORTE_CENT": int(round(df_tss_selec["IMPORTE_CORRECTO"].sum() * 100))
+                    })
+
+                    # ==========================
+                    # 🔹 Consultar PRISMA para los socios
+                    # ==========================
+                    if not df_prisma.empty:
+                        # Obtenemos las facturas TSS encontradas
+                        facturas_tss_ids = df_tss_selec[col_factura].tolist()
+
+                        # Filtramos df_prisma por esas facturas
+                        df_prisma_filtrado = df_prisma[df_prisma[col_num_factura_prisma].isin(facturas_tss_ids)]
+
+                        if not df_prisma_filtrado.empty:
+                            # Tomamos id_ute de esas facturas
+                            id_ute = df_prisma_filtrado[col_id_ute_prisma].unique()[0]
+
+                            # Obtenemos todos los socios de esa UTE
+                            socios_ute = df_prisma[df_prisma[col_id_ute_prisma] == id_ute][col_cif_prisma].unique().tolist()
+
+                            # Filtrar df para obtener todas las facturas de esos socios
+                            df_socios = df[df[col_cif].isin(socios_ute)].copy()
+
+                            st.subheader("🧪 Facturas de socios relacionadas")
+                            st.dataframe(df_socios[[col_cif, col_nombre_cliente, col_factura, col_sociedad, "IMPORTE_CORRECTO", col_fecha_emision]])
+
+                            # Comprobar si el importe total cuadra
+                            total_socios = df_socios["IMPORTE_CORRECTO"].sum()
+                            if abs(total_socios - importe_pago) <= tolerancia_cent/100:
+                                st.success(f"✅ El importe total de TSS + socios coincide con el importe de pago ({total_socios:,.2f} €)")
+                                # No hace falta buscar en COBRA
+                                restante_cobra = 0
+                            else:
+                                restante_cobra = importe_pago - total_socios
+                                st.info(f"ℹ️ Falta cuadrar {restante_cobra:,.2f} € con COBRA")
+
+                                # -------------------------
+                                # Lógica COBRA con TSOL/TDE/TME
+                                # -------------------------
+                                df_internas = df[df[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])].copy()
+                                # Filtrar solo socios de la UTE
+                                df_internas = df_internas[df_internas[col_cif].isin(socios_ute)]
+                                # Aquí puedes usar tu función cuadrar_internas como lo hacías antes
+                                externa_pendiente = pd.Series({
+                                    'IMPORTE_CENT': int(round(restante_cobra * 100)),
+                                    col_fecha_emision: df_tss_selec[col_fecha_emision].min()
+                                })
+                                df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
+                                
+                                if not df_resultado_restante.empty:
+                                    st.success(f"✅ Se cuadró el restante de {restante_cobra:,.2f} € con COBRA")
+                                    st.dataframe(df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]])
+                                else:
+                                    st.warning(f"⚠️ No se pudo cuadrar el restante de {restante_cobra:,.2f} € con COBRA")
 
             # =====================================
             # Si no hay solver o combinación → selectbox normal
