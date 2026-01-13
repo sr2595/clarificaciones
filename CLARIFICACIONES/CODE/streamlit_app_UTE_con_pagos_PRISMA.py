@@ -603,10 +603,8 @@ if archivo:
             # 5️⃣ Solver para importe de pago
             # ==========================
             st.subheader("🧪 DEBUG SOLVER TSS")
-
             st.write("Importe pago:", importe_pago)
             st.write("Tolerancia (cent):", tolerancia_cent)
-
             st.write("df_tss filas:", len(df_tss))
 
             if not df_tss.empty:
@@ -640,7 +638,6 @@ if archivo:
                     ).round().astype(int)
 
                     objetivo = int(round(importe_pago * 100))
-
                     data = list(zip(df_cliente.index.tolist(), df_cliente['IMPORTE_CENT'].tolist()))
                     n = len(data)
 
@@ -668,132 +665,127 @@ if archivo:
 
                 return pd.DataFrame()
 
+            # =====================================
+            # Usar solver si hay importe_pago
+            # =====================================
+            df_tss_selec = pd.DataFrame()
+            factura_final = None
+
             if importe_pago and importe_pago > 0 and not df_tss.empty:
+                df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
 
-                df_tss_selec = solver_tss_pago(
-                    df_tss.copy(),
-                    importe_pago,
-                    tol=tolerancia_cent
-                )
-                
-               
-            # -----------------------------
-            # 6️⃣ Selección de factura final TSS
-            # -----------------------------
-                df_tss_selec = pd.DataFrame()
-                if importe_pago and importe_pago > 0 and not df_tss.empty:
-                    # Ejecutar solver
-                    df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
+                st.subheader("🧪 DEBUG SOLVER TSS RESULTADO")
+                st.write("importe_pago:", importe_pago)
+                st.write("tolerancia_cent:", tolerancia_cent)
+                st.write("df_tss_selec vacío?", df_tss_selec.empty)
 
-                    st.subheader("🧪 DEBUG SOLVER TSS")
-                    st.write("importe_pago:", importe_pago)
-                    st.write("tolerancia_cent:", tolerancia_cent)
-                    st.write("df_tss_selec vacío?", df_tss_selec.empty)
-
-                    if not df_tss_selec.empty:
-                        st.success(
-                            f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
-                            f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
-                        )
-                        st.dataframe(
-                            df_tss_selec[
-                                [col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]
-                            ],
-                            use_container_width=True
-                        )
-
-                        # Crear la factura final agrupada a partir de df_tss_selec
-                        factura_final = pd.Series({
-                            col_cif: "AGRUPADO",
-                            col_nombre_cliente: "Facturas TSS agrupadas",
-                            col_factura: "AGRUPADO",
-                            col_fecha_emision: df_tss_selec[col_fecha_emision].min(),
-                            "IMPORTE_CORRECTO": df_tss_selec["IMPORTE_CORRECTO"].sum(),
-                            "IMPORTE_CENT": int(round(df_tss_selec["IMPORTE_CORRECTO"].sum() * 100))
-                        })
-
-                # Si no hay importe_pago o solver no encuentra combinación → flujo manual
-                if df_tss_selec.empty:
-                    facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO', col_cif, col_nombre_cliente]].dropna()
-                    facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
-                    opciones_facturas = [
-                        f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
-                        for _, row in facturas_cliente.iterrows()
-                    ]
-
-                    factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
-                    factura_final_id = factura_final_display.split(" - ")[0]
-                    factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
-
-                st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** ({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
-
-                # ==========================
-                # 🔹 Ejecutar hook PRISMA
-                # ==========================
-                if not df_prisma.empty:
-                    prisma_cubierto, pendiente_prisma = hook_prisma(
-                        factura_final,
-                        df_prisma,
-                        col_num_factura_prisma,
-                        col_cif_prisma,
-                        col_importe_prisma,
-                        col_id_ute_prisma
+                if not df_tss_selec.empty:
+                    st.success(
+                        f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
+                        f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
                     )
-                else:
-                    prisma_cubierto, pendiente_prisma = False, None
+                    st.dataframe(
+                        df_tss_selec[
+                            [col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]
+                        ],
+                        use_container_width=True
+                    )
 
-                # ==========================
-                # 🔹 Preparar df_internas para COBRA
-                # ==========================
-                if pendiente_prisma is not None:
-                    # Limpiar CIF en df y obtener socios de UTE
-                    df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
-                    df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
-
-                    socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
-                    socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
-                    socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
-
-                    # Rellenar df_internas automáticamente con todas las internas de esos socios
-                    df_internas = df[df['CIF_LIMPIO'].isin(socios_prisma_limpios)].copy()
-
-                    # Filtrar solo sociedades internas relevantes
-                    df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
-
-                    # DEBUG: mostrar incluso si está vacío
-                    st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
-                    st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
-                    st.write(f"Filas encontradas: {len(df_internas)}")
-                    st.dataframe(df_internas[[col_factura, col_sociedad, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
-
-                    # Priorizar internas por cercanía a la fecha PRISMA
-                    fecha_ref = pendiente_prisma.get("fecha_90_prisma")
-                    if fecha_ref is not None and col_fecha_emision in df_internas.columns:
-                        df_internas[col_fecha_emision] = pd.to_datetime(df_internas[col_fecha_emision], errors="coerce")
-                        df_internas["DIST_FECHA_90"] = (df_internas[col_fecha_emision] - fecha_ref).abs()
-                        df_internas = df_internas.sort_values(by=["DIST_FECHA_90", col_fecha_emision])
-
-                    # ==========================================
-                    # 🔹 Ejecutar COBRA con el restante de PRISMA
-                    # ==========================================
-                    externa_pendiente = pd.Series({
-                        'IMPORTE_CENT': pendiente_prisma["resto_cent"],
-                        col_fecha_emision: fecha_ref
+                    # Crear factura final agrupada a partir de df_tss_selec
+                    factura_final = pd.Series({
+                        col_cif: "AGRUPADO",
+                        col_nombre_cliente: "Facturas TSS agrupadas",
+                        col_factura: "AGRUPADO",
+                        col_fecha_emision: df_tss_selec[col_fecha_emision].min(),
+                        "IMPORTE_CORRECTO": df_tss_selec["IMPORTE_CORRECTO"].sum(),
+                        "IMPORTE_CENT": int(round(df_tss_selec["IMPORTE_CORRECTO"].sum() * 100))
                     })
 
-                    df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
+            # =====================================
+            # Si no hay solver o combinación → selectbox normal
+            # =====================================
+            if factura_final is None:
+                facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO', col_cif, col_nombre_cliente]].dropna()
+                facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
+                opciones_facturas = [
+                    f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
+                    for _, row in facturas_cliente.iterrows()
+                ]
 
-                    if not df_resultado_restante.empty:
-                        st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
-                        st.dataframe(df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]],
-                                    use_container_width=True)
-                    else:
-                        st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
+                factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
+                factura_final_id = factura_final_display.split(" - ")[0]
+                factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
 
-                elif prisma_cubierto:
-                    st.success("✅ PRISMA cubrió completamente la factura, no queda pendiente")
+            st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** ({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+
+
+            # ==========================
+            # 🔹 Ejecutar hook PRISMA
+            # ==========================
+            if not df_prisma.empty:
+                prisma_cubierto, pendiente_prisma = hook_prisma(
+                    factura_final,
+                    df_prisma,
+                    col_num_factura_prisma,
+                    col_cif_prisma,
+                    col_importe_prisma,
+                    col_id_ute_prisma
+                )
+            else:
+                prisma_cubierto, pendiente_prisma = False, None
+
+            # ==========================
+            # 🔹 Preparar df_internas para COBRA
+            # ==========================
+            if pendiente_prisma is not None:
+                # Limpiar CIF en df y obtener socios de UTE
+                df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
+                df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
+
+                socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
+                socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
+                socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
+
+                # Rellenar df_internas automáticamente con todas las internas de esos socios
+                df_internas = df[df['CIF_LIMPIO'].isin(socios_prisma_limpios)].copy()
+
+                # Filtrar solo sociedades internas relevantes
+                df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
+
+                # DEBUG: mostrar incluso si está vacío
+                st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
+                st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
+                st.write(f"Filas encontradas: {len(df_internas)}")
+                st.dataframe(df_internas[[col_factura, col_sociedad, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
+
+                # Priorizar internas por cercanía a la fecha PRISMA
+                fecha_ref = pendiente_prisma.get("fecha_90_prisma")
+                if fecha_ref is not None and col_fecha_emision in df_internas.columns:
+                    df_internas[col_fecha_emision] = pd.to_datetime(df_internas[col_fecha_emision], errors="coerce")
+                    df_internas["DIST_FECHA_90"] = (df_internas[col_fecha_emision] - fecha_ref).abs()
+                    df_internas = df_internas.sort_values(by=["DIST_FECHA_90", col_fecha_emision])
+
+                # ==========================================
+                # 🔹 Ejecutar COBRA con el restante de PRISMA
+                # ==========================================
+                externa_pendiente = pd.Series({
+                    'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                    col_fecha_emision: fecha_ref
+                })
+
+                df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
+
+                if not df_resultado_restante.empty:
+                    st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
+                    st.dataframe(df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]],
+                                use_container_width=True)
                 else:
-                    st.info("ℹ️ PRISMA no cubre y no hay internos disponibles para COBRA")
+                    st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
+
+            elif prisma_cubierto:
+                st.success("✅ PRISMA cubrió completamente la factura, no queda pendiente")
+            else:
+                st.info("ℹ️ PRISMA no cubre y no hay internos disponibles para COBRA")
 
 
     # --- 2) leer/normalizar cobros ---
