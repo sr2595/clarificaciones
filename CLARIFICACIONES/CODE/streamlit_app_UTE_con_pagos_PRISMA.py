@@ -706,16 +706,7 @@ if archivo:
                     if df_tss_selec.empty:
                         st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
                         st.stop()
-                    
-                    # 🔹 Se encontró combinación de TSS
-                    st.success(
-                        f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
-                        f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
-                    )
-                    st.dataframe(
-                        df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]],
-                        use_container_width=True
-                    )
+                 
 
                     # Crear factura final agrupada
                     factura_final = pd.Series({
