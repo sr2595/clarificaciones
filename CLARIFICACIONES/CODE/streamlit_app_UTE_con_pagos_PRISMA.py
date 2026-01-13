@@ -608,7 +608,7 @@ if archivo:
             st.write("Tolerancia (cent):", tolerancia_cent)
 
             st.write("df_tss filas:", len(df_tss))
-            
+
             if not df_tss.empty:
                 st.write("Suma TSS:", df_tss['IMPORTE_CORRECTO'].sum())
                 st.dataframe(df_tss[[col_cif, col_factura, 'IMPORTE_CORRECTO']].head(20))
@@ -676,38 +676,54 @@ if archivo:
                     tol=tolerancia_cent
                 )
                 
-                # --- DEBUG: mostrar detalles del solver ---
-                st.subheader("🧪 DEBUG SOLVER TSS")
-                st.write("importe_pago:", importe_pago)
-                st.write("tolerancia_cent:", tolerancia_cent)
-                st.write("df_tss_selec vacío?", df_tss_selec.empty)
-
-                if not df_tss_selec.empty:
-                    st.success(
-                        f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
-                        f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
-                    )
-                    st.dataframe(
-                        df_tss_selec[
-                            [col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]
-                        ],
-                        use_container_width=True
-                    )
-
+               
             # -----------------------------
             # 6️⃣ Selección de factura final TSS
             # -----------------------------
-            if not df_tss.empty:
-                facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO', col_cif, col_nombre_cliente]].dropna()
-                facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
-                opciones_facturas = [
-                    f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
-                    for _, row in facturas_cliente.iterrows()
-                ]
+                df_tss_selec = pd.DataFrame()
+                if importe_pago and importe_pago > 0 and not df_tss.empty:
+                    # Ejecutar solver
+                    df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
 
-                factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
-                factura_final_id = factura_final_display.split(" - ")[0]
-                factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
+                    st.subheader("🧪 DEBUG SOLVER TSS")
+                    st.write("importe_pago:", importe_pago)
+                    st.write("tolerancia_cent:", tolerancia_cent)
+                    st.write("df_tss_selec vacío?", df_tss_selec.empty)
+
+                    if not df_tss_selec.empty:
+                        st.success(
+                            f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
+                            f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
+                        )
+                        st.dataframe(
+                            df_tss_selec[
+                                [col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]
+                            ],
+                            use_container_width=True
+                        )
+
+                        # Crear la factura final agrupada a partir de df_tss_selec
+                        factura_final = pd.Series({
+                            col_cif: "AGRUPADO",
+                            col_nombre_cliente: "Facturas TSS agrupadas",
+                            col_factura: "AGRUPADO",
+                            col_fecha_emision: df_tss_selec[col_fecha_emision].min(),
+                            "IMPORTE_CORRECTO": df_tss_selec["IMPORTE_CORRECTO"].sum(),
+                            "IMPORTE_CENT": int(round(df_tss_selec["IMPORTE_CORRECTO"].sum() * 100))
+                        })
+
+                # Si no hay importe_pago o solver no encuentra combinación → flujo manual
+                if df_tss_selec.empty:
+                    facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO', col_cif, col_nombre_cliente]].dropna()
+                    facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
+                    opciones_facturas = [
+                        f"{row[col_factura]} - {row[col_fecha_emision].date()} - {row['IMPORTE_CORRECTO']:,.2f} €"
+                        for _, row in facturas_cliente.iterrows()
+                    ]
+
+                    factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
+                    factura_final_id = factura_final_display.split(" - ")[0]
+                    factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
 
                 st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** ({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
 
