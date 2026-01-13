@@ -360,6 +360,9 @@ if archivo:
     df_resultado_final = pd.DataFrame()
     df_resultado = pd.DataFrame()   
 
+
+    ###POR FACTURA TSS (90) 
+
     if modo_busqueda == "Por factura TSS (90)":
         # --- Input alternativo: buscar directamente por factura TSS (90) ---
         factura_input = st.text_input("🔎 Buscar por nº de factura TSS (90)").strip()
@@ -519,7 +522,7 @@ if archivo:
 
 
     # ==========================================
-    # 🔹 Por cliente/grupo con PRISMA → COBRA
+    # POR CLIENTE/GRUPO con PRISMA → COBRA
     # ==========================================
     elif modo_busqueda == "Por cliente/grupo":
         # -----------------------------
@@ -538,7 +541,11 @@ if archivo:
         # 2️⃣ Filtrar TSS del grupo
         # -----------------------------
         df_filtrado = df[df[col_grupo] == grupo_seleccionado].copy()
-        df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS"]
+        df_tss = df_filtrado[
+            (df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS") &
+            (df_filtrado["IMPORTE_CORRECTO"].fillna(0) > 0)
+        ].copy()
+
 
         if df_tss.empty:
             st.warning("⚠️ No hay facturas TSS en este grupo")
@@ -586,18 +593,41 @@ if archivo:
             else:
                 cliente_final_cif = cliente_final_display.split(" - ")[0].replace(" ", "")
                 df_filtrado = df[df[col_cif] == cliente_final_cif].copy()
+            df_tss = df_filtrado[
+                (df_filtrado[col_sociedad].astype(str).str.upper().str.strip() == "TSS") &
+                (df_filtrado["IMPORTE_CORRECTO"].fillna(0) > 0)
+            ].copy()
+            
 
-            df_tss = df_filtrado[df_filtrado[col_sociedad].astype(str).str.upper() == 'TSS']
-
-            # -----------------------------
+           # -----------------------------
             # 5️⃣ Si se mete importe, ejecutar solver TSS
             # -----------------------------
             df_tss_selec = pd.DataFrame()
-            if importe_pago is not None and importe_pago > 0 and not df_tss.empty:
-                df_tss_selec = solver_tss_pago(df_tss.copy(), importe_pago, tol=tolerancia_cent)
+
+            if importe_pago and importe_pago > 0 and not df_tss.empty:
+
+                df_tss_selec = solver_tss_pago(
+                    df_tss.copy(),
+                    importe_pago,
+                    tol=tolerancia_cent
+                )
+
+                st.subheader("🧪 DEBUG SOLVER TSS")
+                st.write("importe_pago:", importe_pago)
+                st.write("tolerancia_cent:", tolerancia_cent)
+                st.write("df_tss_selec vacío?", df_tss_selec.empty)
+
                 if not df_tss_selec.empty:
-                    st.success(f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS que suman {df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €")
-                    st.dataframe(df_tss_selec[[col_cif, col_nombre_cliente, col_factura, col_fecha_emision, 'IMPORTE_CORRECTO']], use_container_width=True)
+                    st.success(
+                        f"✅ Se encontró combinación de {len(df_tss_selec)} facturas TSS "
+                        f"({df_tss_selec['IMPORTE_CORRECTO'].sum():,.2f} €)"
+                    )
+                    st.dataframe(
+                        df_tss_selec[
+                            [col_cif, col_nombre_cliente, col_factura, col_fecha_emision, "IMPORTE_CORRECTO"]
+                        ],
+                        use_container_width=True
+                    )
 
             # -----------------------------
             # 6️⃣ Selección de factura final TSS
