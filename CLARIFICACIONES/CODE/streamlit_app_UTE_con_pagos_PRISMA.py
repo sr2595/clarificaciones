@@ -608,8 +608,8 @@ if archivo:
             st.write("Tolerancia (cent):", tolerancia_cent)
 
             st.write("df_tss filas:", len(df_tss))
-
-            if not df_tss_selec.empty:
+            
+            if not df_tss.empty:
                 st.write("Suma TSS:", df_tss['IMPORTE_CORRECTO'].sum())
                 st.dataframe(df_tss[[col_cif, col_factura, 'IMPORTE_CORRECTO']].head(20))
 
