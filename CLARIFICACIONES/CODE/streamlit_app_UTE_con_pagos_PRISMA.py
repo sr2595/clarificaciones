@@ -674,8 +674,7 @@ if archivo:
                     importe_pago,
                     tol=tolerancia_cent
                 )
-                df_tss_selec = pd.DataFrame()
-
+                
                 # --- DEBUG: mostrar detalles del solver ---
                 st.subheader("🧪 DEBUG SOLVER TSS")
                 st.write("importe_pago:", importe_pago)
