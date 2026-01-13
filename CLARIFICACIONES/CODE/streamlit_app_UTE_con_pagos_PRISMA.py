@@ -599,13 +599,8 @@ if archivo:
             ].copy()
             
 
-           # -----------------------------
-            # 5️⃣ Si se mete importe, ejecutar solver TSS
             # -----------------------------
-            df_tss_selec = pd.DataFrame()
-
-            # ==========================
-            # 🔧 SOLVER TSS PAGO (GLOBAL)
+            # 5️⃣ Solver para importe de pago
             # ==========================
 
             def solver_tss_pago(df_tss, importe_pago, tol=0):
@@ -670,7 +665,9 @@ if archivo:
                     importe_pago,
                     tol=tolerancia_cent
                 )
+                df_tss_selec = pd.DataFrame()
 
+                # --- DEBUG: mostrar detalles del solver ---
                 st.subheader("🧪 DEBUG SOLVER TSS")
                 st.write("importe_pago:", importe_pago)
                 st.write("tolerancia_cent:", tolerancia_cent)
