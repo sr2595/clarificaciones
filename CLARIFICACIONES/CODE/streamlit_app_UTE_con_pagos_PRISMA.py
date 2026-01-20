@@ -687,15 +687,7 @@ if archivo:
                         use_container_width=True
                     )
 
-                    # Crear factura final agrupada a partir de df_tss_selec
-                    factura_final = pd.Series({
-                        col_cif: "AGRUPADO",
-                        col_nombre_cliente: "Facturas TSS agrupadas",
-                        col_factura: "AGRUPADO",
-                        col_fecha_emision: df_tss_selec[col_fecha_emision].min(),
-                        "IMPORTE_CORRECTO": df_tss_selec["IMPORTE_CORRECTO"].sum(),
-                        "IMPORTE_CENT": int(round(df_tss_selec["IMPORTE_CORRECTO"].sum() * 100))})
-                    
+                
                 else:
                     st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
                     st.stop()
@@ -709,7 +701,7 @@ if archivo:
                  
 
                     # Crear factura final agrupada
-                    factura_final = pd.Series({
+                    factura_agrupada = pd.Series({
                         col_cif: "AGRUPADO",
                         col_nombre_cliente: "Facturas TSS agrupadas",
                         col_factura: "AGRUPADO",
