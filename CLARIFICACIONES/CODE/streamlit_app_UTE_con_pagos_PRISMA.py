@@ -717,6 +717,9 @@ if archivo:
                         # Si hay pendiente de PRISMA → ejecutar COBRA
                         # -----------------------
                         if pendiente_prisma is not None:
+                            
+                            # 🔹 Fecha de referencia para COBRA
+                            fecha_ref = pendiente_prisma.get("fecha_90_prisma", pd.to_datetime(factura_tss[col_fecha_emision]))
 
                             # 🔹 Construir serie del resto pendiente
                             externa_pendiente = pd.Series({
