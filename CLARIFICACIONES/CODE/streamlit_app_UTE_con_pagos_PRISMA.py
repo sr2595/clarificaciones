@@ -692,18 +692,35 @@ if archivo:
                     st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
                     st.stop()
                 
+                # ==========================
+                # 🔹 PRISMA por factura TSS (solver)
+                # ==========================
+                if not df_tss_selec.empty and not df_prisma.empty:
 
-                    # Crear factura final agrupada
-                    factura_agrupada = pd.Series({
-                        col_cif: "AGRUPADO",
-                        col_nombre_cliente: "Facturas TSS agrupadas",
-                        col_factura: "AGRUPADO",
-                        col_fecha_emision: df_tss_selec[col_fecha_emision].min(),
-                        "IMPORTE_CORRECTO": df_tss_selec["IMPORTE_CORRECTO"].sum(),
-                        "IMPORTE_CENT": int(round(df_tss_selec["IMPORTE_CORRECTO"].sum() * 100))
-                    })
+                    st.subheader("🔗 PRISMA por factura TSS")
 
-                  
+                    for _, factura_tss in df_tss_selec.iterrows():
+
+                        st.markdown(f"### 🧾 Factura TSS {factura_tss[col_factura]}")
+
+                        prisma_cubierto, pendiente_prisma = hook_prisma(
+                            factura_tss,
+                            df_prisma,
+                            col_num_factura_prisma,
+                            col_cif_prisma,
+                            col_importe_prisma,
+                            col_id_ute_prisma
+                        )
+
+                        if pendiente_prisma is not None:
+                            # 👉 AQUÍ va tu lógica EXISTENTE de COBRA
+                            pass
+                        elif prisma_cubierto:
+                            st.success("✅ PRISMA cubrió completamente la factura")
+                        else:
+                            st.info("ℹ️ PRISMA no cubre y no hay internos disponibles")
+
+                                  
 
             # =====================================
             # Si no hay solver o combinación → selectbox normal
