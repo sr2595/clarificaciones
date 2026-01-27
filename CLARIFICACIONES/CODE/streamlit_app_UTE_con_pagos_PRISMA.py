@@ -692,6 +692,7 @@ if archivo:
                     st.warning("⚠️ No se encontró ninguna combinación de facturas TSS que cuadre con el importe indicado")
                     st.stop()
                 
+                
                 # ==========================
                 # 🔹 PRISMA por factura TSS (solver)
                 # ==========================
@@ -712,13 +713,40 @@ if archivo:
                             col_id_ute_prisma
                         )
 
+                        # -----------------------
+                        # Si hay pendiente de PRISMA → ejecutar COBRA
+                        # -----------------------
                         if pendiente_prisma is not None:
-                            # 👉 AQUÍ va tu lógica EXISTENTE de COBRA
-                            pass
+
+                            # 🔹 Construir serie del resto pendiente
+                            externa_pendiente = pd.Series({
+                                'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                                col_fecha_emision: fecha_ref
+                            })
+
+                            # 🔹 Ejecutar COBRA
+                            df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
+
+                            if not df_resultado_restante.empty:
+                                st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
+                                st.dataframe(
+                                    df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]],
+                                    use_container_width=True
+                                )
+                            else:
+                                st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
+
+                        # -----------------------
+                        # Si PRISMA cubrió toda la factura
+                        # -----------------------
                         elif prisma_cubierto:
                             st.success("✅ PRISMA cubrió completamente la factura")
+
+                        # -----------------------
+                        # Si no hay cobertura de PRISMA ni internas disponibles
+                        # -----------------------
                         else:
-                            st.info("ℹ️ PRISMA no cubre y no hay internos disponibles")
+                            st.info("ℹ️ PRISMA no cubre y no hay internos disponibles para COBRA")
 
                                   
 
