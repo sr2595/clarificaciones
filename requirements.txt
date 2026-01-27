@@ -1,10 +1,28 @@
 
+# Streamlit
 streamlit==1.32.2
-protobuf==4.25.3
-ortools==9.11.4210
-pandas
-numpy
-openpyxl
-xlrd
-pyxlsb
-odfpy
+
+# Optimización y ortools compatible con Python 3.13
+ortools==9.15.6755
+
+# Protobuf compatible con ortools 9.15
+protobuf>=6.33.1,<6.34
+
+# Excel y hojas de cálculo
+pandas==3.0.0
+openpyxl==3.1.5
+xlrd==2.0.2
+pyxlsb==1.0.10
+odfpy==1.4.1
+
+# Dependencias varias
+numpy==2.4.1
+absl-py==2.3.1
+validators==0.35.0
+
+# Logging bonito en Streamlit
+rich==14.3.1
+markdown-it-py==4.0.0
+pygments==2.19.2
+mdurl==0.1.2
+
