@@ -725,7 +725,7 @@ if archivo:
             # =====================================
             # Si no hay solver o combinación → selectbox normal
             # =====================================
-            if factura_final is None:
+            if factura_final is None and df_tss_selec.empty:
                 facturas_cliente = df_tss[[col_factura, col_fecha_emision, 'IMPORTE_CORRECTO', col_cif, col_nombre_cliente]].dropna()
                 facturas_cliente = facturas_cliente.sort_values('IMPORTE_CORRECTO', ascending=False)
                 opciones_facturas = [
