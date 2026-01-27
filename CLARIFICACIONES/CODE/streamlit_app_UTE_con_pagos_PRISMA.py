@@ -733,11 +733,21 @@ if archivo:
                     for _, row in facturas_cliente.iterrows()
                 ]
 
-                factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
-                factura_final_id = factura_final_display.split(" - ")[0]
-                factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
+                if opciones_facturas:  # ✅ Solo si hay opciones
+                    factura_final_display = st.selectbox("Selecciona factura final TSS (90)", opciones_facturas)
+                    factura_final_id = factura_final_display.split(" - ")[0]
+                    factura_final = df_tss[df_tss[col_factura] == factura_final_id].iloc[0]
+                else:
+                    st.warning("⚠️ No hay facturas disponibles para seleccionar")
 
-            st.info(f"Factura final seleccionada: **{factura_final[col_factura]}** ({factura_final['IMPORTE_CORRECTO']:,.2f} €)")
+            # =====================================
+            # Mostrar factura_final solo si existe
+            # =====================================
+            if factura_final is not None:
+                st.info(
+                    f"Factura final seleccionada: **{factura_final[col_factura]}** "
+                    f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)"
+                )
 
 
             # ==========================
