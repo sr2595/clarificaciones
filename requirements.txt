@@ -1,4 +1,4 @@
-ortools
+ortools>=9.15
 pandas
 streamlit
 openpyxl
