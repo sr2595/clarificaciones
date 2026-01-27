@@ -808,11 +808,22 @@ if archivo:
                 socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
                 socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
 
-                # Rellenar df_internas automáticamente con todas las internas de esos socios
-                df_internas = df[df['CIF_LIMPIO'].isin(socios_prisma_limpios)].copy()
+              # Socios internos a considerar: todos de PRISMA + TSOL
+                socios_internas_limpios = socios_prisma_limpios.copy()
+
+                # Agregar TSOL (puedes agregar también otros que sepas que siempre deben entrar)
+                tsol_cifs = df[df[col_sociedad].astype(str).str.upper() == 'TSOL']['CIF_LIMPIO'].unique().tolist()
+                socios_internas_limpios.extend(tsol_cifs)
+
+                # Eliminar duplicados
+                socios_internas_limpios = list(set(socios_internas_limpios))
+
+                # Rellenar df_internas
+                df_internas = df[df['CIF_LIMPIO'].isin(socios_internas_limpios)].copy()
 
                 # Filtrar solo sociedades internas relevantes
                 df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
+
 
                 # DEBUG: mostrar incluso si está vacío
                 st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
