@@ -1,6 +1,7 @@
 ortools
 pandas
-streamlit
+streamlit>=1.30,<2.0
+protobuf<5
 openpyxl
 xlrd
 pyxlsb
