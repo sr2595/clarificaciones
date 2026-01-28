@@ -779,14 +779,7 @@ if archivo:
                     f"Factura final seleccionada: **{factura_final[col_factura]}** "
                     f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)"
                 )
-            st.subheader("🧪 DEBUG 0 — salida de hook_prisma")
-            st.write("prisma_cubierto:", prisma_cubierto)
-            st.write("pendiente_prisma es None:", pendiente_prisma is None)
-
-            if pendiente_prisma:
-                st.write("➡️ resto_cent:", pendiente_prisma.get("resto_cent"))
-                st.write("➡️ df_socios_prisma filas:", len(pendiente_prisma.get("df_socios_prisma", [])))
-
+  
             # ==========================
             # 🔹 Ejecutar hook PRISMA
             # ==========================
@@ -801,14 +794,24 @@ if archivo:
                 )
             else:
                 prisma_cubierto, pendiente_prisma = False, None
-                st.subheader("🧪 DEBUG A — df base que debería ser COBRA")
-                st.write("Filas df:", len(df))
-                st.write("Columnas df:", df.columns.tolist())
 
-                st.write("Primeras filas df:")
-                st.dataframe(df.head(20), use_container_width=True)
+            st.subheader("🧪 DEBUG 0 — salida de hook_prisma")
+            st.write("prisma_cubierto:", prisma_cubierto)
+            st.write("pendiente_prisma es None:", pendiente_prisma is None)
 
-                st.stop()
+            if pendiente_prisma:
+                st.write("➡️ resto_cent:", pendiente_prisma.get("resto_cent"))
+                st.write("➡️ df_socios_prisma filas:", len(pendiente_prisma.get("df_socios_prisma", [])))
+                st.write("➡️ CIF socios PRISMA:", pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist())
+
+                # 🔹 Debug TSOL global, aunque no haya pendiente
+            df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
+            df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
+
+            socios_tsol_limpios = df[df[col_sociedad].astype(str).str.upper() == 'TSOL']['CIF_LIMPIO'].unique().tolist()
+            st.write("Número TSOL disponibles en COBRA:", len(socios_tsol_limpios))
+            st.write(socios_tsol_limpios)
+            
             # ==========================
             # 🔹 Preparar df_internas para COBRA
             # ==========================
