@@ -811,7 +811,7 @@ if archivo:
             socios_tsol_limpios = df[df[col_sociedad].astype(str).str.upper() == 'TSOL']['CIF_LIMPIO'].unique().tolist()
             st.write("Número TSOL disponibles en COBRA:", len(socios_tsol_limpios))
             st.write(socios_tsol_limpios)
-            
+
             # ==========================
             # 🔹 Preparar df_internas para COBRA
             # ==========================
@@ -825,17 +825,21 @@ if archivo:
                 socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
                 socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
 
-                # 🔹 Socios TSOL de COBRA
-                socios_tsol_limpios = df[df[col_sociedad].astype(str).str.upper() == 'TSOL']['CIF_LIMPIO'].unique().tolist()
+            
+                # 🔹 Facturas TSOL completas de COBRA (no solo CIF)
+                df_tsol_cobra = df[df[col_sociedad].astype(str).str.upper() == 'TSOL'].copy()
 
-                # 🔹 Combinar PRISMA + TSOL
-                socios_a_incluir = list(set(socios_prisma_limpios + list(socios_tsol_limpios)))
+                st.subheader("🧪 DEBUG — facturas TSOL disponibles en COBRA")
+                st.write(f"Número TSOL disponibles en COBRA: {len(df_tsol_cobra)}")
+                st.dataframe(df_tsol_cobra[[col_cif, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
 
-                # 🔹 Construir df_internas
-                df_internas = df[df['CIF_LIMPIO'].isin(socios_a_incluir)].copy()
-                
+               # 🔹 Combinar socios PRISMA (si hay) + todas las TSOL
+                socios_a_incluir = list(set(socios_prisma_limpios))  # empezamos con PRISMA
+                df_internas = df[df['CIF_LIMPIO'].isin(socios_a_incluir) | (df[col_sociedad].astype(str).str.upper() == 'TSOL')].copy()
+
                 # Filtrar solo sociedades internas relevantes
                 df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
+
 
                 # DEBUG: mostrar incluso si está vacío
                 st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
