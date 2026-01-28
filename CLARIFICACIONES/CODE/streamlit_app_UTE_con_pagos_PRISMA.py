@@ -806,6 +806,14 @@ if archivo:
             # 🔹 Preparar df_internas para COBRA
             # ==========================
             if pendiente_prisma is not None:
+                st.subheader("🧪 DEBUG A — df base que debería ser COBRA")
+                st.write("Filas df:", len(df))
+                st.write("Columnas df:", df.columns.tolist())
+
+                st.write("Primeras filas df:")
+                st.dataframe(df.head(20), use_container_width=True)
+
+                st.stop()
                 # Limpiar CIF en df y obtener socios de UTE
                 df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
                 df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
@@ -847,6 +855,7 @@ if archivo:
                     col_fecha_emision: fecha_ref
                 })
                 
+
                 df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
 
                 if not df_resultado_restante.empty:
