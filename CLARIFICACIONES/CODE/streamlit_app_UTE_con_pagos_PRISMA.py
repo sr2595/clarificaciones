@@ -824,20 +824,27 @@ if archivo:
                 socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
                 socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
 
-                # Combinar socios PRISMA + todas las facturas TSOL
-                df_internas = df[
-                    (df['CIF_LIMPIO'].isin(socios_prisma_limpios)) |
-                    (df[col_sociedad].astype(str).str.upper() == 'TSOL')
+                # 🔹 Filtrar TSOL solo para los socios PRISMA
+                df_tsol_cobra_cliente = df[
+                    (df[col_sociedad].astype(str).str.upper() == 'TSOL') &
+                    (df['CIF_LIMPIO'].isin(socios_prisma_limpios))
                 ].copy()
 
-                # Filtrar solo sociedades internas relevantes
+                # 🔹 Combinar PRISMA + TSOL filtradas
+                df_internas = df[
+                    (df['CIF_LIMPIO'].isin(socios_prisma_limpios)) |
+                    (df[col_factura].isin(df_tsol_cobra_cliente[col_factura]))
+                ].copy()
+
+                # 🔹 Filtrar solo sociedades internas relevantes
                 df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
 
                 # Debug df_internas
-                st.subheader("🧪 DEBUG PRISMA → COBRA — df_internas listo para COBRA")
+                st.subheader("🧪 DEBUG PRISMA → COBRA — df_internas filtrado por cliente/factura")
                 st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
                 st.write(f"Filas encontradas: {len(df_internas)}")
                 st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
+
 
                 # Priorizar internas por cercanía a la fecha PRISMA
                 fecha_ref = pendiente_prisma.get("fecha_90_prisma")
