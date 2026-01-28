@@ -779,7 +779,13 @@ if archivo:
                     f"Factura final seleccionada: **{factura_final[col_factura]}** "
                     f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)"
                 )
+            st.subheader("🧪 DEBUG 0 — salida de hook_prisma")
+            st.write("prisma_cubierto:", prisma_cubierto)
+            st.write("pendiente_prisma es None:", pendiente_prisma is None)
 
+            if pendiente_prisma:
+                st.write("➡️ resto_cent:", pendiente_prisma.get("resto_cent"))
+                st.write("➡️ df_socios_prisma filas:", len(pendiente_prisma.get("df_socios_prisma", [])))
 
             # ==========================
             # 🔹 Ejecutar hook PRISMA
@@ -840,28 +846,6 @@ if archivo:
                     'IMPORTE_CENT': pendiente_prisma["resto_cent"],
                     col_fecha_emision: fecha_ref
                 })
-                st.subheader("🧪 DEBUG ANTES DE SOLVER COBRA")
-
-                st.write("➡️ Importe restante (cent):", pendiente_prisma["resto_cent"])
-                st.write("➡️ Fecha referencia:", fecha_ref)
-
-                st.write("➡️ df_internas shape:", df_internas.shape)
-
-                st.write("➡️ Conteo por sociedad:")
-                st.write(
-                    df_internas[col_sociedad]
-                    .astype(str)
-                    .str.upper()
-                    .value_counts()
-                )
-
-                st.write("➡️ Importes disponibles (cent):")
-                st.write(
-                    df_internas[['IMPORTE_CENT', col_sociedad, col_factura]]
-                    .sort_values('IMPORTE_CENT')
-                )
-
-                st.write("➡️ Suma total disponibles (cent):", df_internas['IMPORTE_CENT'].sum())
                 
                 df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
 
