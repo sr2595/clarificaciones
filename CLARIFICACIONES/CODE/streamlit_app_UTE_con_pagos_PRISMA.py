@@ -801,11 +801,6 @@ if archivo:
                 )
             else:
                 prisma_cubierto, pendiente_prisma = False, None
-
-            # ==========================
-            # 🔹 Preparar df_internas para COBRA
-            # ==========================
-            if pendiente_prisma is not None:
                 st.subheader("🧪 DEBUG A — df base que debería ser COBRA")
                 st.write("Filas df:", len(df))
                 st.write("Columnas df:", df.columns.tolist())
@@ -814,6 +809,11 @@ if archivo:
                 st.dataframe(df.head(20), use_container_width=True)
 
                 st.stop()
+            # ==========================
+            # 🔹 Preparar df_internas para COBRA
+            # ==========================
+            if pendiente_prisma is not None:
+                
                 # Limpiar CIF en df y obtener socios de UTE
                 df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
                 df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
