@@ -698,7 +698,7 @@ if archivo:
             # =====================================
             if not df_tss_selec.empty and not df_prisma.empty:
 
-                st.subheader("🔗 PRISMA por factura TSS")
+                st.subheader("🔗 FACTURAS seleccionadas socios")
 
                 for _, factura_tss in df_tss_selec.iterrows():
 
@@ -708,9 +708,7 @@ if archivo:
                     # DEBUG entrada hook_prisma
                     st.subheader("🔍 DEBUG entrada hook_prisma")
                     st.write("Factura TSS que vamos a pasar:", factura_tss[[col_factura, col_cif, 'IMPORTE_CORRECTO']])
-                    st.write("df_prisma columnas:", df_prisma.columns.tolist())
-                    st.write("df_prisma primeras filas:", df_prisma.head(10))
-
+                   
                     # -----------------------
                     # Ejecutar hook_prisma
                     prisma_cubierto, pendiente_prisma = hook_prisma(
