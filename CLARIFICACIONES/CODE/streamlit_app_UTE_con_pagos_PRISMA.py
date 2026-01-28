@@ -808,52 +808,74 @@ if archivo:
                 socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
                 socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
 
-                # 🔹 DEBUG 1: mostrar socios de PRISMA
-                st.subheader("🧪 DEBUG PRISMA — socios de la UTE")
-                st.write(socios_prisma_limpios)
+                # 🔹 Socios TSOL de COBRA
+                socios_tsol_limpios = df[df[col_sociedad].astype(str).str.upper() == 'TSOL']['CIF_LIMPIO'].unique().tolist()
 
-                # 🔹 DEBUG 2: mostrar todos los TSOL disponibles en COBRA
-                tsol_disponibles = df[df[col_sociedad].astype(str).str.upper() == 'TSOL'][['CIF_LIMPIO', col_factura, 'IMPORTE_CORRECTO']]
-                st.subheader("🧪 DEBUG COBRA — TSOL disponibles")
-                st.write(tsol_disponibles)
+                # 🔹 Combinar PRISMA + TSOL
+                socios_a_incluir = list(set(socios_prisma_limpios + list(socios_tsol_limpios)))
 
-                # Construir df_internas incluyendo TSOL
-                socios_a_incluir = list(set(socios_prisma_limpios + tsol_disponibles['CIF_LIMPIO'].tolist()))
+                # 🔹 Construir df_internas
                 df_internas = df[df['CIF_LIMPIO'].isin(socios_a_incluir)].copy()
-
-                # 🔹 Filtrar solo sociedades internas relevantes
+                
+                # Filtrar solo sociedades internas relevantes
                 df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
 
-                # 🔹 DEBUG 3: mostrar df_internas final antes de cuadrar_internas
-                st.subheader("🧪 DEBUG PRISMA → COBRA — df_internas final")
-                st.write(df_internas[[col_cif, 'CIF_LIMPIO', col_sociedad, col_factura, 'IMPORTE_CORRECTO']])
+                # DEBUG: mostrar incluso si está vacío
+                st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
+                st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
+                st.write(f"Filas encontradas: {len(df_internas)}")
+                st.dataframe(df_internas[[col_factura, col_sociedad, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
 
-                # 🔹 Priorizar internas por cercanía a la fecha PRISMA
+                # Priorizar internas por cercanía a la fecha PRISMA
                 fecha_ref = pendiente_prisma.get("fecha_90_prisma")
                 if fecha_ref is not None and col_fecha_emision in df_internas.columns:
                     df_internas[col_fecha_emision] = pd.to_datetime(df_internas[col_fecha_emision], errors="coerce")
                     df_internas["DIST_FECHA_90"] = (df_internas[col_fecha_emision] - fecha_ref).abs()
                     df_internas = df_internas.sort_values(by=["DIST_FECHA_90", col_fecha_emision])
 
-                # 🔹 Construir serie del resto pendiente
+                # ==========================================
+                # 🔹 Ejecutar COBRA con el restante de PRISMA
+                # ==========================================
                 externa_pendiente = pd.Series({
                     'IMPORTE_CENT': pendiente_prisma["resto_cent"],
                     col_fecha_emision: fecha_ref
                 })
+                st.subheader("🧪 DEBUG ANTES DE SOLVER COBRA")
 
-                # 🔹 DEBUG 4: mostrar importe restante que buscamos
-                st.subheader("🧪 DEBUG — importe restante a cuadrar")
-                st.write(externa_pendiente)
+                st.write("➡️ Importe restante (cent):", pendiente_prisma["resto_cent"])
+                st.write("➡️ Fecha referencia:", fecha_ref)
 
-                # Ejecutar COBRA
+                st.write("➡️ df_internas shape:", df_internas.shape)
+
+                st.write("➡️ Conteo por sociedad:")
+                st.write(
+                    df_internas[col_sociedad]
+                    .astype(str)
+                    .str.upper()
+                    .value_counts()
+                )
+
+                st.write("➡️ Importes disponibles (cent):")
+                st.write(
+                    df_internas[['IMPORTE_CENT', col_sociedad, col_factura]]
+                    .sort_values('IMPORTE_CENT')
+                )
+
+                st.write("➡️ Suma total disponibles (cent):", df_internas['IMPORTE_CENT'].sum())
+                
                 df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
 
                 if not df_resultado_restante.empty:
                     st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
-                    st.dataframe(df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
+                    st.dataframe(df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]],
+                                use_container_width=True)
                 else:
                     st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
 
+            elif prisma_cubierto:
+                st.success("✅ PRISMA cubrió completamente la factura, no queda pendiente")
+            else:
+                st.info("ℹ️ PRISMA no cubre y no hay internos disponibles para COBRA")
 
 
     # --- 2) leer/normalizar cobros ---
