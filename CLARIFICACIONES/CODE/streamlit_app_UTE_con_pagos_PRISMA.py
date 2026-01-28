@@ -693,63 +693,89 @@ if archivo:
                     st.stop()
                 
                 
-                # ==========================
-                # 🔹 PRISMA por factura TSS (solver)
-                # ==========================
-                if not df_tss_selec.empty and not df_prisma.empty:
+            # =====================================
+            # 🔹 PRISMA por factura TSS (solver)
+            # =====================================
+            if not df_tss_selec.empty and not df_prisma.empty:
 
-                    st.subheader("🔗 PRISMA por factura TSS")
+                st.subheader("🔗 PRISMA por factura TSS")
 
-                    for _, factura_tss in df_tss_selec.iterrows():
+                for _, factura_tss in df_tss_selec.iterrows():
 
-                        st.markdown(f"### 🧾 Factura TSS {factura_tss[col_factura]}")
+                    st.markdown(f"### 🧾 Factura TSS {factura_tss[col_factura]}")
 
-                        prisma_cubierto, pendiente_prisma = hook_prisma(
-                            factura_tss,
-                            df_prisma,
-                            col_num_factura_prisma,
-                            col_cif_prisma,
-                            col_importe_prisma,
-                            col_id_ute_prisma
-                        )
+                    # -----------------------
+                    # DEBUG entrada hook_prisma
+                    st.subheader("🔍 DEBUG entrada hook_prisma")
+                    st.write("Factura TSS que vamos a pasar:", factura_tss[[col_factura, col_cif, 'IMPORTE_CORRECTO']])
+                    st.write("df_prisma columnas:", df_prisma.columns.tolist())
+                    st.write("df_prisma primeras filas:", df_prisma.head(10))
 
-                        # -----------------------
-                        # Si hay pendiente de PRISMA → ejecutar COBRA
-                        # -----------------------
-                        if pendiente_prisma is not None:
-                            
-                            # 🔹 Fecha de referencia para COBRA
-                            fecha_ref = pendiente_prisma.get("fecha_90_prisma", pd.to_datetime(factura_tss[col_fecha_emision]))
+                    # -----------------------
+                    # Ejecutar hook_prisma
+                    prisma_cubierto, pendiente_prisma = hook_prisma(
+                        factura_tss,
+                        df_prisma,
+                        col_num_factura_prisma,
+                        col_cif_prisma,
+                        col_importe_prisma,
+                        col_id_ute_prisma
+                    )
 
-                            # 🔹 Construir serie del resto pendiente
-                            externa_pendiente = pd.Series({
-                                'IMPORTE_CENT': pendiente_prisma["resto_cent"],
-                                col_fecha_emision: fecha_ref
-                            })
+                    # -----------------------
+                    # DEBUG salida hook_prisma
+                    st.subheader("🧪 DEBUG 0 — salida de hook_prisma")
+                    st.write("prisma_cubierto:", prisma_cubierto)
+                    st.write("pendiente_prisma es None:", pendiente_prisma is None)
 
-                            # 🔹 Ejecutar COBRA
-                            df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
+                    if pendiente_prisma is not None:
+                        st.write("➡️ resto_cent:", pendiente_prisma.get("resto_cent"))
+                        st.write("➡️ resto_euros:", pendiente_prisma.get("resto_euros"))
+                        st.write("➡️ fecha_90_prisma:", pendiente_prisma.get("fecha_90_prisma"))
+                        st.write("➡️ df_socios_prisma filas:", len(pendiente_prisma.get("df_socios_prisma", [])))
+                        st.dataframe(pendiente_prisma.get("df_socios_prisma", pd.DataFrame()))
+                    else:
+                        st.warning("⚠️ pendiente_prisma es None, hook_prisma no encontró resto pendiente")
+                        # 🔹 Para debug profundo, mostrar intentos de filtrado dentro de hook_prisma
+                        # st.write("df_prisma filtrado por factura y CIF:")
+                        # st.write(df_prisma[(df_prisma[col_num_factura_prisma] == factura_tss[col_factura]) &
+                        #                    (df_prisma[col_cif_prisma] == factura_tss[col_cif])])
 
-                            if not df_resultado_restante.empty:
-                                st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
-                                st.dataframe(
-                                    df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]],
-                                    use_container_width=True
-                                )
-                            else:
-                                st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
+                    # -----------------------
+                    # Si hay pendiente de PRISMA → ejecutar COBRA
+                    if pendiente_prisma is not None:
 
-                        # -----------------------
-                        # Si PRISMA cubrió toda la factura
-                        # -----------------------
-                        elif prisma_cubierto:
-                            st.success("✅ PRISMA cubrió completamente la factura")
+                        # 🔹 Fecha de referencia para COBRA
+                        fecha_ref = pendiente_prisma.get("fecha_90_prisma", pd.to_datetime(factura_tss[col_fecha_emision]))
 
-                        # -----------------------
-                        # Si no hay cobertura de PRISMA ni internas disponibles
-                        # -----------------------
+                        # 🔹 Construir serie del resto pendiente
+                        externa_pendiente = pd.Series({
+                            'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                            col_fecha_emision: fecha_ref
+                        })
+
+                        # 🔹 Ejecutar COBRA
+                        df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
+
+                        if not df_resultado_restante.empty:
+                            st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
+                            st.dataframe(
+                                df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]],
+                                use_container_width=True
+                            )
                         else:
-                            st.info("ℹ️ PRISMA no cubre y no hay internos disponibles para COBRA")
+                            st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
+
+                    # -----------------------
+                    # Si PRISMA cubrió toda la factura
+                    elif prisma_cubierto:
+                        st.success("✅ PRISMA cubrió completamente la factura")
+
+                    # -----------------------
+                    # Si no hay cobertura de PRISMA ni internos disponibles
+                    else:
+                        st.info("ℹ️ PRISMA no cubre y no hay internos disponibles para COBRA")
+ 
 
                                   
 
@@ -771,7 +797,7 @@ if archivo:
                 else:
                     st.warning("⚠️ No hay facturas disponibles para seleccionar")
 
-            # =====================================
+           
             # =====================================
             # Mostrar factura_final solo si existe
             # =====================================
