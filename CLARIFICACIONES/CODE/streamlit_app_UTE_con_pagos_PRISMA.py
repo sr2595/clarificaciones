@@ -772,6 +772,7 @@ if archivo:
                     st.warning("⚠️ No hay facturas disponibles para seleccionar")
 
             # =====================================
+            # =====================================
             # Mostrar factura_final solo si existe
             # =====================================
             if factura_final is not None:
@@ -779,7 +780,19 @@ if archivo:
                     f"Factura final seleccionada: **{factura_final[col_factura]}** "
                     f"({factura_final['IMPORTE_CORRECTO']:,.2f} €)"
                 )
-  
+
+            # ==========================
+            # 🔹 Debug global TSOL (aunque pendiente_prisma sea None)
+            # ==========================
+            df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
+            df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
+
+            df_tsol_cobra = df[df[col_sociedad].astype(str).str.upper() == 'TSOL'].copy()
+
+            st.subheader("🧪 DEBUG GLOBAL — facturas TSOL disponibles en COBRA")
+            st.write(f"Número TSOL disponibles: {len(df_tsol_cobra)}")
+            st.dataframe(df_tsol_cobra[[col_cif, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
+
             # ==========================
             # 🔹 Ejecutar hook PRISMA
             # ==========================
@@ -799,53 +812,32 @@ if archivo:
             st.write("prisma_cubierto:", prisma_cubierto)
             st.write("pendiente_prisma es None:", pendiente_prisma is None)
 
-            if pendiente_prisma:
+            if pendiente_prisma is not None:
                 st.write("➡️ resto_cent:", pendiente_prisma.get("resto_cent"))
                 st.write("➡️ df_socios_prisma filas:", len(pendiente_prisma.get("df_socios_prisma", [])))
                 st.write("➡️ CIF socios PRISMA:", pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist())
 
-                # 🔹 Debug TSOL global, aunque no haya pendiente
-            df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
-            df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
-
-            socios_tsol_limpios = df[df[col_sociedad].astype(str).str.upper() == 'TSOL']['CIF_LIMPIO'].unique().tolist()
-            st.write("Número TSOL disponibles en COBRA:", len(socios_tsol_limpios))
-            st.write(socios_tsol_limpios)
-
-            # ==========================
-            # 🔹 Preparar df_internas para COBRA
-            # ==========================
-            if pendiente_prisma is not None:
-                
-                # Limpiar CIF en df y obtener socios de UTE
-                df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
-                df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
-
+                # ==========================
+                # 🔹 Construir df_internas para COBRA
+                # ==========================
                 socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
                 socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
                 socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
 
-            
-                # 🔹 Facturas TSOL completas de COBRA (no solo CIF)
-                df_tsol_cobra = df[df[col_sociedad].astype(str).str.upper() == 'TSOL'].copy()
-
-                st.subheader("🧪 DEBUG — facturas TSOL disponibles en COBRA")
-                st.write(f"Número TSOL disponibles en COBRA: {len(df_tsol_cobra)}")
-                st.dataframe(df_tsol_cobra[[col_cif, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
-
-               # 🔹 Combinar socios PRISMA (si hay) + todas las TSOL
-                socios_a_incluir = list(set(socios_prisma_limpios))  # empezamos con PRISMA
-                df_internas = df[df['CIF_LIMPIO'].isin(socios_a_incluir) | (df[col_sociedad].astype(str).str.upper() == 'TSOL')].copy()
+                # Combinar socios PRISMA + todas las facturas TSOL
+                df_internas = df[
+                    (df['CIF_LIMPIO'].isin(socios_prisma_limpios)) |
+                    (df[col_sociedad].astype(str).str.upper() == 'TSOL')
+                ].copy()
 
                 # Filtrar solo sociedades internas relevantes
                 df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
 
-
-                # DEBUG: mostrar incluso si está vacío
-                st.subheader("🧪 DEBUG PRISMA → COBRA (TSOL) — df_internas rellenado automáticamente")
+                # Debug df_internas
+                st.subheader("🧪 DEBUG PRISMA → COBRA — df_internas listo para COBRA")
                 st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
                 st.write(f"Filas encontradas: {len(df_internas)}")
-                st.dataframe(df_internas[[col_factura, col_sociedad, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
+                st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
 
                 # Priorizar internas por cercanía a la fecha PRISMA
                 fecha_ref = pendiente_prisma.get("fecha_90_prisma")
@@ -853,6 +845,7 @@ if archivo:
                     df_internas[col_fecha_emision] = pd.to_datetime(df_internas[col_fecha_emision], errors="coerce")
                     df_internas["DIST_FECHA_90"] = (df_internas[col_fecha_emision] - fecha_ref).abs()
                     df_internas = df_internas.sort_values(by=["DIST_FECHA_90", col_fecha_emision])
+
 
                 # ==========================================
                 # 🔹 Ejecutar COBRA con el restante de PRISMA
