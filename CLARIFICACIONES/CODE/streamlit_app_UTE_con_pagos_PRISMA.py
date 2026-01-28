@@ -819,20 +819,7 @@ if archivo:
             st.write(f"Número TSOL disponibles: {len(df_tsol_cobra)}")
             st.dataframe(df_tsol_cobra[[col_cif, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
 
-            # ==========================
-            # 🔹 Ejecutar hook PRISMA
-            # ==========================
-            if not df_prisma.empty:
-                prisma_cubierto, pendiente_prisma = hook_prisma(
-                    factura_final,
-                    df_prisma,
-                    col_num_factura_prisma,
-                    col_cif_prisma,
-                    col_importe_prisma,
-                    col_id_ute_prisma
-                )
-            else:
-                prisma_cubierto, pendiente_prisma = False, None
+         
 
             st.subheader("🧪 DEBUG 0 — salida de hook_prisma")
             st.write("prisma_cubierto:", prisma_cubierto)
