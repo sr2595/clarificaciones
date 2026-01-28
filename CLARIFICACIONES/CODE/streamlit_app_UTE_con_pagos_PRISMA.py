@@ -814,8 +814,10 @@ if archivo:
 
             if pendiente_prisma is not None:
                 st.write("➡️ resto_cent:", pendiente_prisma.get("resto_cent"))
+                st.write("➡️ resto_euros:", pendiente_prisma.get("resto_euros"))
+                st.write("➡️ fecha_90_prisma:", pendiente_prisma.get("fecha_90_prisma"))
                 st.write("➡️ df_socios_prisma filas:", len(pendiente_prisma.get("df_socios_prisma", [])))
-                st.write("➡️ CIF socios PRISMA:", pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist())
+                st.dataframe(pendiente_prisma.get("df_socios_prisma", pd.DataFrame()))
 
                 # ==========================
                 # 🔹 Construir df_internas para COBRA
