@@ -703,14 +703,10 @@ if archivo:
                 for _, factura_tss in df_tss_selec.iterrows():
 
                     st.markdown(f"### 🧾 Factura TSS {factura_tss[col_factura]}")
-
-                    # -----------------------
-                    # DEBUG entrada hook_prisma
-                    st.subheader("🔍 DEBUG entrada hook_prisma")
-                    st.write("Factura TSS que vamos a pasar:", factura_tss[[col_factura, col_cif, 'IMPORTE_CORRECTO']])
-                   
+                  
                     # -----------------------
                     # Ejecutar hook_prisma
+                     # -----------------------
                     prisma_cubierto, pendiente_prisma = hook_prisma(
                         factura_tss,
                         df_prisma,
