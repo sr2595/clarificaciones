@@ -893,6 +893,14 @@ if archivo:
                     'IMPORTE_CENT': int(round(pendiente_prisma["resto_euros"] * 100)),  # resto en centavos
                     col_fecha_emision: fecha_ref
                 })
+                # 🔹 DEBUG: qué importe y para qué CIF se intenta cuadrar
+                st.subheader("🧪 DEBUG COBRA — importe/restante a cuadrar")
+                st.write(f"Cliente(s) PRISMA a cuadrar: {socios_prisma_limpios}")
+                st.write(f"Importe restante cent: {pendiente_prisma['resto_cent']}")
+                st.write(f"Importe restante euros: {pendiente_prisma['resto_euros']:.2f}")
+
+                # Opcional: mostrar facturas TSOL candidatas
+                st.dataframe(df_internas[[col_cif, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
 
                 df_internas['IMPORTE_CENT'] = (df_internas['IMPORTE_CORRECTO'] * 100).round().astype(int)
 
