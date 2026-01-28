@@ -838,73 +838,73 @@ if archivo:
             st.write("prisma_cubierto:", prisma_cubierto)
             st.write("pendiente_prisma es None:", pendiente_prisma is None)
 
+            # ==========================
+            # 🔹 Preparar df_internas para COBRA (solo TSOL relevantes)
+            # ==========================
             if pendiente_prisma is not None:
-                st.write("➡️ resto_cent:", pendiente_prisma.get("resto_cent"))
-                st.write("➡️ resto_euros:", pendiente_prisma.get("resto_euros"))
-                st.write("➡️ fecha_90_prisma:", pendiente_prisma.get("fecha_90_prisma"))
-                st.write("➡️ df_socios_prisma filas:", len(pendiente_prisma.get("df_socios_prisma", [])))
-                st.dataframe(pendiente_prisma.get("df_socios_prisma", pd.DataFrame()))
 
-                # ==========================
-                # 🔹 Construir df_internas para COBRA
-                # ==========================
+                st.subheader("🧪 DEBUG — preparar COBRA para el restante de PRISMA")
+
+                # Limpiar CIF en df
+                df['CIF_LIMPIO'] = df[col_cif].astype(str).str.replace(r"[^A-Za-z0-9]", "", regex=True).str.upper()
+                df['CIF_LIMPIO'] = df['CIF_LIMPIO'].str.replace(r'^[A-Z]00', '', regex=True)
+
+                # 🔹 Socios PRISMA
                 socios_prisma = pendiente_prisma['df_socios_prisma'][col_cif_prisma].tolist()
                 socios_prisma_limpios = [re.sub(r"[^A-Za-z0-9]", "", str(s)).upper() for s in socios_prisma]
                 socios_prisma_limpios = [re.sub(r'^[A-Z]00', '', s) for s in socios_prisma_limpios]
 
-                # 🔹 Filtrar TSOL solo para los socios PRISMA
-                df_tsol_cobra_cliente = df[
+                # 🔹 Filtrar TSOL solo del cliente/factura TSS
+                # Tomamos el CIF de la factura TSS actual
+                cif_tss = factura_tss[col_cif]
+                df_tsol_cliente = df[
                     (df[col_sociedad].astype(str).str.upper() == 'TSOL') &
-                    (df['CIF_LIMPIO'].isin(socios_prisma_limpios))
+                    (df['CIF_LIMPIO'] == re.sub(r"[^A-Za-z0-9]", "", str(cif_tss)).upper())
                 ].copy()
 
-                # 🔹 Combinar PRISMA + TSOL filtradas
+                st.write(f"Número de TSOL disponibles para este cliente/factura:", len(df_tsol_cliente))
+                st.dataframe(df_tsol_cliente[[col_cif, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
+
+                # 🔹 Construir df_internas: PRISMA + TSOL del cliente
                 df_internas = df[
                     (df['CIF_LIMPIO'].isin(socios_prisma_limpios)) |
-                    (df[col_factura].isin(df_tsol_cobra_cliente[col_factura]))
+                    (df[col_sociedad].astype(str).str.upper() == 'TSOL') & 
+                    (df['CIF_LIMPIO'] == re.sub(r"[^A-Za-z0-9]", "", str(cif_tss)).upper())
                 ].copy()
 
-                # 🔹 Filtrar solo sociedades internas relevantes
+                # Filtrar solo sociedades internas relevantes
                 df_internas = df_internas[df_internas[col_sociedad].astype(str).str.upper().isin(['TSOL', 'TDE', 'TME'])]
 
-                # Debug df_internas
-                st.subheader("🧪 DEBUG PRISMA → COBRA — df_internas filtrado por cliente/factura")
+                # Priorizar por cercanía a la fecha de PRISMA
+                fecha_ref = pendiente_prisma.get("fecha_90_prisma", pd.to_datetime(factura_tss[col_fecha_emision]))
+                df_internas[col_fecha_emision] = pd.to_datetime(df_internas[col_fecha_emision], errors="coerce")
+                df_internas["DIST_FECHA_90"] = (df_internas[col_fecha_emision] - fecha_ref).abs()
+                df_internas = df_internas.sort_values(by=["DIST_FECHA_90", col_fecha_emision])
+
+                # 🔹 DEBUG df_internas
+                st.subheader("🧪 DEBUG df_internas listo para COBRA")
                 st.write(f"CIF UTE limpio: {socios_prisma_limpios}")
                 st.write(f"Filas encontradas: {len(df_internas)}")
                 st.dataframe(df_internas[[col_cif, col_factura, col_sociedad, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
 
-
-                # Priorizar internas por cercanía a la fecha PRISMA
-                fecha_ref = pendiente_prisma.get("fecha_90_prisma")
-                if fecha_ref is not None and col_fecha_emision in df_internas.columns:
-                    df_internas[col_fecha_emision] = pd.to_datetime(df_internas[col_fecha_emision], errors="coerce")
-                    df_internas["DIST_FECHA_90"] = (df_internas[col_fecha_emision] - fecha_ref).abs()
-                    df_internas = df_internas.sort_values(by=["DIST_FECHA_90", col_fecha_emision])
-
-
-                # ==========================================
-                # 🔹 Ejecutar COBRA con el restante de PRISMA
-                # ==========================================
+                # 🔹 Ejecutar COBRA
+                # Redondear importes a centavos para evitar problemas de decimales
                 externa_pendiente = pd.Series({
-                    'IMPORTE_CENT': pendiente_prisma["resto_cent"],
+                    'IMPORTE_CENT': int(round(pendiente_prisma["resto_euros"] * 100)),  # resto en centavos
                     col_fecha_emision: fecha_ref
                 })
-                
+
+                df_internas['IMPORTE_CENT'] = (df_internas['IMPORTE_CORRECTO'] * 100).round().astype(int)
 
                 df_resultado_restante = cuadrar_internas(externa_pendiente, df_internas)
 
                 if not df_resultado_restante.empty:
                     st.success(f"✅ Se cuadró el restante de PRISMA ({pendiente_prisma['resto_euros']:,.2f} €) con COBRA")
-                    st.dataframe(df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]],
-                                use_container_width=True)
+                    st.dataframe(df_resultado_restante[[col_cif, col_nombre_cliente, col_factura, 'IMPORTE_CORRECTO', col_fecha_emision]], use_container_width=True)
                 else:
                     st.warning("⚠️ No se encontró combinación de facturas internas que cuadre con el restante de PRISMA")
 
-            elif prisma_cubierto:
-                st.success("✅ PRISMA cubrió completamente la factura, no queda pendiente")
-            else:
-                st.info("ℹ️ PRISMA no cubre y no hay internos disponibles para COBRA")
-
+               
 
     # --- 2) leer/normalizar cobros ---
     cobros_file = st.file_uploader(
