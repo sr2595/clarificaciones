@@ -128,3 +128,92 @@ if archivo_prisma:
         st.write(f"- Número de filas: {len(df_debug)}")
         st.write(f"- Número de facturas únicas: {df_debug['FACTURA_NORMALIZADA'].nunique()}")
         st.write(f"- Facturas con espacios: {df_debug['CONTIENE_ESPACIOS'].sum()}")
+        
+
+        # --------- subida y normalizacion de COBRA ---------
+archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
+if archivo:
+    # --- Lectura flexible para detectar cabecera ---
+    try:
+        df_raw = pd.read_excel(archivo, engine="openpyxl", header=None)
+    except Exception:
+        df_raw = pd.read_excel(archivo, header=None)
+
+    # Buscar fila que contiene la cabecera
+    header_row = None
+    for i in range(min(20, len(df_raw))):
+        vals = [str(x).lower() for x in df_raw.iloc[i].tolist()]
+        if any("factura" in v or "fecha" in v or "importe" in v for v in vals):
+            header_row = i
+            break
+
+    if header_row is None:
+        st.error("❌ No se encontró cabecera reconocible en el archivo Excel")
+        st.stop()
+
+    # Releer usando esa fila como cabecera
+    try:
+        df = pd.read_excel(archivo, engine="openpyxl", header=header_row)
+    except Exception:
+        df = pd.read_excel(archivo, header=header_row)
+
+    with st.expander("🔎 Ver columnas detectadas en el Excel"):
+        st.write(list(df.columns))
+
+    # --- Detectar columnas ---
+    col_fecha_emision = find_col(df, ['FECHA', 'Fecha Emision', 'Fecha Emisión', 'FX_EMISION'])
+    col_factura       = find_col(df, ['FACTURA', 'Nº Factura', 'NRO_FACTURA', 'Núm.Doc.Deuda'])
+    col_importe       = find_col(df, ['IMPORTE', 'TOTAL', 'TOTAL_FACTURA'])
+    col_cif           = find_col(df, ['T.Doc. - Núm.Doc.', 'CIF', 'NIF', 'CIF_CLIENTE', 'NIF_CLIENTE'])
+    col_nombre_cliente= find_col(df, ['NOMBRE', 'CLIENTE', 'RAZON_SOCIAL'])
+    col_sociedad      = find_col(df, ['SOCIEDAD', 'Sociedad', 'SOC', 'EMPRESA'])
+    col_grupo         = find_col(df, ['CIF_GRUPO', 'GRUPO', 'CIF Grupo'])
+    col_nombre_grupo  = find_col(df, ['Nombre Grupo', 'GRUPO_NOMBRE', 'RAZON_SOCIAL_GRUPO'])
+
+    faltan = []
+    if not col_fecha_emision: faltan.append("fecha emisión")
+    if not col_factura:       faltan.append("nº factura")
+    if not col_importe:       faltan.append("importe")
+    if not col_cif:           faltan.append("CIF")
+    if not col_grupo:         faltan.append("CIF grupo")
+    if not col_nombre_grupo:    faltan.append("Nombre grupo")
+    if faltan:
+        st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
+        st.stop()
+
+    # --- Normalizar ---
+    df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
+    df[col_factura] = df[col_factura].astype(str)
+    df[col_cif] = df[col_cif].astype(str)
+    df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
+    df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
+
+    #Resumen del archivo
+    total = df['IMPORTE_CORRECTO'].sum(skipna=True)
+    minimo = df['IMPORTE_CORRECTO'].min(skipna=True)
+    maximo = df['IMPORTE_CORRECTO'].max(skipna=True)
+    
+    st.write("**📊 Resumen del archivo:**")
+    st.write(f"- Número total de facturas: {len(df)}")
+    st.write(f"- Suma total importes: {total:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+    st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+    st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+
+    # --- Detectar UTES ---
+    df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
+
+    # --- Selección de modo de búsqueda ---
+    modo_busqueda = st.radio(
+        "🔹 Selecciona el modo de búsqueda:",
+        ("Por factura TSS (90)", "Por cliente/grupo")
+    )
+
+    # Inicializar variables para que existan en todo el scope
+    grupo_seleccionado = None
+    factura_final = None
+    df_filtrado = pd.DataFrame()
+    df_tss = pd.DataFrame()
+    df_internas = pd.DataFrame()
+    df_tss_selec = pd.DataFrame()
+    df_resultado_final = pd.DataFrame()
+    df_resultado = pd.DataFrame()   
