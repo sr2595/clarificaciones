@@ -393,108 +393,68 @@ if archivo:
 
 
 
-            ### 5) CRUCE CON PRISMA ###
-            # Filtrar solo facturas de tipo "90" (descartamos TDE y TME por ahora)
-            df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
-            st.write(f"ℹ️ Facturas PRISMA tipo 90: {len(df_prisma_90)} filas")
+        def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01, max_facturas=20):
+            resultados = []
 
-            # Asegurarnos de que CIF esté en mayúsculas y sin espacios
-            df_pagos['CIF_UTE'] = df_pagos['CIF_UTE'].astype(str).str.strip().str.upper()
-            df_prisma_90[col_cif_prisma] = df_prisma_90[col_cif_prisma].astype(str).str.strip().str.upper()
+            facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby(col_cif_prisma)}
 
-            ### SOLVER IMPORTES DE PAGO CONTRA 90###
+            for idx, pago in df_pagos.iterrows():
+                cif_pago = pago['CIF_UTE']
+                importe_pago = pago['importe']
+                fecha_pago = pago['fec_operacion']
 
-            def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01):
-                """
-                Cruza pagos con facturas de PRISMA del mismo CIF usando OR-Tools para combinaciones exactas.
-                
-                Parámetros:
-                    df_pagos: DataFrame de pagos filtrados
-                    df_prisma_90: DataFrame de facturas 90 de PRISMA (ya con impuesto aplicado)
-                    col_cif_prisma: nombre de la columna CIF en PRISMA
-                    col_num_factura_prisma: nombre de la columna número de factura en PRISMA
-                    tolerancia: float -> margen de error aceptable (euros)
-                    
-                Devuelve:
-                    DataFrame con columnas: CIF_UTE, fecha_pago, importe_pago, facturas_asignadas, importe_facturas, diferencia
-                """
-                resultados = []
-
-                # Agrupamos facturas por CIF para acelerar búsqueda
-                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby(col_cif_prisma)}
-
-                for idx, pago in df_pagos.iterrows():
-                    cif_pago = pago['CIF_UTE']
-                    importe_pago = pago['importe']
-                    fecha_pago = pago['fec_operacion']
-                    posible_factura = pago.get('posible_factura', '')
-
-                    if cif_pago not in facturas_por_cif:
-                        resultados.append({
-                            'CIF_UTE': cif_pago,
-                            'fecha_pago': fecha_pago,
-                            'importe_pago': importe_pago,
-                            'facturas_asignadas': None,
-                            'importe_facturas': 0.0,
-                            'diferencia': importe_pago
-                        })
-                        continue
-
-                    df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True).copy()
-                    importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
-                    numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
-
-                    # --- OR-Tools: encontrar combinaciones exactas ---
-                    model = cp_model.CpModel()
-                    n = len(importes_facturas)
-                    
-                    # Convertimos importes a céntimos para evitar problemas de float
-                    pagos_cent = int(round(importe_pago * 100))
-                    facturas_cent = [int(round(f * 100)) for f in importes_facturas]
-                    tol_cent = int(round(tolerancia * 100))
-
-                    # Variables binarias
-                    x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
-
-                    # Restricción: suma de facturas seleccionadas ≈ importe del pago
-                    model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
-                    model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
-
-                    # Resolver
-                    solver = cp_model.CpSolver()
-                    soluciones = []
-
-                    class SolCollector(cp_model.CpSolverSolutionCallback):
-                        def __init__(self):
-                            cp_model.CpSolverSolutionCallback.__init__(self)
-                            self.soluciones = []
-
-                        def on_solution_callback(self):
-                            seleccion = [i for i in range(n) if self.BooleanValue(x[i])]
-                            self.soluciones.append(seleccion)
-
-                    collector = SolCollector()
-                    solver.SearchForAllSolutions(model, collector)
-
-                    # Tomamos la primera solución si existe
-                    if collector.soluciones:
-                        seleccion = collector.soluciones[0]
-                        facturas_asignadas = [numeros_facturas[i] for i in seleccion]
-                        importe_facturas = sum(importes_facturas[i] for i in seleccion)
-                    else:
-                        facturas_asignadas = None
-                        importe_facturas = 0.0
-
-                    diferencia = importe_pago - (importe_facturas or 0.0)
-
+                if cif_pago not in facturas_por_cif:
                     resultados.append({
                         'CIF_UTE': cif_pago,
                         'fecha_pago': fecha_pago,
                         'importe_pago': importe_pago,
-                        'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
-                        'importe_facturas': importe_facturas,
-                        'diferencia': diferencia
+                        'facturas_asignadas': None,
+                        'importe_facturas': 0.0,
+                        'diferencia': importe_pago
                     })
+                    continue
 
-                return pd.DataFrame(resultados)
+                df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True).copy()
+                if len(df_facturas) > max_facturas:
+                    st.warning(f"⚠️ CIF {cif_pago} tiene demasiadas facturas ({len(df_facturas)}), se limita a las primeras {max_facturas}")
+                    df_facturas = df_facturas.head(max_facturas)
+
+                importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
+                numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
+
+                # --- OR-Tools ---
+                model = cp_model.CpModel()
+                n = len(importes_facturas)
+                pagos_cent = int(round(importe_pago * 100))
+                facturas_cent = [int(round(f * 100)) for f in importes_facturas]
+                tol_cent = int(round(tolerancia * 100))
+
+                x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
+                model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
+                model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
+
+                # Resolver solo una solución
+                solver = cp_model.CpSolver()
+                status = solver.Solve(model)
+
+                if status in [cp_model.FEASIBLE, cp_model.OPTIMAL]:
+                    facturas_asignadas = [numeros_facturas[i] for i in range(n) if solver.BooleanValue(x[i])]
+                    importe_facturas = sum(importes_facturas[i] for i in range(n) if solver.BooleanValue(x[i]))
+                else:
+                    facturas_asignadas = []
+                    importe_facturas = 0.0
+
+                diferencia = importe_pago - importe_facturas
+
+                resultados.append({
+                    'CIF_UTE': cif_pago,
+                    'fecha_pago': fecha_pago,
+                    'importe_pago': importe_pago,
+                    'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
+                    'importe_facturas': importe_facturas,
+                    'diferencia': diferencia
+                })
+
+            return pd.DataFrame(resultados)
+            
 
