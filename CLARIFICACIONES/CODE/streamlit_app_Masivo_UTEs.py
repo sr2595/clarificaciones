@@ -311,4 +311,24 @@ if archivo:
             if 'norma_43' in df_cobros.columns:
                 df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
 
+
+            if not df_cobros.empty:
+                st.subheader("🔍 Debug rápido de Cruce_Movs")
+
+                # Estadísticas básicas
+                num_filas = len(df_cobros)
+                total_importes = df_cobros['importe'].sum(skipna=True)
+                min_importe = df_cobros['importe'].min(skipna=True)
+                max_importe = df_cobros['importe'].max(skipna=True)
+                pagos_con_factura = df_cobros['posible_factura'].notna().sum() if 'posible_factura' in df_cobros.columns else 0
+
+                st.write(f"- Número de filas: {num_filas}")
+                st.write(f"- Suma total de importes: {total_importes:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                st.write(f"- Importe mínimo: {min_importe:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                st.write(f"- Importe máximo: {max_importe:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                st.write(f"- Pagos con posible factura: {pagos_con_factura}")
+
+                # Primeras filas para inspección
+                st.dataframe(df_cobros.head(10), use_container_width=True)
+
     
