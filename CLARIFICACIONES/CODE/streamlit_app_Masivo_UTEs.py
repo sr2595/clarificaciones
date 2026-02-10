@@ -393,13 +393,64 @@ if archivo:
 
       #######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
 
-            #filtramos facturas 90 de PRISMA para cruzar solo con esas (dejamos TDE y TME para después)
-            df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
+            # -------------------------------
+            # NORMALIZACIONES BASE
+            # -------------------------------
+            df_pagos['CIF_UTE'] = (
+                df_pagos['CIF_UTE']
+                .astype(str)
+                .str.replace(".0", "", regex=False)
+                .str.strip()
+                .str.upper()
+            )
+
+            df_prisma['CIF'] = (
+                df_prisma['CIF']
+                .astype(str)
+                .str.replace(".0", "", regex=False)
+                .str.strip()
+                .str.upper()
+            )
+
+            df_prisma[col_num_factura_prisma] = (
+                df_prisma[col_num_factura_prisma]
+                .astype(str)
+                .str.strip()
+            )
+
+            # -------------------------------
+            # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
+            # -------------------------------
+            cif_por_ute = (
+                df_prisma
+                .loc[~df_prisma[col_num_factura_prisma].str.startswith("90")]
+                .groupby('Id UTE')['CIF']
+                .first()
+                .to_dict()
+            )
+
+            st.subheader("🧪 DEBUG CIF por UTE")
+            st.write(pd.DataFrame(list(cif_por_ute.items()), columns=['Id UTE', 'CIF_UTE']).head(10))
+
+            # -------------------------------
+            # 2️⃣ FACTURAS 90 + CIF UTE REAL
+            # -------------------------------
+            df_prisma_90 = df_prisma[
+                df_prisma[col_num_factura_prisma].str.startswith("90")
+            ].copy()
+
+            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
+
             st.write(f"ℹ️ Facturas PRISMA tipo 90: {len(df_prisma_90)} filas")
 
-            # Normalizamos CIF
-            df_pagos['CIF_UTE'] = df_pagos['CIF_UTE'].astype(str).str.strip().str.upper()
-            df_prisma_90[col_cif_prisma] = df_prisma_90[col_cif_prisma].astype(str).str.strip().str.upper()
+            st.subheader("🧪 DEBUG PRISMA 90 con CIF UTE REAL")
+            st.dataframe(
+                df_prisma_90[
+                    ['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL']
+                ].head(10),
+                use_container_width=True
+            )
+
 
             st.subheader("🧪 DEBUG CIFs")
 
@@ -423,16 +474,14 @@ if archivo:
             ##### --- Función OR-Tools para combinaciones exactas --- #####
             def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01):
                 resultados = []
-                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby(col_cif_prisma)}
-
+                facturas_por_cif = {cif: g.copy()for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
                         
                 for idx, pago in df_pagos.iterrows():
                     cif_pago = pago['CIF_UTE']
                     importe_pago = pago['importe']
                     fecha_pago = pago['fec_operacion']
 
-                    st.write(f"🔹 Pago {idx} ({fecha_pago.date()}) CIF={cif_pago} importe={importe_pago:.2f}")
-
+                  
                     if cif_pago not in facturas_por_cif:
                         resultados.append({
                             'CIF_UTE': cif_pago,
