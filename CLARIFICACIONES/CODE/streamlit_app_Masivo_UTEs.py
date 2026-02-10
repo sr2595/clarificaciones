@@ -368,35 +368,28 @@ if archivo:
         #####--- 4) PEDIR FECHAS PARA FILTRAR PAGOS ---#####        
 
         if not df_cobros.empty:
-            st.subheader("🔹 Selecciona el rango de fechas para el cruce de pagos")
+            st.subheader("🔹 Selecciona el día para el cruce de pagos")
 
-            # Pedir fechas al usuario
-            fecha_inicio = st.date_input("Fecha inicio:", value=pd.to_datetime("2025-01-01"))
-            fecha_fin    = st.date_input("Fecha fin:", value=pd.to_datetime("2025-12-31"))
+            # Pedir solo un día
+            fecha_seleccionada = st.date_input("Selecciona el día:", value=pd.to_datetime("2025-01-01"))
 
-            if fecha_inicio > fecha_fin:
-                st.error("La fecha de inicio no puede ser posterior a la fecha fin.")
-                st.stop()
-
-            # Filtrar df_cobros por rango de fechas
+            # Filtrar df_cobros solo para ese día
             df_cobros_filtrado = df_cobros[
-                (df_cobros['fec_operacion'] >= pd.to_datetime(fecha_inicio)) &
-                (df_cobros['fec_operacion'] <= pd.to_datetime(fecha_fin))
+                df_cobros['fec_operacion'].dt.date == fecha_seleccionada
             ].copy()
 
-            st.write(f"ℹ️ Pagos dentro del rango seleccionado: {len(df_cobros_filtrado)}")
-            st.write("Columnas disponibles en df_cobros_filtrado:", df_cobros_filtrado.columns.tolist())
+            st.write(f"ℹ️ Pagos del día seleccionado: {len(df_cobros_filtrado)}")
 
             # Extraer solo las columnas necesarias para el cruce
-            columnas_cruce = ['fec_operacion', 'importe', 'posible_factura', 'CIF_UTE'] 
+            columnas_cruce = ['fec_operacion', 'importe', 'posible_factura', 'CIF_UTE']
             if 'norma_43' in df_cobros_filtrado.columns:
                 columnas_cruce.append('norma_43')
-            
+
             df_pagos = df_cobros_filtrado[columnas_cruce].copy()
 
             st.subheader("🔍 Pagos filtrados para cruce")
             st.dataframe(df_pagos.head(10), use_container_width=True)
-            st.write(f"Total importes en rango: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.write(f"Total importes en el día: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
 
 
