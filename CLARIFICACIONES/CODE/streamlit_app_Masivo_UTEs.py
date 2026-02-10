@@ -52,7 +52,10 @@ def convertir_importe_europeo(valor):
 factura_final = None
 df_internas = pd.DataFrame()
 
-# --------- Subida y normalización de PRISMA ---------
+
+
+
+# --------- 1) Subida y normalización de PRISMA ---------
 archivo_prisma = st.file_uploader("Sube el archivo PRISMA (CSV)", type=["csv"])
 df_prisma = pd.DataFrame()
 
@@ -130,7 +133,11 @@ if archivo_prisma:
         st.write(f"- Facturas con espacios: {df_debug['CONTIENE_ESPACIOS'].sum()}")
 
 
-        # --------- subida y normalizacion de COBRA ---------
+
+
+
+
+        # --------- 2) subida y normalizacion de COBRA ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
 if archivo:
     # --- Lectura flexible para detectar cabecera ---
@@ -217,6 +224,9 @@ if archivo:
     df_tss_selec = pd.DataFrame()
     df_resultado_final = pd.DataFrame()
     df_resultado = pd.DataFrame()   
+
+
+
 
 
 # --- 3) Subida de archivo de pagos (Cobros UTE) ---
