@@ -278,7 +278,7 @@ if archivo:
                 'importe': ['importe', 'imp', 'monto', 'amount', 'valor'],
                 'posible_factura': ['posible_factura', 'factura', 'posiblefactura'],
                 'norma_43': ['norma_43', 'norma43'],
-                'CIF_UTE' : ['CIF']
+                'CIF_UTE' : ['cif', 'CIF']
             }
             for target, possibles in col_map.items():
                 for p in possibles:
