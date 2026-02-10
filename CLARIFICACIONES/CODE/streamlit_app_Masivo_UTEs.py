@@ -439,41 +439,22 @@ if archivo:
                 df_prisma[col_num_factura_prisma].str.startswith("90")
             ].copy()
 
-            st.subheader("🧪 DEBUG Id UTE")
+            # Normalizar Id UTE de las facturas 90
+            df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip().str.upper()
 
-            st.write("Id UTE en PRISMA 90 (sample):")
-            st.write(df_prisma_90['Id UTE'].dropna().unique()[:10])
-
-            st.write("Id UTE en cif_por_ute (sample):")
-            st.write(list(cif_por_ute.keys())[:10])
-
-            if not df_prisma_90['Id UTE'].dropna().empty:
-                st.write(
-                    "Tipo Id UTE PRISMA:",
-                    str(type(df_prisma_90['Id UTE'].dropna().iloc[0]))
-                )
-
-            if cif_por_ute:
-                st.write(
-                    "Tipo clave cif_por_ute:",
-                    str(type(list(cif_por_ute.keys())[0]))
-                )
-            else:
-                st.warning("⚠️ cif_por_ute está vacío")
-
-
+            # Mapear CIF_UTE_REAL
             df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
 
-            st.write(f"ℹ️ Facturas PRISMA tipo 90: {len(df_prisma_90)} filas")
-
+            # Debug: mostrar qué se mapeó correctamente y qué no
             st.subheader("🧪 DEBUG PRISMA 90 con CIF UTE REAL")
             st.dataframe(
-                df_prisma_90[
-                    ['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL']
-                ].head(10),
+                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL']].head(20),
                 use_container_width=True
             )
 
+            # Verificar cuántos None quedaron
+            n_none = df_prisma_90['CIF_UTE_REAL'].isna().sum()
+            st.write(f"⚠️ Facturas 90 sin CIF_UTE_REAL asignado: {n_none}")
 
           
             ##### --- Función OR-Tools para combinaciones exactas --- #####
