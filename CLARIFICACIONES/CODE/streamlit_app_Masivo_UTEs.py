@@ -132,8 +132,51 @@ if archivo_prisma:
         st.write(f"- Número de facturas únicas: {df_debug['FACTURA_NORMALIZADA'].nunique()}")
         st.write(f"- Facturas con espacios: {df_debug['CONTIENE_ESPACIOS'].sum()}")
 
+        # --------- Aplicar impuestos a todas las facturas de PRISMA ---------
+        def aplicar_impuestos_a_prisma(df_prisma, col_importe='IMPORTE_CORRECTO', col_tipo_impuesto=col_tipo_imp_prisma):
+            """
+            Aplica el impuesto correspondiente a cada fila de PRISMA
+            y devuelve el DataFrame con nueva columna 'IMPORTE_CON_IMPUESTO'.
+            """
+            factores = {
+                "IGIC - 7": 1.07,
+                "IPSIC - 10": 1.10,
+                "IPSIM - 8": 1.08,
+                "IVA - 0": 1.00,
+                "IVA - 21": 1.21,
+                "EXENTO": 1.0,
+                "IVA - EXENTO": 1.0,
+            }
 
+            # Normalizamos la columna tipo impuesto
+            df_prisma[col_tipo_impuesto] = df_prisma[col_tipo_impuesto].astype(str).str.strip().str.upper()
 
+            # Crear nueva columna con el importe ya con impuesto aplicado
+            df_prisma['IMPORTE_CON_IMPUESTO'] = df_prisma.apply(
+                lambda row: float(row[col_importe] * factores.get(row[col_tipo_impuesto], 1.0)),
+                axis=1
+            )
+
+            return df_prisma
+
+        # Aplicamos al cargar PRISMA
+        df_prisma = aplicar_impuestos_a_prisma(df_prisma)
+        st.success("✅ Impuestos aplicados a todas las facturas de PRISMA")
+        
+        # --- DEBUG: revisar importes aplicando impuestos ---
+        st.subheader("🔍 Debug: revisión de importes con impuesto aplicado")
+        if not df_prisma.empty:
+            # Mostrar primeras filas con columna original y con impuesto
+            st.dataframe(
+                df_prisma[[col_num_factura_prisma, col_cif_prisma, 'IMPORTE_CORRECTO', col_tipo_imp_prisma, 'IMPORTE_CON_IMPUESTO']].head(20),
+                use_container_width=True
+            )
+
+            # Estadísticas rápidas
+            st.write(f"- Total importe original: {df_prisma['IMPORTE_CORRECTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.write(f"- Total importe con impuesto: {df_prisma['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.write(f"- Máximo importe con impuesto: {df_prisma['IMPORTE_CON_IMPUESTO'].max():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.write(f"- Mínimo importe con impuesto: {df_prisma['IMPORTE_CON_IMPUESTO'].min():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
 
 
@@ -354,5 +397,7 @@ if archivo:
             st.subheader("🔍 Pagos filtrados para cruce")
             st.dataframe(df_pagos.head(10), use_container_width=True)
             st.write(f"Total importes en rango: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+
+
 
                 
