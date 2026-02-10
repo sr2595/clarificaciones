@@ -391,70 +391,103 @@ if archivo:
             st.dataframe(df_pagos.head(10), use_container_width=True)
             st.write(f"Total importes en el día: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
+      #######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
+      
+            #filtramos facturas 90 de PRISMA para cruzar solo con esas (dejamos TDE y TME para después)
+            df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
+            st.write(f"ℹ️ Facturas PRISMA tipo 90: {len(df_prisma_90)} filas")
 
+            # Normalizamos CIF
+            df_pagos['CIF_UTE'] = df_pagos['CIF_UTE'].astype(str).str.strip().str.upper()
+            df_prisma_90[col_cif_prisma] = df_prisma_90[col_cif_prisma].astype(str).str.strip().str.upper()
 
-        def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01, max_facturas=20):
-            resultados = []
+            ##### --- 3) Función OR-Tools para combinaciones exactas --- #####
+            def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01):
+                resultados = []
+                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby(col_cif_prisma)}
 
-            facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby(col_cif_prisma)}
+                for idx, pago in df_pagos.iterrows():
+                    cif_pago = pago['CIF_UTE']
+                    importe_pago = pago['importe']
+                    fecha_pago = pago['fec_operacion']
 
-            for idx, pago in df_pagos.iterrows():
-                cif_pago = pago['CIF_UTE']
-                importe_pago = pago['importe']
-                fecha_pago = pago['fec_operacion']
+                    if cif_pago not in facturas_por_cif:
+                        resultados.append({
+                            'CIF_UTE': cif_pago,
+                            'fecha_pago': fecha_pago,
+                            'importe_pago': importe_pago,
+                            'facturas_asignadas': None,
+                            'importe_facturas': 0.0,
+                            'diferencia': importe_pago
+                        })
+                        continue
 
-                if cif_pago not in facturas_por_cif:
+                    df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True).copy()
+                    importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
+                    numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
+
+                    # --- OR-Tools ---
+                    model = cp_model.CpModel()
+                    n = len(importes_facturas)
+                    pagos_cent = int(round(importe_pago * 100))
+                    facturas_cent = [int(round(f * 100)) for f in importes_facturas]
+                    tol_cent = int(round(tolerancia * 100))
+
+                    x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
+
+                    # Restricciones: suma de facturas ≈ pago
+                    model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
+                    model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
+
+                    # Resolver y recolectar soluciones
+                    solver = cp_model.CpSolver()
+                    soluciones = []
+
+                    class SolCollector(cp_model.CpSolverSolutionCallback):
+                        def __init__(self):
+                            cp_model.CpSolverSolutionCallback.__init__(self)
+                            self.soluciones = []
+
+                        def on_solution_callback(self):
+                            seleccion = [i for i in range(n) if self.BooleanValue(x[i])]
+                            self.soluciones.append(seleccion)
+
+                    collector = SolCollector()
+                    solver.SearchForAllSolutions(model, collector)
+
+                    # Debug: ver si el solver encontró algo
+                    st.write(f"💡 Pago {idx} ({importe_pago} €) - soluciones encontradas: {len(collector.soluciones)}")
+
+                    if collector.soluciones:
+                        seleccion = collector.soluciones[0]
+                        facturas_asignadas = [numeros_facturas[i] for i in seleccion]
+                        importe_facturas = sum(importes_facturas[i] for i in seleccion)
+                    else:
+                        facturas_asignadas = None
+                        importe_facturas = 0.0
+
+                    diferencia = importe_pago - (importe_facturas or 0.0)
+
                     resultados.append({
                         'CIF_UTE': cif_pago,
                         'fecha_pago': fecha_pago,
                         'importe_pago': importe_pago,
-                        'facturas_asignadas': None,
-                        'importe_facturas': 0.0,
-                        'diferencia': importe_pago
+                        'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
+                        'importe_facturas': importe_facturas,
+                        'diferencia': diferencia
                     })
-                    continue
 
-                df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True).copy()
-                if len(df_facturas) > max_facturas:
-                    st.warning(f"⚠️ CIF {cif_pago} tiene demasiadas facturas ({len(df_facturas)}), se limita a las primeras {max_facturas}")
-                    df_facturas = df_facturas.head(max_facturas)
+                return pd.DataFrame(resultados)
 
-                importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
-                numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
-
-                # --- OR-Tools ---
-                model = cp_model.CpModel()
-                n = len(importes_facturas)
-                pagos_cent = int(round(importe_pago * 100))
-                facturas_cent = [int(round(f * 100)) for f in importes_facturas]
-                tol_cent = int(round(tolerancia * 100))
-
-                x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
-                model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
-                model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
-
-                # Resolver solo una solución
-                solver = cp_model.CpSolver()
-                status = solver.Solve(model)
-
-                if status in [cp_model.FEASIBLE, cp_model.OPTIMAL]:
-                    facturas_asignadas = [numeros_facturas[i] for i in range(n) if solver.BooleanValue(x[i])]
-                    importe_facturas = sum(importes_facturas[i] for i in range(n) if solver.BooleanValue(x[i]))
-                else:
-                    facturas_asignadas = []
-                    importe_facturas = 0.0
-
-                diferencia = importe_pago - importe_facturas
-
-                resultados.append({
-                    'CIF_UTE': cif_pago,
-                    'fecha_pago': fecha_pago,
-                    'importe_pago': importe_pago,
-                    'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
-                    'importe_facturas': importe_facturas,
-                    'diferencia': diferencia
-                })
-
-            return pd.DataFrame(resultados)
-            
-
+            ##### --- 4) Ejecutar solver y mostrar resultados --- #####
+            st.write("🔹 Ejecutando solver para cruzar pagos con PRISMA...")
+            df_resultados = cruzar_pagos_con_prisma_exacto(
+                df_pagos=df_pagos,
+                df_prisma_90=df_prisma_90,
+                col_cif_prisma=col_cif_prisma,
+                col_num_factura_prisma=col_num_factura_prisma,
+                tolerancia=0.01
+            )
+            st.write("🔹 Solver completado")
+            st.dataframe(df_resultados)
+        
