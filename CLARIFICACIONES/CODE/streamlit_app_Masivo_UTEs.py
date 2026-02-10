@@ -418,14 +418,20 @@ if archivo:
                 .str.strip()
             )
 
-            # -------------------------------
+            # -------------------------------           
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
             df_sin_90 = df_prisma.loc[~df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
 
             # Normalizar Id UTE y CIF en los socios
             df_sin_90['Id UTE'] = df_sin_90['Id UTE'].astype(str).str.strip().str.upper()
-            df_sin_90['CIF'] = df_sin_90['CIF'].astype(str).str.replace(".0", "", regex=False).str.strip().str.upper()
+            df_sin_90['CIF'] = (
+                df_sin_90['CIF']
+                .astype(str)
+                .str.replace(".0", "", regex=False)
+                .str.strip()
+                .str.upper()
+            )
 
             # Crear diccionario: Id UTE -> CIF
             cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
@@ -441,13 +447,16 @@ if archivo:
             # Normalizar Id UTE de las facturas 90
             df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip().str.upper()
 
-            # Mapear CIF_UTE_REAL usando el diccionario normalizado
+            # Mapear CIF_UTE_REAL seguro
             df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
 
-            # Debug: mostrar qué se mapeó correctamente y qué no
-            st.subheader("🧪 DEBUG PRISMA 90 con CIF UTE REAL")
+            # Reemplazar NaN por string para debug en Streamlit
+            df_prisma_90['CIF_UTE_REAL_DEBUG'] = df_prisma_90['CIF_UTE_REAL'].fillna("⚠️ NONE")
+
+            # Debug seguro: mostrar DataFrame con string
+            st.subheader("🧪 DEBUG PRISMA 90 con CIF UTE REAL (seguro)")
             st.dataframe(
-                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL']].head(20),
+                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL_DEBUG']].head(20),
                 use_container_width=True
             )
 
