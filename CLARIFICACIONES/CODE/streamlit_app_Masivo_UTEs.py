@@ -342,6 +342,7 @@ if archivo:
             ].copy()
 
             st.write(f"ℹ️ Pagos dentro del rango seleccionado: {len(df_cobros_filtrado)}")
+            st.write("Columnas disponibles en df_cobros_filtrado:", df_cobros_filtrado.columns.tolist())
 
             # Extraer solo las columnas necesarias para el cruce
             columnas_cruce = ['fec_operacion', 'importe', 'posible_factura', 'CIF_UTE'] 
