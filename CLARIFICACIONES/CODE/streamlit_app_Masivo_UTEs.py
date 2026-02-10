@@ -209,21 +209,6 @@ if archivo:
     # --- Detectar UTES ---
     df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
 
-    # --- Selección de modo de búsqueda ---
-    modo_busqueda = st.radio(
-        "🔹 Selecciona el modo de búsqueda:",
-        ("Por factura TSS (90)", "Por cliente/grupo")
-    )
-
-    # Inicializar variables para que existan en todo el scope
-    grupo_seleccionado = None
-    factura_final = None
-    df_filtrado = pd.DataFrame()
-    df_tss = pd.DataFrame()
-    df_internas = pd.DataFrame()
-    df_tss_selec = pd.DataFrame()
-    df_resultado_final = pd.DataFrame()
-    df_resultado = pd.DataFrame()   
 
 
 
