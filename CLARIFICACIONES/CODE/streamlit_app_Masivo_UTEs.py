@@ -418,50 +418,39 @@ if archivo:
                 .str.strip()
             )
 
-            # -------------------------------           
+            # -------------------------------        
+           
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
             df_sin_90 = df_prisma.loc[~df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
 
-            # Normalizar Id UTE y CIF en los socios
+            # Normalizar Id UTE y CIF
             df_sin_90['Id UTE'] = df_sin_90['Id UTE'].astype(str).str.strip().str.upper()
-            df_sin_90['CIF'] = (
-                df_sin_90['CIF']
-                .astype(str)
-                .str.replace(".0", "", regex=False)
-                .str.strip()
-                .str.upper()
-            )
+            df_sin_90['CIF'] = df_sin_90['CIF'].astype(str).str.replace(".0", "", regex=False).str.strip().str.upper()
 
-            # Crear diccionario: Id UTE -> CIF
+            # Diccionario Id UTE -> CIF
             cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
-
-            st.subheader("🧪 DEBUG CIF por UTE")
-            st.write(pd.DataFrame(list(cif_por_ute.items()), columns=['Id UTE', 'CIF_UTE']).head(10))
 
             # -------------------------------
             # 2️⃣ FACTURAS 90 + CIF UTE REAL
             # -------------------------------
             df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
 
-            # Normalizar Id UTE de las facturas 90
+            # Normalizar Id UTE
             df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip().str.upper()
 
-            # Mapear CIF_UTE_REAL seguro
-            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
+            # Mapear CIF_UTE_REAL y reemplazar NaN por string temporal
+            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(lambda x: str(cif_por_ute.get(x, "⚠️ NONE")))
 
-            # Reemplazar NaN por string para debug en Streamlit
-            df_prisma_90['CIF_UTE_REAL_DEBUG'] = df_prisma_90['CIF_UTE_REAL'].fillna("⚠️ NONE")
-
-            # Debug seguro: mostrar DataFrame con string
+            # Debug seguro: mostrar DataFrame
             st.subheader("🧪 DEBUG PRISMA 90 con CIF UTE REAL (seguro)")
             st.dataframe(
-                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL_DEBUG']].head(20),
+                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL']].head(20),
                 use_container_width=True
             )
 
-            # Verificar cuántos None quedaron
-            n_none = df_prisma_90['CIF_UTE_REAL'].isna().sum()
+            # Contar cuántos quedaron como NONE
+            n_none = (df_prisma_90['CIF_UTE_REAL'] == "⚠️ NONE").sum()
             st.write(f"⚠️ Facturas 90 sin CIF_UTE_REAL asignado: {n_none}")
 
 
