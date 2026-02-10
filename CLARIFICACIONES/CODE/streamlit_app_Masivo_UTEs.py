@@ -452,25 +452,7 @@ if archivo:
             )
 
 
-            st.subheader("🧪 DEBUG CIFs")
-
-            st.write("CIFs en pagos (sample):")
-            st.write(df_pagos['CIF_UTE'].dropna().unique()[:10])
-
-            st.write("CIFs en facturas PRISMA 90 (sample):")
-            st.write(df_prisma_90[col_cif_prisma].dropna().unique()[:10])
-
-            st.write("Nº CIFs pagos:", df_pagos['CIF_UTE'].nunique())
-            st.write("Nº CIFs facturas 90:", df_prisma_90[col_cif_prisma].nunique())
-
-            st.write(
-                "CIFs comunes:",
-                len(
-                    set(df_pagos['CIF_UTE'].unique())
-                    & set(df_prisma_90[col_cif_prisma].unique())
-                )
-            )
-
+          
             ##### --- Función OR-Tools para combinaciones exactas --- #####
             def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01):
                 resultados = []
@@ -497,9 +479,6 @@ if archivo:
                     importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
                     numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
 
-                    st.write("💳 Facturas disponibles para este CIF:")
-                    st.dataframe(df_facturas[[col_num_factura_prisma, 'IMPORTE_CORRECTO']])
-                    st.write(f"Listas enviadas al solver: numeros_facturas={numeros_facturas}, importes_facturas={importes_facturas}")
 
                     # --- OR-Tools ---
                     model = cp_model.CpModel()
