@@ -264,8 +264,10 @@ if archivo:
 
 
     # Si no hay resultado interno, paramos aquí (nada que asignar)
-    if df_resultado.empty:
-        st.info("ℹ️ No hay facturas internas seleccionadas para intentar cuadre con pagos.")
+    if df_cobros.empty:
+            st.info("ℹ️ Sube un archivo de pagos para comenzar el cruce.")
+            st.stop()
+
     else:
         # Normalizamos columnas de df_cobros para poder mapear
         if not df_cobros.empty:
@@ -309,58 +311,4 @@ if archivo:
             if 'norma_43' in df_cobros.columns:
                 df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
 
-        # --- 3) preparar referencia: id factura final, fecha y importe total ---
-        # obtener id y fecha de la factura final (manejamos Series o DataFrame-row)
-        try:
-            if isinstance(factura_final, pd.Series):
-                fact_final_id = str(factura_final[col_factura])
-                fecha_ref = factura_final[col_fecha_emision]
-            else:
-                fact_final_id = str(factura_final.iloc[0][col_factura])
-                fecha_ref = factura_final.iloc[0][col_fecha_emision]
-        except Exception:
-            # fallback robusto
-            fact_final_id = str(factura_final.get(col_factura, '')) if hasattr(factura_final, 'get') else ''
-            fecha_ref = factura_final.get(col_fecha_emision, pd.NaT) if hasattr(factura_final, 'get') else pd.NaT
-
-        # importe de referencia: debe ser el importe de la FACTURA FINAL TSS
-        # preferimos IMPORTE_CORRECTO si existe en df_resultado o en factura_final
-        importe_total_final = None
-        if 'IMPORTE_CORRECTO' in df_resultado.columns:
-            importe_total_final = float(pd.to_numeric(df_resultado['IMPORTE_CORRECTO'].sum(), errors='coerce') or 0.0)
-        elif 'importe_correcto' in df_resultado.columns:
-            importe_total_final = float(pd.to_numeric(df_resultado['importe_correcto'].sum(), errors='coerce') or 0.0)
-        else:
-            # intentar leer importe de factura_final (columna detectada antes)
-            col_importe_factura = None
-            posibles_importes = ['IMPORTE_CORRECTO', 'Importe', 'importe', 'TOTAL', 'total']
-            for p in posibles_importes:
-                if hasattr(factura_final, 'get') and factura_final.get(p) is not None:
-                    col_importe_factura = p
-                    break
-                if not isinstance(factura_final, pd.Series) and p in factura_final.columns:
-                    col_importe_factura = p
-                    break
-            try:
-                if isinstance(factura_final, pd.Series) and col_importe_factura:
-                    importe_total_final = float(factura_final[col_importe_factura])
-                elif col_importe_factura:
-                    importe_total_final = float(factura_final.iloc[0][col_importe_factura])
-                else:
-                    importe_total_final = 0.0
-            except Exception:
-                importe_total_final = 0.0
-
-        
-        # --- 4) normalizar lista de socios CIF que vinieron del selector (socios_cifs) ---
-        try:
-            socios_list = [s.replace(' ', '').upper() for s in socios_cifs]  # variable creada arriba en tu script
-        except Exception:
-            # fallback: extraer CIFs de df_resultado si existe columna t_doc_n_m_doc o col_cif
-            if 't_doc_n_m_doc' in df_resultado.columns:
-                socios_list = df_resultado['t_doc_n_m_doc'].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
-            elif col_cif in df_resultado.columns:
-                socios_list = df_resultado[col_cif].astype(str).fillna('').str.replace(' ', '').str.upper().unique().tolist()
-            else:
-                socios_list = []
     
