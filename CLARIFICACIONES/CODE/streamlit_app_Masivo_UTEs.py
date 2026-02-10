@@ -406,16 +406,13 @@ if archivo:
                 resultados = []
                 facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby(col_cif_prisma)}
 
-                # --- DEBUG: ver qué datos recibe el solver ---
-                st.write(f"🔹 Pago {idx} ({fecha_pago.date()}) CIF={cif_pago} importe={importe_pago:.2f}")
-                st.write("💳 Facturas disponibles para este CIF:")
-                st.dataframe(df_facturas[[col_num_factura_prisma, 'IMPORTE_CORRECTO']])
-                st.write(f"Listas enviadas al solver: numeros_facturas={numeros_facturas}, importes_facturas={importes_facturas}")
-            
+                        
                 for idx, pago in df_pagos.iterrows():
                     cif_pago = pago['CIF_UTE']
                     importe_pago = pago['importe']
                     fecha_pago = pago['fec_operacion']
+
+                    st.write(f"🔹 Pago {idx} ({fecha_pago.date()}) CIF={cif_pago} importe={importe_pago:.2f}")
 
                     if cif_pago not in facturas_por_cif:
                         resultados.append({
@@ -431,7 +428,10 @@ if archivo:
                     df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True).copy()
                     importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
                     numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
-
+                    
+                    st.write("💳 Facturas disponibles para este CIF:")
+                    st.dataframe(df_facturas[[col_num_factura_prisma, 'IMPORTE_CORRECTO']])
+                    st.write(f"Listas enviadas al solver: numeros_facturas={numeros_facturas}, importes_facturas={importes_facturas}")
 
                     # --- OR-Tools ---
                     model = cp_model.CpModel()
