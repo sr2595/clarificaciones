@@ -496,7 +496,6 @@ if archivo:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_resultados.to_excel(writer, index=False, sheet_name="Resultados")
-                writer.save()
             output.seek(0)  # volver al inicio del archivo
 
             # --- Botón de descarga ---
