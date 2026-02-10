@@ -392,7 +392,7 @@ if archivo:
             st.write(f"Total importes en el día: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
       #######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
-      
+
             #filtramos facturas 90 de PRISMA para cruzar solo con esas (dejamos TDE y TME para después)
             df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
             st.write(f"ℹ️ Facturas PRISMA tipo 90: {len(df_prisma_90)} filas")
@@ -401,7 +401,7 @@ if archivo:
             df_pagos['CIF_UTE'] = df_pagos['CIF_UTE'].astype(str).str.strip().str.upper()
             df_prisma_90[col_cif_prisma] = df_prisma_90[col_cif_prisma].astype(str).str.strip().str.upper()
 
-            ##### --- 3) Función OR-Tools para combinaciones exactas --- #####
+            ##### --- Función OR-Tools para combinaciones exactas --- #####
             def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01):
                 resultados = []
                 facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby(col_cif_prisma)}
@@ -479,7 +479,7 @@ if archivo:
 
                 return pd.DataFrame(resultados)
 
-            ##### --- 4) Ejecutar solver y mostrar resultados --- #####
+            ##### --- Ejecutar solver y mostrar resultados --- #####
             st.write("🔹 Ejecutando solver para cruzar pagos con PRISMA...")
             df_resultados = cruzar_pagos_con_prisma_exacto(
                 df_pagos=df_pagos,
@@ -491,3 +491,20 @@ if archivo:
             st.write("🔹 Solver completado")
             st.dataframe(df_resultados)
         
+            # Después de ejecutar el solver y tener df_resultados
+            st.write("🔹 Solver completado")
+            st.dataframe(df_resultados)
+
+            # --- Crear archivo Excel en memoria ---
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_resultados.to_excel(writer, index=False, sheet_name="Resultados")
+                writer.save()
+            output.seek(0)  # volver al inicio del archivo
+
+            # --- Botón de descarga ---
+            st.download_button(
+                label="📥 Descargar resultados en Excel",
+                data=output,
+                file_name=f"resultados_cruce_{fecha_seleccionada}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
