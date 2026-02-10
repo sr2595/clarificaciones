@@ -444,14 +444,23 @@ if archivo:
             st.write("Id UTE en PRISMA 90 (sample):")
             st.write(df_prisma_90['Id UTE'].dropna().unique()[:10])
 
-            st.write("Id UTE en diccionario cif_por_ute (sample):")
+            st.write("Id UTE en cif_por_ute (sample):")
             st.write(list(cif_por_ute.keys())[:10])
 
-            st.write("Tipos:")
-            st.write(
-                type(df_prisma_90['Id UTE'].dropna().iloc[0]),
-                type(list(cif_por_ute.keys())[0]) if cif_por_ute else "dict vacío"
-            )
+            if not df_prisma_90['Id UTE'].dropna().empty:
+                st.write(
+                    "Tipo Id UTE PRISMA:",
+                    str(type(df_prisma_90['Id UTE'].dropna().iloc[0]))
+                )
+
+            if cif_por_ute:
+                st.write(
+                    "Tipo clave cif_por_ute:",
+                    str(type(list(cif_por_ute.keys())[0]))
+                )
+            else:
+                st.warning("⚠️ cif_por_ute está vacío")
+
 
             df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
 
