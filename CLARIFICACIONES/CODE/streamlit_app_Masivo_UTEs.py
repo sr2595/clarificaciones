@@ -344,17 +344,11 @@ if archivo:
             st.write(f"ℹ️ Pagos dentro del rango seleccionado: {len(df_cobros_filtrado)}")
 
             # Extraer solo las columnas necesarias para el cruce
-            columnas_cruce = ['fec_operacion', 'importe', 'posible_factura']
+            columnas_cruce = ['fec_operacion', 'importe', 'posible_factura', 'CIF_UTE'] 
             if 'norma_43' in df_cobros_filtrado.columns:
                 columnas_cruce.append('norma_43')
             
             df_pagos = df_cobros_filtrado[columnas_cruce].copy()
-
-            # Añadir CIF de UTE: supondremos que se encuentra en alguna columna, por ejemplo 'cif_ute'
-            # Si no existe, podríamos mapearlo desde df_utes si lo tenemos
-            if 'cif_ute' not in df_pagos.columns:
-                # Aquí solo un placeholder si no lo tenemos directamente
-                df_pagos['cif_ute'] = None
 
             st.subheader("🔍 Pagos filtrados para cruce")
             st.dataframe(df_pagos.head(10), use_container_width=True)
