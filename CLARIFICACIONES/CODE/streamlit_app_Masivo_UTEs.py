@@ -426,6 +426,12 @@ if archivo:
                     importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
                     numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
 
+                # --- DEBUG: ver qué datos recibe el solver ---
+                    st.write(f"🔹 Pago {idx} ({fecha_pago.date()}) CIF={cif_pago} importe={importe_pago:.2f}")
+                    st.write("💳 Facturas disponibles para este CIF:")
+                    st.dataframe(df_facturas[[col_num_factura_prisma, 'IMPORTE_CORRECTO']])
+                    st.write(f"Listas enviadas al solver: numeros_facturas={numeros_facturas}, importes_facturas={importes_facturas}")
+
                     # --- OR-Tools ---
                     model = cp_model.CpModel()
                     n = len(importes_facturas)
