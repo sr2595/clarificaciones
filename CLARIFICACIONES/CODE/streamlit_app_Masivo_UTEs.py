@@ -277,7 +277,8 @@ if archivo:
                 'fec_operacion': ['fec_operacion', 'fecha_operacion', 'fec_oper'],
                 'importe': ['importe', 'imp', 'monto', 'amount', 'valor'],
                 'posible_factura': ['posible_factura', 'factura', 'posiblefactura'],
-                'norma_43': ['norma_43', 'norma43']
+                'norma_43': ['norma_43', 'norma43'],
+                'CIF_UTE' : ['CIF','cif_ute', 'cifute', 'cif_ute_pago']
             }
             for target, possibles in col_map.items():
                 for p in possibles:
@@ -294,7 +295,9 @@ if archivo:
             if 'posible_factura' in df_cobros.columns:
                 df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
             if 'norma_43' in df_cobros.columns:
-                df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()
+                df_cobros['norma_43'] = df_cobros['norma_43'].astype(str).str.strip()   
+            if 'CIF_UTE' in df_cobros.columns:
+                df_cobros['CIF_UTE'] = df_cobros['CIF_UTE'].astype(str).str.strip()   
 
 
             if not df_cobros.empty:
@@ -316,4 +319,45 @@ if archivo:
                 # Primeras filas para inspección
                 st.dataframe(df_cobros.head(10), use_container_width=True)
 
-    
+
+
+
+        #####--- 4) PEDIR FECHAS PARA FILTRAR PAGOS ---#####        
+
+        if not df_cobros.empty:
+            st.subheader("🔹 Selecciona el rango de fechas para el cruce de pagos")
+
+            # Pedir fechas al usuario
+            fecha_inicio = st.date_input("Fecha inicio:", value=pd.to_datetime("2025-01-01"))
+            fecha_fin    = st.date_input("Fecha fin:", value=pd.to_datetime("2025-12-31"))
+
+            if fecha_inicio > fecha_fin:
+                st.error("La fecha de inicio no puede ser posterior a la fecha fin.")
+                st.stop()
+
+            # Filtrar df_cobros por rango de fechas
+            df_cobros_filtrado = df_cobros[
+                (df_cobros['fec_operacion'] >= pd.to_datetime(fecha_inicio)) &
+                (df_cobros['fec_operacion'] <= pd.to_datetime(fecha_fin))
+            ].copy()
+
+            st.write(f"ℹ️ Pagos dentro del rango seleccionado: {len(df_cobros_filtrado)}")
+
+            # Extraer solo las columnas necesarias para el cruce
+            columnas_cruce = ['fec_operacion', 'importe', 'posible_factura']
+            if 'norma_43' in df_cobros_filtrado.columns:
+                columnas_cruce.append('norma_43')
+            
+            df_pagos = df_cobros_filtrado[columnas_cruce].copy()
+
+            # Añadir CIF de UTE: supondremos que se encuentra en alguna columna, por ejemplo 'cif_ute'
+            # Si no existe, podríamos mapearlo desde df_utes si lo tenemos
+            if 'cif_ute' not in df_pagos.columns:
+                # Aquí solo un placeholder si no lo tenemos directamente
+                df_pagos['cif_ute'] = None
+
+            st.subheader("🔍 Pagos filtrados para cruce")
+            st.dataframe(df_pagos.head(10), use_container_width=True)
+            st.write(f"Total importes en rango: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+
+                
