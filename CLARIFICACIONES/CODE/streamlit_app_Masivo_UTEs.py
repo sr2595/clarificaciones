@@ -421,13 +421,14 @@ if archivo:
             # -------------------------------
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
-            cif_por_ute = (
-                df_prisma
-                .loc[~df_prisma[col_num_factura_prisma].str.startswith("90")]
-                .groupby('Id UTE')['CIF']
-                .first()
-                .to_dict()
-            )
+            df_sin_90 = df_prisma.loc[~df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
+
+            # Normalizar Id UTE y CIF en los socios
+            df_sin_90['Id UTE'] = df_sin_90['Id UTE'].astype(str).str.strip().str.upper()
+            df_sin_90['CIF'] = df_sin_90['CIF'].astype(str).str.replace(".0", "", regex=False).str.strip().str.upper()
+
+            # Crear diccionario: Id UTE -> CIF
+            cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
 
             st.subheader("🧪 DEBUG CIF por UTE")
             st.write(pd.DataFrame(list(cif_por_ute.items()), columns=['Id UTE', 'CIF_UTE']).head(10))
@@ -435,14 +436,12 @@ if archivo:
             # -------------------------------
             # 2️⃣ FACTURAS 90 + CIF UTE REAL
             # -------------------------------
-            df_prisma_90 = df_prisma[
-                df_prisma[col_num_factura_prisma].str.startswith("90")
-            ].copy()
+            df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
 
             # Normalizar Id UTE de las facturas 90
             df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip().str.upper()
 
-            # Mapear CIF_UTE_REAL
+            # Mapear CIF_UTE_REAL usando el diccionario normalizado
             df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
 
             # Debug: mostrar qué se mapeó correctamente y qué no
@@ -455,6 +454,7 @@ if archivo:
             # Verificar cuántos None quedaron
             n_none = df_prisma_90['CIF_UTE_REAL'].isna().sum()
             st.write(f"⚠️ Facturas 90 sin CIF_UTE_REAL asignado: {n_none}")
+
 
           
             ##### --- Función OR-Tools para combinaciones exactas --- #####
