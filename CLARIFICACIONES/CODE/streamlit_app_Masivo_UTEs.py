@@ -400,4 +400,13 @@ if archivo:
 
 
 
+            ### 5) CRUCE CON PRISMA ###
+            # Filtrar solo facturas de tipo "90" (descartamos TDE y TME por ahora)
+            df_prisma_90 = df_prisma[df_prisma[[col_num_factura_prisma]] == "90"].copy()
+
+            st.write(f"ℹ️ Facturas PRISMA tipo 90: {len(df_prisma_90)} filas")
+
+
+
+
                 
