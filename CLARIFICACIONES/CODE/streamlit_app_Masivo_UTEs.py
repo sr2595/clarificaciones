@@ -498,12 +498,3 @@ if archivo:
 
                 return pd.DataFrame(resultados)
 
-            df_resultados = cruzar_pagos_con_prisma_exacto(
-            df_pagos=df_pagos,
-            df_prisma_90=df_prisma,
-            col_cif_prisma=col_cif_prisma,
-            col_num_factura_prisma=col_num_factura_prisma,
-            tolerancia=0.01
-            )
-
-            st.dataframe(df_resultados)
