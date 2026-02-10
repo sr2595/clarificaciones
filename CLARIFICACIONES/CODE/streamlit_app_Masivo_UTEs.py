@@ -491,10 +491,7 @@ if archivo:
             st.write("🔹 Solver completado")
             st.dataframe(df_resultados)
         
-            # Después de ejecutar el solver y tener df_resultados
-            st.write("🔹 Solver completado")
-            st.dataframe(df_resultados)
-
+      
             # --- Crear archivo Excel en memoria ---
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
