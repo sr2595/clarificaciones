@@ -394,7 +394,6 @@ if archivo:
       #######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
 
             # NORMALIZACIONES BASE
-            
             df_pagos['CIF_UTE'] = (
                 df_pagos['CIF_UTE']
                 .astype(str)
@@ -402,7 +401,6 @@ if archivo:
                 .str.strip()
                 .str.upper()
             )
-
             df_prisma['CIF'] = (
                 df_prisma['CIF']
                 .astype(str)
@@ -410,7 +408,6 @@ if archivo:
                 .str.strip()
                 .str.upper()
             )
-
             df_prisma[col_num_factura_prisma] = (
                 df_prisma[col_num_factura_prisma]
                 .astype(str)
@@ -421,18 +418,13 @@ if archivo:
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
 
-            # Solo trabajar sobre una copia para evitar conflictos con Streamlit
             df_temp = df_prisma.copy()
-
-            # Normalizar columnas
             df_temp[col_num_factura_prisma] = df_temp[col_num_factura_prisma].astype(str).str.strip()
             df_temp['Id UTE'] = df_temp['Id UTE'].astype(str).str.strip()
             df_temp['CIF'] = df_temp['CIF'].astype(str).str.strip()
 
-            # Filtrar facturas que NO empiezan por 90
+            # Facturas que NO empiezan por 90
             df_sin_90 = df_temp[~df_temp[col_num_factura_prisma].str.startswith("90")].copy()
-
-            # Diccionario seguro Id UTE -> CIF
             cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
 
             # -------------------------------
@@ -440,28 +432,30 @@ if archivo:
             # -------------------------------
 
             df_prisma_90 = df_temp[df_temp[col_num_factura_prisma].str.startswith("90")].copy()
-
-            # Normalizar Id UTE
             df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip()
-
-            # Mapear CIF_UTE_REAL de forma segura
             df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].apply(lambda x: cif_por_ute.get(x, "NONE"))
 
-            # DEBUG mínimo seguro
+            # Añadir columnas de nombre de UTE y cliente final si existen en df_prisma
+            if 'Nombre UTE' in df_prisma.columns:
+                df_prisma_90['Nombre_UTE'] = df_prisma_90['Id UTE'].map(df_prisma.set_index('Id UTE')['Nombre UTE'])
+            else:
+                df_prisma_90['Nombre_UTE'] = "DESCONOCIDO"
+
+            if 'Nombre Cliente' in df_prisma.columns:
+                df_prisma_90['Nombre_Cliente'] = df_prisma_90['CIF_UTE_REAL'].map(df_prisma.set_index('CIF')['Nombre Cliente'])
+            else:
+                df_prisma_90['Nombre_Cliente'] = "DESCONOCIDO"
+
+            # DEBUG mínimo
             st.write("ℹ️ Filas de facturas 90:", len(df_prisma_90))
             st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
-
-            # Mostrar solo 20 filas, seguro
-            st.dataframe(df_prisma_90[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL']].head(20))
-
-            
+            st.dataframe(df_prisma_90[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'Nombre_UTE', 'Nombre_Cliente']].head(20))
 
             # -------------------------------
             # 3️⃣ FUNCIÓN OR-TOOLS
             # -------------------------------
             def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01):
                 resultados = []
-                # Agrupar por CIF_UTE_REAL
                 facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
 
                 for idx, pago in df_pagos.iterrows():
@@ -476,18 +470,21 @@ if archivo:
                             'importe_pago': importe_pago,
                             'facturas_asignadas': None,
                             'importe_facturas': 0.0,
-                            'diferencia': importe_pago
+                            'diferencia': importe_pago,
+                            'Nombre_UTE': None,
+                            'Nombre_Cliente': None
                         })
                         continue
 
                     df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True)
                     numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
                     importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
+                    nombre_ute = df_facturas['Nombre_UTE'].iloc[0] if 'Nombre_UTE' in df_facturas else None
+                    nombre_cliente = df_facturas['Nombre_Cliente'].iloc[0] if 'Nombre_Cliente' in df_facturas else None
 
                     # --- Modelo OR-Tools
                     model = cp_model.CpModel()
                     n = len(importes_facturas)
-
                     pagos_cent = int(round(importe_pago * 100))
                     facturas_cent = [int(round(f * 100)) for f in importes_facturas]
                     tol_cent = int(round(tolerancia * 100))
@@ -498,7 +495,6 @@ if archivo:
 
                     solver = cp_model.CpSolver()
                     solver.parameters.max_time_in_seconds = 5  # evita cuelgues
-
                     status = solver.Solve(model)
 
                     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
@@ -517,7 +513,9 @@ if archivo:
                         'importe_pago': importe_pago,
                         'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
                         'importe_facturas': importe_facturas,
-                        'diferencia': diferencia
+                        'diferencia': diferencia,
+                        'Nombre_UTE': nombre_ute,
+                        'Nombre_Cliente': nombre_cliente
                     })
 
                 return pd.DataFrame(resultados)
