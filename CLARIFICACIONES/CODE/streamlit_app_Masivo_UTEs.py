@@ -512,10 +512,8 @@ if archivo:
                         'importe_pago': importe_pago,
                         'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
                         'importe_facturas': importe_facturas,
-                        'diferencia': diferencia,
-                        'Nombre_UTE': nombre_ute,
-                        'Nombre_Cliente': nombre_cliente
-                    })
+                        'diferencia': diferencia
+                                          })
 
                 return pd.DataFrame(resultados)
 
