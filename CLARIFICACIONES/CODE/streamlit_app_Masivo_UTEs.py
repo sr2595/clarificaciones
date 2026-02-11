@@ -418,40 +418,42 @@ if archivo:
                 .str.strip()
             )
 
-            # -------------------------------        
-           
+            # -------------------------------
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
-            df_sin_90 = df_prisma.loc[~df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
+            df_temp = df_prisma.copy()
 
-            # Normalizar Id UTE y CIF
-            df_sin_90['Id UTE'] = df_sin_90['Id UTE'].astype(str).str.strip().str.upper()
-            df_sin_90['CIF'] = df_sin_90['CIF'].astype(str).str.replace(".0", "", regex=False).str.strip().str.upper()
+            df_temp[col_num_factura_prisma] = df_temp[col_num_factura_prisma].astype(str)
+            df_temp['Id UTE'] = df_temp['Id UTE'].astype(str)
+            df_temp['CIF'] = df_temp['CIF'].astype(str)
 
-            # Diccionario Id UTE -> CIF
-            cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
+            df_sin_90 = df_temp[~df_temp[col_num_factura_prisma].str.startswith("90")].copy()
+
+            cif_por_ute = (
+                df_sin_90
+                .groupby('Id UTE', dropna=False)['CIF']
+                .first()
+                .to_dict()
+            )
 
             # -------------------------------
             # 2️⃣ FACTURAS 90 + CIF UTE REAL
             # -------------------------------
-            df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
+            df_prisma_90 = df_temp[df_temp[col_num_factura_prisma].str.startswith("90")].copy()
 
-            # Normalizar Id UTE
-            df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip().str.upper()
+            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
 
-            # Mapear CIF_UTE_REAL y reemplazar NaN por string temporal
-            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(lambda x: str(cif_por_ute.get(x, "⚠️ NONE")))
+            # 🔥 MUY IMPORTANTE: rellenar NaN sin emojis
+            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna("NONE")
 
-            # Debug seguro: mostrar DataFrame
-            st.subheader("🧪 DEBUG PRISMA 90 con CIF UTE REAL (seguro)")
+            # Debug SIMPLE (sin cosas raras)
+            st.write("Filas 90:", len(df_prisma_90))
+            st.write("Sin CIF asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
+
             st.dataframe(
-                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF', 'CIF_UTE_REAL']].head(20),
-                use_container_width=True
+                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF_UTE_REAL']].head(20)
             )
 
-            # Contar cuántos quedaron como NONE
-            n_none = (df_prisma_90['CIF_UTE_REAL'] == "⚠️ NONE").sum()
-            st.write(f"⚠️ Facturas 90 sin CIF_UTE_REAL asignado: {n_none}")
 
 
           
