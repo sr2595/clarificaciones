@@ -477,7 +477,6 @@ if archivo:
                             'facturas_asignadas': None,
                             'importe_facturas': 0.0,
                             'diferencia': importe_pago
-                            
                         })
                         continue
 
