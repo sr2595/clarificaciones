@@ -392,10 +392,9 @@ if archivo:
             st.write(f"Total importes en el día: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
       #######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
-
-            # -------------------------------
+      
             # NORMALIZACIONES BASE
-            # -------------------------------
+            
             df_pagos['CIF_UTE'] = (
                 df_pagos['CIF_UTE']
                 .astype(str)
@@ -417,58 +416,43 @@ if archivo:
                 .astype(str)
                 .str.strip()
             )
-            
-           
+
             # -------------------------------
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
-            df_temp = df_prisma.copy()
+            df_sin_90 = df_prisma[~df_prisma[col_num_factura_prisma].str.startswith("90")].copy()
+            df_sin_90['Id UTE'] = df_sin_90['Id UTE'].astype(str).str.strip().str.upper()
+            df_sin_90['CIF'] = df_sin_90['CIF'].astype(str).str.strip().str.upper()
 
-            df_temp[col_num_factura_prisma] = df_temp[col_num_factura_prisma].astype(str)
-            df_temp['Id UTE'] = df_temp['Id UTE'].astype(str)
-            df_temp['CIF'] = df_temp['CIF'].astype(str)
-
-            df_sin_90 = df_temp[~df_temp[col_num_factura_prisma].str.startswith("90")].copy()
-
-            cif_por_ute = (
-                df_sin_90
-                .groupby('Id UTE', dropna=False)['CIF']
-                .first()
-                .to_dict()
-            )
+            cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
 
             # -------------------------------
             # 2️⃣ FACTURAS 90 + CIF UTE REAL
             # -------------------------------
-            df_prisma_90 = df_temp[df_temp[col_num_factura_prisma].str.startswith("90")].copy()
+            df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].str.startswith("90")].copy()
+            df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip().str.upper()
 
+            # Mapear CIF_UTE_REAL de forma segura
             df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
-
-            # 🔥 MUY IMPORTANTE: rellenar NaN sin emojis
             df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna("NONE")
 
-            # Debug SIMPLE (sin cosas raras)
             st.write("Filas 90:", len(df_prisma_90))
             st.write("Sin CIF asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
+            st.dataframe(df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF_UTE_REAL']].head(20))
 
-            st.dataframe(
-                df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF_UTE_REAL']].head(20)
-            )
-
-
-
-          
-            ##### --- Función OR-Tools para combinaciones exactas --- #####
-            def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_cif_prisma, col_num_factura_prisma, tolerancia=0.01):
+            # -------------------------------
+            # 3️⃣ FUNCIÓN OR-TOOLS
+            # -------------------------------
+            def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01):
                 resultados = []
-                facturas_por_cif = {cif: g.copy()for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
-                        
+                # Agrupar por CIF_UTE_REAL
+                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
+
                 for idx, pago in df_pagos.iterrows():
                     cif_pago = pago['CIF_UTE']
                     importe_pago = pago['importe']
                     fecha_pago = pago['fec_operacion']
 
-                  
                     if cif_pago not in facturas_por_cif:
                         resultados.append({
                             'CIF_UTE': cif_pago,
@@ -480,12 +464,11 @@ if archivo:
                         })
                         continue
 
-                    df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True).copy()
-                    importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
+                    df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True)
                     numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
+                    importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
 
-
-                    # --- OR-Tools ---
+                    # --- Modelo OR-Tools
                     model = cp_model.CpModel()
                     n = len(importes_facturas)
 
@@ -494,26 +477,13 @@ if archivo:
                     tol_cent = int(round(tolerancia * 100))
 
                     x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
-
                     model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
                     model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
 
                     solver = cp_model.CpSolver()
-                    solver.parameters.max_time_in_seconds = 5  # 🔥 evita cuelgues
+                    solver.parameters.max_time_in_seconds = 5  # evita cuelgues
 
                     status = solver.Solve(model)
-
-                    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-                        seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
-                        facturas_asignadas = [numeros_facturas[i] for i in seleccion]
-                        importe_facturas = sum(importes_facturas[i] for i in seleccion)
-                    else:
-                        facturas_asignadas = None
-                        importe_facturas = 0.0
-
-
-                    # Debug: ver si el solver encontró algo
-                    st.write(f"💡 Pago {idx} ({importe_pago} €) - status solver: {solver.StatusName(status)}")
 
                     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                         seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
@@ -536,28 +506,30 @@ if archivo:
 
                 return pd.DataFrame(resultados)
 
-            ##### --- Ejecutar solver y mostrar resultados --- #####
+            # -------------------------------
+            # 4️⃣ Ejecutar solver
+            # -------------------------------
             st.write("🔹 Ejecutando solver para cruzar pagos con PRISMA...")
             df_resultados = cruzar_pagos_con_prisma_exacto(
                 df_pagos=df_pagos,
                 df_prisma_90=df_prisma_90,
-                col_cif_prisma=col_cif_prisma,
                 col_num_factura_prisma=col_num_factura_prisma,
                 tolerancia=0.01
             )
             st.write("🔹 Solver completado")
             st.dataframe(df_resultados)
-        
-      
-            # --- Crear archivo Excel en memoria ---
+
+            # -------------------------------
+            # 5️⃣ Descargar Excel
+            # -------------------------------
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_resultados.to_excel(writer, index=False, sheet_name="Resultados")
-            output.seek(0)  # volver al inicio del archivo
+            output.seek(0)
 
-            # --- Botón de descarga ---
             st.download_button(
                 label="📥 Descargar resultados en Excel",
                 data=output,
                 file_name=f"resultados_cruce_{fecha_seleccionada}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
