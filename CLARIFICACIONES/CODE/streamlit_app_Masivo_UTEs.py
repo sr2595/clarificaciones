@@ -417,6 +417,43 @@ if archivo:
                 .str.strip()
             )
 
+            # -------------------------------
+            # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
+            # -------------------------------
+
+            # Solo trabajar sobre una copia para evitar conflictos con Streamlit
+            df_temp = df_prisma.copy()
+
+            # Normalizar columnas
+            df_temp[col_num_factura_prisma] = df_temp[col_num_factura_prisma].astype(str).str.strip()
+            df_temp['Id UTE'] = df_temp['Id UTE'].astype(str).str.strip()
+            df_temp['CIF'] = df_temp['CIF'].astype(str).str.strip()
+
+            # Filtrar facturas que NO empiezan por 90
+            df_sin_90 = df_temp[~df_temp[col_num_factura_prisma].str.startswith("90")].copy()
+
+            # Diccionario seguro Id UTE -> CIF
+            cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
+
+            # -------------------------------
+            # 2️⃣ FACTURAS 90 + CIF UTE REAL
+            # -------------------------------
+
+            df_prisma_90 = df_temp[df_temp[col_num_factura_prisma].str.startswith("90")].copy()
+
+            # Normalizar Id UTE
+            df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip()
+
+            # Mapear CIF_UTE_REAL de forma segura
+            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].apply(lambda x: cif_por_ute.get(x, "NONE"))
+
+            # DEBUG mínimo seguro
+            st.write("ℹ️ Filas de facturas 90:", len(df_prisma_90))
+            st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
+
+            # Mostrar solo 20 filas, seguro
+            st.dataframe(df_prisma_90[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL']].head(20))
+
             
 
             # -------------------------------
