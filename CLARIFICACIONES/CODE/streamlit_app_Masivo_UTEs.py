@@ -471,16 +471,14 @@ if archivo:
 
                     if cif_pago not in facturas_por_cif:
                         resultados.append({
-                           
-                        'CIF_UTE': cif_pago,
-                        'fecha_pago': fecha_pago,
-                        'importe_pago': importe_pago,
-                        'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
-                        'importe_facturas': importe_facturas,
-                        'diferencia': diferencia,
-                        'razon social': col_razon_social_prisma
-        })                         
-                       
+                            'CIF_UTE': cif_pago,
+                            'fecha_pago': fecha_pago,
+                            'importe_pago': importe_pago,
+                            'facturas_asignadas': None,
+                            'importe_facturas': 0.0,
+                            'diferencia': importe_pago
+                            
+                        })
                         continue
 
                     df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True)
