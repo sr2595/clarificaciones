@@ -530,7 +530,7 @@ if archivo:
                 tolerancia=0.01
             )
             st.write("🔹 Solver completado")
-            st.dataframe(df_resultados)
+            st.dataframe(df_resultados.head(50), use_container_width=True)
 
             # -------------------------------
             # 5️⃣ Descargar Excel
