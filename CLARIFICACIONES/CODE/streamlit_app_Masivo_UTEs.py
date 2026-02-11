@@ -450,13 +450,32 @@ if archivo:
             st.write("ℹ️ Filas de facturas 90:", len(df_prisma_90))
             st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
             st.dataframe(df_prisma_90[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'Nombre_UTE', 'Nombre_Cliente']].head(20))
-
+            
             # -------------------------------
-            # 3️⃣ FUNCIÓN OR-TOOLS
+            # FUNCIÓN OR-TOOLS OPTIMIZADA PARA STREAMLIT
             # -------------------------------
-            def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01):
+            def cruzar_pagos_con_prisma_exacto_light(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01, max_facturas=50, max_facturas_mostrar=10):
+                """
+                Cruza pagos con facturas 90 usando OR-Tools de forma optimizada para Streamlit.
+                
+                Parámetros:
+                - df_pagos: DataFrame con pagos filtrados por fecha
+                - df_prisma_90: DataFrame con facturas 90
+                - col_num_factura_prisma: columna con nº de factura
+                - tolerancia: tolerancia en euros para matching
+                - max_facturas: máximo de facturas a analizar por pago (subset sum)
+                - max_facturas_mostrar: máximo de facturas a mostrar en la columna 'facturas_asignadas'
+                """
+                from ortools.sat.python import cp_model
+                
                 resultados = []
-                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
+
+                # Filtrar facturas solo para los CIFs que tenemos hoy
+                cifs_dia = df_pagos['CIF_UTE'].unique()
+                df_prisma_90_filtrado = df_prisma_90[df_prisma_90['CIF_UTE_REAL'].isin(cifs_dia)].copy()
+
+                # Agrupar por CIF_UTE_REAL
+                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90_filtrado.groupby('CIF_UTE_REAL')}
 
                 for idx, pago in df_pagos.iterrows():
                     cif_pago = pago['CIF_UTE']
@@ -477,12 +496,17 @@ if archivo:
                         continue
 
                     df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True)
+
+                    # Limitar el número de facturas a analizar para evitar combinaciones gigantes
+                    if len(df_facturas) > max_facturas:
+                        df_facturas = df_facturas.head(max_facturas)
+
                     numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
                     importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
                     nombre_ute = df_facturas['Nombre_UTE'].iloc[0] if 'Nombre_UTE' in df_facturas else None
                     nombre_cliente = df_facturas['Nombre_Cliente'].iloc[0] if 'Nombre_Cliente' in df_facturas else None
 
-                    # --- Modelo OR-Tools
+                    # --- Modelo OR-Tools ---
                     model = cp_model.CpModel()
                     n = len(importes_facturas)
                     pagos_cent = int(round(importe_pago * 100))
@@ -494,7 +518,7 @@ if archivo:
                     model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
 
                     solver = cp_model.CpSolver()
-                    solver.parameters.max_time_in_seconds = 5  # evita cuelgues
+                    solver.parameters.max_time_in_seconds = 3  # más rápido
                     status = solver.Solve(model)
 
                     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
@@ -507,11 +531,19 @@ if archivo:
 
                     diferencia = importe_pago - (importe_facturas or 0.0)
 
+                    # Evitar strings gigantes: solo mostramos un máximo de facturas
+                    if facturas_asignadas:
+                        facturas_asignadas_str = ', '.join(facturas_asignadas[:max_facturas_mostrar])
+                        if len(facturas_asignadas) > max_facturas_mostrar:
+                            facturas_asignadas_str += '...'
+                    else:
+                        facturas_asignadas_str = None
+
                     resultados.append({
                         'CIF_UTE': cif_pago,
                         'fecha_pago': fecha_pago,
                         'importe_pago': importe_pago,
-                        'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
+                        'facturas_asignadas': facturas_asignadas_str,
                         'importe_facturas': importe_facturas,
                         'diferencia': diferencia,
                         'Nombre_UTE': nombre_ute,
@@ -520,6 +552,7 @@ if archivo:
 
                 return pd.DataFrame(resultados)
 
+            
             # -------------------------------
             # 4️⃣ Ejecutar solver
             # -------------------------------
