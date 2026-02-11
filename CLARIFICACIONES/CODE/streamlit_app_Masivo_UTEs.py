@@ -418,7 +418,7 @@ if archivo:
                 .str.strip()
             )
             
-            st.write(df_prisma.dtypes)
+           
             # -------------------------------
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
@@ -488,37 +488,35 @@ if archivo:
                     # --- OR-Tools ---
                     model = cp_model.CpModel()
                     n = len(importes_facturas)
+
                     pagos_cent = int(round(importe_pago * 100))
                     facturas_cent = [int(round(f * 100)) for f in importes_facturas]
                     tol_cent = int(round(tolerancia * 100))
 
                     x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
 
-                    # Restricciones: suma de facturas ≈ pago
                     model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
                     model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
 
-                    # Resolver y recolectar soluciones
                     solver = cp_model.CpSolver()
-                    soluciones = []
+                    solver.parameters.max_time_in_seconds = 5  # 🔥 evita cuelgues
 
-                    class SolCollector(cp_model.CpSolverSolutionCallback):
-                        def __init__(self):
-                            cp_model.CpSolverSolutionCallback.__init__(self)
-                            self.soluciones = []
+                    status = solver.Solve(model)
 
-                        def on_solution_callback(self):
-                            seleccion = [i for i in range(n) if self.BooleanValue(x[i])]
-                            self.soluciones.append(seleccion)
+                    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+                        seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
+                        facturas_asignadas = [numeros_facturas[i] for i in seleccion]
+                        importe_facturas = sum(importes_facturas[i] for i in seleccion)
+                    else:
+                        facturas_asignadas = None
+                        importe_facturas = 0.0
 
-                    collector = SolCollector()
-                    solver.SearchForAllSolutions(model, collector)
 
                     # Debug: ver si el solver encontró algo
                     st.write(f"💡 Pago {idx} ({importe_pago} €) - soluciones encontradas: {len(collector.soluciones)}")
 
-                    if collector.soluciones:
-                        seleccion = collector.soluciones[0]
+                    if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+                        seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
                         facturas_asignadas = [numeros_facturas[i] for i in seleccion]
                         importe_facturas = sum(importes_facturas[i] for i in seleccion)
                     else:
