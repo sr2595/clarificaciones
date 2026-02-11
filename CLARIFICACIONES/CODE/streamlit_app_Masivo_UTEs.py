@@ -513,7 +513,7 @@ if archivo:
 
 
                     # Debug: ver si el solver encontró algo
-                    st.write(f"💡 Pago {idx} ({importe_pago} €) - soluciones encontradas: {len(collector.soluciones)}")
+                    st.write(f"💡 Pago {idx} ({importe_pago} €) - status solver: {solver.StatusName(status)}")
 
                     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                         seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
