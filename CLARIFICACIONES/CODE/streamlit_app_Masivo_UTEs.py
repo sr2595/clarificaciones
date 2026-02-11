@@ -392,7 +392,7 @@ if archivo:
             st.write(f"Total importes en el día: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
       #######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
-      
+
             # NORMALIZACIONES BASE
             
             df_pagos['CIF_UTE'] = (
@@ -417,28 +417,7 @@ if archivo:
                 .str.strip()
             )
 
-            # -------------------------------
-            # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
-            # -------------------------------
-            df_sin_90 = df_prisma[~df_prisma[col_num_factura_prisma].str.startswith("90")].copy()
-            df_sin_90['Id UTE'] = df_sin_90['Id UTE'].astype(str).str.strip().str.upper()
-            df_sin_90['CIF'] = df_sin_90['CIF'].astype(str).str.strip().str.upper()
-
-            cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
-
-            # -------------------------------
-            # 2️⃣ FACTURAS 90 + CIF UTE REAL
-            # -------------------------------
-            df_prisma_90 = df_prisma[df_prisma[col_num_factura_prisma].str.startswith("90")].copy()
-            df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip().str.upper()
-
-            # Mapear CIF_UTE_REAL de forma segura
-            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].map(cif_por_ute)
-            df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna("NONE")
-
-            st.write("Filas 90:", len(df_prisma_90))
-            st.write("Sin CIF asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
-            st.dataframe(df_prisma_90[['Id UTE', col_num_factura_prisma, 'CIF_UTE_REAL']].head(20))
+            
 
             # -------------------------------
             # 3️⃣ FUNCIÓN OR-TOOLS
