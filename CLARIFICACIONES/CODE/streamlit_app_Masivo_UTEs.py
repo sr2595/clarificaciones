@@ -390,8 +390,7 @@ if archivo:
             st.subheader("🔍 Pagos filtrados para cruce")
             st.dataframe(df_pagos.head(10), use_container_width=True)
             st.write(f"Total importes en el día: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-
-      #######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
+#######--- 5) CRUZAR PAGOS CON FACTURAS DE PRISMA USANDO OR-TOOLS ---#######
 
             # NORMALIZACIONES BASE
             df_pagos['CIF_UTE'] = (
@@ -450,32 +449,13 @@ if archivo:
             st.write("ℹ️ Filas de facturas 90:", len(df_prisma_90))
             st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
             st.dataframe(df_prisma_90[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'Nombre_UTE', 'Nombre_Cliente']].head(20))
-            
+
             # -------------------------------
-            # FUNCIÓN OR-TOOLS OPTIMIZADA PARA STREAMLIT
+            # 3️⃣ FUNCIÓN OR-TOOLS
             # -------------------------------
-            def cruzar_pagos_con_prisma_exacto_light(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01, max_facturas=50, max_facturas_mostrar=10):
-                """
-                Cruza pagos con facturas 90 usando OR-Tools de forma optimizada para Streamlit.
-                
-                Parámetros:
-                - df_pagos: DataFrame con pagos filtrados por fecha
-                - df_prisma_90: DataFrame con facturas 90
-                - col_num_factura_prisma: columna con nº de factura
-                - tolerancia: tolerancia en euros para matching
-                - max_facturas: máximo de facturas a analizar por pago (subset sum)
-                - max_facturas_mostrar: máximo de facturas a mostrar en la columna 'facturas_asignadas'
-                """
-                from ortools.sat.python import cp_model
-                
+            def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01):
                 resultados = []
-
-                # Filtrar facturas solo para los CIFs que tenemos hoy
-                cifs_dia = df_pagos['CIF_UTE'].unique()
-                df_prisma_90_filtrado = df_prisma_90[df_prisma_90['CIF_UTE_REAL'].isin(cifs_dia)].copy()
-
-                # Agrupar por CIF_UTE_REAL
-                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90_filtrado.groupby('CIF_UTE_REAL')}
+                facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
 
                 for idx, pago in df_pagos.iterrows():
                     cif_pago = pago['CIF_UTE']
@@ -496,17 +476,12 @@ if archivo:
                         continue
 
                     df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True)
-
-                    # Limitar el número de facturas a analizar para evitar combinaciones gigantes
-                    if len(df_facturas) > max_facturas:
-                        df_facturas = df_facturas.head(max_facturas)
-
                     numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
                     importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
                     nombre_ute = df_facturas['Nombre_UTE'].iloc[0] if 'Nombre_UTE' in df_facturas else None
                     nombre_cliente = df_facturas['Nombre_Cliente'].iloc[0] if 'Nombre_Cliente' in df_facturas else None
 
-                    # --- Modelo OR-Tools ---
+                    # --- Modelo OR-Tools
                     model = cp_model.CpModel()
                     n = len(importes_facturas)
                     pagos_cent = int(round(importe_pago * 100))
@@ -518,7 +493,7 @@ if archivo:
                     model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
 
                     solver = cp_model.CpSolver()
-                    solver.parameters.max_time_in_seconds = 3  # más rápido
+                    solver.parameters.max_time_in_seconds = 5  # evita cuelgues
                     status = solver.Solve(model)
 
                     if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
@@ -531,19 +506,11 @@ if archivo:
 
                     diferencia = importe_pago - (importe_facturas or 0.0)
 
-                    # Evitar strings gigantes: solo mostramos un máximo de facturas
-                    if facturas_asignadas:
-                        facturas_asignadas_str = ', '.join(facturas_asignadas[:max_facturas_mostrar])
-                        if len(facturas_asignadas) > max_facturas_mostrar:
-                            facturas_asignadas_str += '...'
-                    else:
-                        facturas_asignadas_str = None
-
                     resultados.append({
                         'CIF_UTE': cif_pago,
                         'fecha_pago': fecha_pago,
                         'importe_pago': importe_pago,
-                        'facturas_asignadas': facturas_asignadas_str,
+                        'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
                         'importe_facturas': importe_facturas,
                         'diferencia': diferencia,
                         'Nombre_UTE': nombre_ute,
@@ -552,7 +519,6 @@ if archivo:
 
                 return pd.DataFrame(resultados)
 
-            
             # -------------------------------
             # 4️⃣ Ejecutar solver
             # -------------------------------
@@ -580,3 +546,4 @@ if archivo:
                 file_name=f"resultados_cruce_{fecha_seleccionada}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
