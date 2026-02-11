@@ -417,7 +417,8 @@ if archivo:
                 .astype(str)
                 .str.strip()
             )
-
+            
+            st.write(df_prisma.dtypes)
             # -------------------------------
             # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
             # -------------------------------
