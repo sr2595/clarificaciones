@@ -65,6 +65,12 @@ df_internas = pd.DataFrame()
 
 # --------- 1) Subida y normalización de PRISMA ---------
 archivo_prisma = st.file_uploader("Sube el archivo PRISMA (CSV)", type=["csv"])
+if archivo_prisma is not None: 
+    st.session_state.archivo_prisma = archivo_prisma 
+if "archivo_prisma" not in st.session_state: 
+    st.stop()   
+archivo_prisma = st.session_state.archivo_prisma
+
 df_prisma = pd.DataFrame()
 
 if archivo_prisma:
@@ -190,6 +196,15 @@ if archivo_prisma:
 
         # --------- 2) subida y normalizacion de COBRA ---------
 archivo = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
+
+if archivo is not None:
+    st.session_state.archivo_cobra = archivo
+
+if "archivo_cobra" not in st.session_state:
+    st.stop()
+
+archivo = st.session_state.archivo_cobra
+
 if archivo:
     # --- Lectura flexible para detectar cabecera ---
     try:
@@ -271,6 +286,11 @@ if archivo:
         type=['xlsm', 'xlsx', 'csv'],
         key="cobros"
     )
+    if cobros_file is not None: 
+        st.session_state.cobros_file = cobros_file 
+    if "cobros_file" not in st.session_state: 
+        st.stop() 
+    cobros_file = st.session_state.cobros_file
 
     df_cobros = pd.DataFrame()
     if cobros_file:
