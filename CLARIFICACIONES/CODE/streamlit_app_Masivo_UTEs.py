@@ -477,11 +477,20 @@ if not df_cobros.empty:
     df_prisma_90 = st.session_state.df_prisma_90_preparado
 
     # -------------------------------
-    # 3️⃣ FUNCIÓN OR-TOOLS
+    # 3️⃣ FUNCIÓN OR-TOOLS CON SOCIOS
     # -------------------------------
-    def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01):
+    def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, df_prisma_completo, col_num_factura_prisma, tolerancia=0.01):
+        """
+        Cruza pagos con facturas 90 y además busca las facturas de socios asociadas a cada factura 90
+        """
         resultados = []
         facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
+        
+        # Crear diccionario de facturas de socios por Id UTE (facturas que NO son 90)
+        df_socios = df_prisma_completo[~df_prisma_completo[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
+        socios_por_ute = {}
+        for id_ute, grupo in df_socios.groupby('Id UTE'):
+            socios_por_ute[str(id_ute).strip()] = grupo[[col_num_factura_prisma, 'IMPORTE_CORRECTO', 'CIF']].copy()
 
         for idx, pago in df_pagos.iterrows():
             try:
@@ -494,21 +503,19 @@ if not df_cobros.empty:
                         'CIF_UTE': cif_pago,
                         'fecha_pago': fecha_pago,
                         'importe_pago': importe_pago,
-                        'facturas_asignadas': None,
-                        'importe_facturas': 0.0,
-                        'diferencia': importe_pago,
-                        'Nombre_UTE': None,
-                        'Nombre_Cliente': None
+                        'facturas_90_asignadas': None,
+                        'importe_facturas_90': 0.0,
+                        'desglose_facturas_90': None,
+                        'diferencia_pago_vs_90': importe_pago
                     })
                     continue
 
                 df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True)
                 numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
                 importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
-                nombre_ute = df_facturas['Nombre_UTE'].iloc[0] if 'Nombre_UTE' in df_facturas else None
-                nombre_cliente = df_facturas['Nombre_Cliente'].iloc[0] if 'Nombre_Cliente' in df_facturas else None
+                ids_ute = df_facturas['Id UTE'].tolist()
 
-                # --- Modelo OR-Tools
+                # --- Modelo OR-Tools para facturas 90
                 model = cp_model.CpModel()
                 n = len(importes_facturas)
                 pagos_cent = int(round(importe_pago * 100))
@@ -520,29 +527,71 @@ if not df_cobros.empty:
                 model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
 
                 solver = cp_model.CpSolver()
-                solver.parameters.max_time_in_seconds = 3  # Reducido para evitar cuelgues
-                solver.parameters.log_search_progress = False  # No mostrar logs
+                solver.parameters.max_time_in_seconds = 3
+                solver.parameters.log_search_progress = False
                 status = solver.Solve(model)
 
                 if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                     seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
-                    facturas_asignadas = [numeros_facturas[i] for i in seleccion]
-                    importe_facturas = sum(importes_facturas[i] for i in seleccion)
+                    
+                    # Desglose detallado por cada factura 90
+                    desglose_por_factura_90 = []
+                    importe_facturas_90 = 0.0
+                    
+                    for i in seleccion:
+                        num_factura_90 = numeros_facturas[i]
+                        importe_factura_90 = importes_facturas[i]
+                        id_ute = str(ids_ute[i]).strip()
+                        
+                        importe_facturas_90 += importe_factura_90
+                        
+                        # Buscar socios de esta factura 90
+                        socios_lista = []
+                        importe_socios_de_esta_90 = 0.0
+                        
+                        if id_ute in socios_por_ute:
+                            df_socios_ute = socios_por_ute[id_ute]
+                            for _, socio in df_socios_ute.iterrows():
+                                num_factura_socio = str(socio[col_num_factura_prisma])
+                                importe_socio = socio['IMPORTE_CORRECTO']
+                                cif_socio = str(socio['CIF'])
+                                socios_lista.append({
+                                    'num_factura': num_factura_socio,
+                                    'cif': cif_socio,
+                                    'importe': importe_socio
+                                })
+                                importe_socios_de_esta_90 += importe_socio
+                        
+                        # Diferencia entre esta factura 90 y sus socios
+                        diferencia_90_socios = importe_factura_90 - importe_socios_de_esta_90
+                        
+                        desglose_por_factura_90.append({
+                            'factura_90': num_factura_90,
+                            'importe_90': importe_factura_90,
+                            'socios': socios_lista,
+                            'importe_socios': importe_socios_de_esta_90,
+                            'diferencia_90_socios': diferencia_90_socios
+                        })
+                    
+                    # String resumen de facturas 90 para visualización rápida
+                    facturas_90_str = ', '.join([d['factura_90'] for d in desglose_por_factura_90])
+                    
                 else:
-                    facturas_asignadas = None
-                    importe_facturas = 0.0
+                    facturas_90_str = None
+                    importe_facturas_90 = 0.0
+                    desglose_por_factura_90 = None
 
-                diferencia = importe_pago - (importe_facturas or 0.0)
+                # Diferencia pago vs facturas 90
+                diferencia_pago_vs_90 = importe_pago - importe_facturas_90
 
                 resultados.append({
                     'CIF_UTE': cif_pago,
                     'fecha_pago': fecha_pago,
                     'importe_pago': importe_pago,
-                    'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
-                    'importe_facturas': importe_facturas,
-                    'diferencia': diferencia,
-                    'Nombre_UTE': nombre_ute,
-                    'Nombre_Cliente': nombre_cliente
+                    'facturas_90_asignadas': facturas_90_str,
+                    'importe_facturas_90': importe_facturas_90,
+                    'desglose_facturas_90': desglose_por_factura_90,  # Aquí guardamos el desglose completo
+                    'diferencia_pago_vs_90': diferencia_pago_vs_90
                 })
             
             except Exception as e:
@@ -551,11 +600,10 @@ if not df_cobros.empty:
                     'CIF_UTE': pago.get('CIF_UTE', 'ERROR'),
                     'fecha_pago': pago.get('fec_operacion'),
                     'importe_pago': pago.get('importe', 0),
-                    'facturas_asignadas': f"ERROR: {str(e)}",
-                    'importe_facturas': 0.0,
-                    'diferencia': pago.get('importe', 0),
-                    'Nombre_UTE': None,
-                    'Nombre_Cliente': None
+                    'facturas_90_asignadas': f"ERROR: {str(e)}",
+                    'importe_facturas_90': 0.0,
+                    'desglose_facturas_90': None,
+                    'diferencia_pago_vs_90': pago.get('importe', 0)
                 })
                 continue
 
@@ -592,6 +640,7 @@ if not df_cobros.empty:
             df_resultados = cruzar_pagos_con_prisma_exacto(
                 df_pagos_normalizado,
                 df_prisma_90,
+                df_prisma,  # Pasamos el df_prisma completo para acceder a facturas de socios
                 col_num_factura_prisma,
                 0.01
             )
@@ -618,31 +667,127 @@ if not df_cobros.empty:
         col1, col2, col3, col4 = st.columns(4)
         
         total_pagos = len(df_resultados)
-        pagos_con_facturas = df_resultados['facturas_asignadas'].notna().sum()
+        pagos_con_facturas = df_resultados['facturas_90_asignadas'].notna().sum()
         pagos_sin_facturas = total_pagos - pagos_con_facturas
         importe_total_pagos = df_resultados['importe_pago'].sum()
-        importe_total_asignado = df_resultados['importe_facturas'].sum()
-        diferencia_total = df_resultados['diferencia'].sum()
+        importe_total_90 = df_resultados['importe_facturas_90'].sum()
+        diferencia_pago_vs_90 = df_resultados['diferencia_pago_vs_90'].sum()
+        
+        # Calcular total de socios y diferencias desde el desglose
+        importe_total_socios = 0.0
+        diferencia_total_90_vs_socios = 0.0
+        for _, row in df_resultados.iterrows():
+            if row['desglose_facturas_90'] is not None:
+                for factura_90 in row['desglose_facturas_90']:
+                    importe_total_socios += factura_90['importe_socios']
+                    diferencia_total_90_vs_socios += factura_90['diferencia_90_socios']
         
         with col1:
             st.metric("Total Pagos", total_pagos)
         with col2:
-            st.metric("Con Facturas", pagos_con_facturas, delta=f"{(pagos_con_facturas/total_pagos*100):.1f}%")
+            st.metric("Con Facturas 90", pagos_con_facturas, delta=f"{(pagos_con_facturas/total_pagos*100):.1f}%")
         with col3:
             st.metric("Sin Facturas", pagos_sin_facturas)
         with col4:
-            st.metric("Diferencia Total", f"{diferencia_total:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.metric("Dif. Pago vs 90", f"{diferencia_pago_vs_90:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+        
+        # Métricas adicionales de importes
+        st.markdown("---")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("💰 Total Pagos", f"{importe_total_pagos:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+        with col2:
+            st.metric("🔵 Facturas 90", f"{importe_total_90:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+        with col3:
+            st.metric("🟢 Facturas Socios", f"{importe_total_socios:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+        with col4:
+            st.metric("⚠️ Dif. 90 vs Socios", f"{diferencia_total_90_vs_socios:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
         
         # Tabla de resultados
         st.dataframe(df_resultados, use_container_width=True, height=400)
         
+        # Vista detallada con desglose
+        with st.expander("🔍 Ver desglose detallado de facturas por pago"):
+            for idx, row in df_resultados.iterrows():
+                if pd.notna(row['facturas_90_asignadas']) and row['desglose_facturas_90'] is not None:
+                    st.markdown(f"### 💰 Pago {idx+1}: {row['importe_pago']:,.2f} € ({row['CIF_UTE']})".replace(",", "X").replace(".", ",").replace("X", "."))
+                    st.markdown(f"**📅 Fecha:** {row['fecha_pago'].strftime('%d/%m/%Y')}")
+                    st.markdown(f"**🔵 Total facturas 90:** {row['importe_facturas_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                    st.markdown(f"**⚠️ Diferencia Pago vs 90:** {row['diferencia_pago_vs_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                    
+                    st.markdown("---")
+                    
+                    # Mostrar cada factura 90 individualmente con sus socios
+                    for i, factura_90_data in enumerate(row['desglose_facturas_90'], 1):
+                        st.markdown(f"#### 📄 Factura 90 #{i}: {factura_90_data['factura_90']}")
+                        st.markdown(f"**Importe factura 90:** {factura_90_data['importe_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                        
+                        # Mostrar socios de esta factura 90
+                        if factura_90_data['socios']:
+                            st.markdown("**🟢 Facturas de socios que la componen:**")
+                            for socio in factura_90_data['socios']:
+                                st.markdown(f"  • {socio['num_factura']} ({socio['cif']}): {socio['importe']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                            st.markdown(f"**Total socios:** {factura_90_data['importe_socios']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                        else:
+                            st.markdown("**🟢 Facturas de socios:** Sin socios encontrados")
+                            st.markdown(f"**Total socios:** 0,00 €")
+                        
+                        # Diferencia de esta factura 90 específica
+                        diferencia_color = "🔴" if factura_90_data['diferencia_90_socios'] != 0 else "✅"
+                        st.markdown(f"{diferencia_color} **Diferencia 90 vs Socios:** {factura_90_data['diferencia_90_socios']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                        
+                        if i < len(row['desglose_facturas_90']):
+                            st.markdown("---")
+                    
+                    st.markdown("---")
+                    st.markdown("---")
+        
         # -------------------------------
-        # 6️⃣ DESCARGAR EXCEL
+        # 6️⃣ DESCARGAR EXCEL CON DESGLOSE
         # -------------------------------
+        
+        # Crear DataFrame plano con desglose de cada factura 90
+        filas_excel = []
+        for _, row in df_resultados.iterrows():
+            if row['desglose_facturas_90'] is not None:
+                for factura_90_data in row['desglose_facturas_90']:
+                    # Convertir socios a string
+                    socios_str = ' | '.join([
+                        f"{s['num_factura']} ({s['cif']}): {s['importe']:.2f}€" 
+                        for s in factura_90_data['socios']
+                    ]) if factura_90_data['socios'] else "Sin socios"
+                    
+                    filas_excel.append({
+                        'CIF_UTE': row['CIF_UTE'],
+                        'Fecha_Pago': row['fecha_pago'],
+                        'Importe_Pago': row['importe_pago'],
+                        'Factura_90': factura_90_data['factura_90'],
+                        'Importe_90': factura_90_data['importe_90'],
+                        'Facturas_Socios': socios_str,
+                        'Importe_Socios': factura_90_data['importe_socios'],
+                        'Diferencia_90_vs_Socios': factura_90_data['diferencia_90_socios'],
+                        'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90']
+                    })
+            else:
+                # Pago sin facturas asignadas
+                filas_excel.append({
+                    'CIF_UTE': row['CIF_UTE'],
+                    'Fecha_Pago': row['fecha_pago'],
+                    'Importe_Pago': row['importe_pago'],
+                    'Factura_90': None,
+                    'Importe_90': 0.0,
+                    'Facturas_Socios': None,
+                    'Importe_Socios': 0.0,
+                    'Diferencia_90_vs_Socios': 0.0,
+                    'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90']
+                })
+        
+        df_excel = pd.DataFrame(filas_excel)
         
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_resultados.to_excel(writer, index=False, sheet_name="Resultados")
+            df_excel.to_excel(writer, index=False, sheet_name="Desglose_Detallado")
         output.seek(0)
 
         st.download_button(
