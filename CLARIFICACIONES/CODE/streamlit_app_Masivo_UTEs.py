@@ -7,12 +7,18 @@ import unicodedata, re
 import io
 import os
 import concurrent.futures
+import time
+
 
 
 st.write("DEBUG archivo en ejecución:", os.path.abspath(__file__))
 
 st.set_page_config(page_title="Clarificador UTE con pagos", page_icon="📄", layout="wide")
 st.title("📄 Clarificador UTE Masivo")
+if "executor" not in st.session_state: 
+    st.session_state.executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) 
+if "future" not in st.session_state: 
+    st.session_state.future = None
 
 # --------- Helpers ---------
 def _norm(texto):
@@ -528,19 +534,28 @@ if archivo:
             # -------------------------------
             st.write("🔹 Ejecutando solver para cruzar pagos con PRISMA...")
 
+            # Si había un cálculo anterior en marcha, lo cancelamos
+            if st.session_state.future is not None:
+                st.session_state.future.cancel()
+
+            # Lanzamos el nuevo cálculo
+            st.session_state.future = st.session_state.executor.submit(
+                cruzar_pagos_con_prisma_exacto,
+                df_pagos,
+                df_prisma_90,
+                col_num_factura_prisma,
+                0.01
+            )
+
             with st.spinner("⏳ Buscando combinaciones, esto puede tardar..."):
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(
-                        cruzar_pagos_con_prisma_exacto,
-                        df_pagos,
-                        df_prisma_90,
-                        col_num_factura_prisma,
-                        0.01
-                    )
-                    df_resultados = future.result()
+                while st.session_state.future.running():
+                    time.sleep(0.1)
+
+            df_resultados = st.session_state.future.result()
 
             st.success("🔹 Solver completado")
             st.dataframe(df_resultados.head(50), use_container_width=True)
+
 
             # -------------------------------
             # 5️⃣ Descargar Excel
