@@ -472,27 +472,28 @@ if not df_cobros.empty:
         st.write("ℹ️ Filas de facturas 90:", len(st.session_state.df_prisma_90_preparado))
         st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (st.session_state.df_prisma_90_preparado['CIF_UTE_REAL'] == "NONE").sum())
         
-        # Estadísticas de facturas positivas vs negativas
-        facturas_90_positivas = (st.session_state.df_prisma_90_preparado['IMPORTE_CORRECTO'] > 0).sum()
-        facturas_90_negativas = (st.session_state.df_prisma_90_preparado['IMPORTE_CORRECTO'] <= 0).sum()
+        # Estadísticas de facturas positivas vs negativas (CON IMPUESTO)
+        facturas_90_positivas = (st.session_state.df_prisma_90_preparado['IMPORTE_CON_IMPUESTO'] > 0).sum()
+        facturas_90_negativas = (st.session_state.df_prisma_90_preparado['IMPORTE_CON_IMPUESTO'] <= 0).sum()
         st.write(f"✅ Facturas 90 POSITIVAS (se usarán): {facturas_90_positivas}")
         st.write(f"⛔ Facturas 90 NEGATIVAS (se ignorarán): {facturas_90_negativas}")
+        st.write("💡 **Nota:** Se usan importes CON impuesto aplicado (IVA, IGIC, etc.)")
         
-        st.dataframe(st.session_state.df_prisma_90_preparado[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'IMPORTE_CORRECTO']].head(20))
+        st.dataframe(st.session_state.df_prisma_90_preparado[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'IMPORTE_CON_IMPUESTO', 'Fecha Emisión']].head(20))
     
     # Usar el df_prisma_90 desde session_state
     df_prisma_90 = st.session_state.df_prisma_90_preparado
     
     # Mostrar facturas negativas que serán ignoradas
-    facturas_negativas = df_prisma_90[df_prisma_90['IMPORTE_CORRECTO'] <= 0]
+    facturas_negativas = df_prisma_90[df_prisma_90['IMPORTE_CON_IMPUESTO'] <= 0]
     if len(facturas_negativas) > 0:
         with st.expander(f"⚠️ Facturas 90 NEGATIVAS que se ignorarán ({len(facturas_negativas)} facturas)"):
             st.warning("Estas facturas negativas (abonos/devoluciones) NO se considerarán en el cruce con pagos:")
             st.dataframe(
-                facturas_negativas[[col_num_factura_prisma, 'CIF_UTE_REAL', 'Id UTE', 'IMPORTE_CORRECTO']].sort_values('IMPORTE_CORRECTO'),
+                facturas_negativas[[col_num_factura_prisma, 'CIF_UTE_REAL', 'Id UTE', 'IMPORTE_CON_IMPUESTO', 'Fecha Emisión']].sort_values('IMPORTE_CON_IMPUESTO'),
                 use_container_width=True
             )
-            st.write(f"**Total importe negativo:** {facturas_negativas['IMPORTE_CORRECTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.write(f"**Total importe negativo (con impuesto):** {facturas_negativas['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
     # -------------------------------
     # 3️⃣ FUNCIÓN OR-TOOLS CON SOCIOS
@@ -505,14 +506,25 @@ if not df_cobros.empty:
         facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
         
         # Crear diccionario de facturas de socios por Id UTE (facturas que NO son 90)
-        # FILTRAR SOLO SOCIOS POSITIVOS
+        # FILTRAR SOLO SOCIOS POSITIVOS - CON IMPUESTO APLICADO
         df_socios = df_prisma_completo[
             (~df_prisma_completo[col_num_factura_prisma].astype(str).str.startswith("90")) &
-            (df_prisma_completo['IMPORTE_CORRECTO'] > 0)  # Solo socios positivos
+            (df_prisma_completo['IMPORTE_CON_IMPUESTO'] > 0)  # Solo socios positivos CON IMPUESTO
         ].copy()
+        
+        # Necesitamos saber el nombre de la columna de fecha en df_prisma_completo
+        col_fecha_factura = None
+        for posible_col in ['Fecha Emisión', 'Fecha Emision', 'FECHA_EMISION', 'Fecha']:
+            if posible_col in df_prisma_completo.columns:
+                col_fecha_factura = posible_col
+                break
+        
         socios_por_ute = {}
         for id_ute, grupo in df_socios.groupby('Id UTE'):
-            socios_por_ute[str(id_ute).strip()] = grupo[[col_num_factura_prisma, 'IMPORTE_CORRECTO', 'CIF']].copy()
+            cols_socios = [col_num_factura_prisma, 'IMPORTE_CON_IMPUESTO', 'CIF']
+            if col_fecha_factura:
+                cols_socios.append(col_fecha_factura)
+            socios_por_ute[str(id_ute).strip()] = grupo[cols_socios].copy()
 
         for idx, pago in df_pagos.iterrows():
             try:
@@ -534,26 +546,30 @@ if not df_cobros.empty:
 
                 df_facturas = facturas_por_cif[cif_pago].copy()
                 
-                # FILTRAR SOLO FACTURAS 90 POSITIVAS - NO usar negativas (abonos)
-                df_facturas = df_facturas[df_facturas['IMPORTE_CORRECTO'] > 0].copy()
+                # FILTRAR SOLO FACTURAS 90 POSITIVAS (CON IMPUESTO) Y CON FECHA <= FECHA_PAGO
+                df_facturas = df_facturas[
+                    (df_facturas['IMPORTE_CON_IMPUESTO'] > 0) &  # Positivas con impuesto
+                    (df_facturas['Fecha Emisión'] <= fecha_pago)  # Fecha emisión <= fecha pago
+                ].copy()
                 
                 if df_facturas.empty:
-                    # Solo hay facturas negativas para este CIF
+                    # Solo hay facturas negativas o posteriores al pago para este CIF
                     resultados.append({
                         'CIF_UTE': cif_pago,
                         'fecha_pago': fecha_pago,
                         'importe_pago': importe_pago,
-                        'facturas_90_asignadas': 'SOLO_FACTURAS_NEGATIVAS',
+                        'facturas_90_asignadas': 'SIN_FACTURAS_VALIDAS',
                         'importe_facturas_90': 0.0,
                         'desglose_facturas_90': None,
                         'diferencia_pago_vs_90': importe_pago
                     })
                     continue
                 
-                df_facturas = df_facturas.sort_values('IMPORTE_CORRECTO', ascending=True)
+                df_facturas = df_facturas.sort_values('IMPORTE_CON_IMPUESTO', ascending=True)
                 numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
-                importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
+                importes_facturas = df_facturas['IMPORTE_CON_IMPUESTO'].tolist()  # CON IMPUESTO
                 ids_ute = df_facturas['Id UTE'].tolist()
+                fechas_90 = df_facturas['Fecha Emisión'].tolist()  # Guardar fechas de facturas 90
 
                 # --- Modelo OR-Tools para facturas 90
                 model = cp_model.CpModel()
@@ -582,6 +598,7 @@ if not df_cobros.empty:
                         num_factura_90 = numeros_facturas[i]
                         importe_factura_90 = importes_facturas[i]
                         id_ute = str(ids_ute[i]).strip()
+                        fecha_factura_90 = fechas_90[i]  # Fecha de esta factura 90
                         
                         importe_facturas_90 += importe_factura_90
                         
@@ -591,9 +608,16 @@ if not df_cobros.empty:
                         
                         if id_ute in socios_por_ute:
                             df_socios_ute = socios_por_ute[id_ute]
+                            
+                            # FILTRAR SOCIOS: solo los que tienen fecha <= fecha de la factura 90
+                            if col_fecha_factura and col_fecha_factura in df_socios_ute.columns:
+                                df_socios_ute = df_socios_ute[
+                                    df_socios_ute[col_fecha_factura] <= fecha_factura_90
+                                ].copy()
+                            
                             for _, socio in df_socios_ute.iterrows():
                                 num_factura_socio = str(socio[col_num_factura_prisma])
-                                importe_socio = socio['IMPORTE_CORRECTO']
+                                importe_socio = socio['IMPORTE_CON_IMPUESTO']  # CON IMPUESTO
                                 cif_socio = str(socio['CIF'])
                                 socios_lista.append({
                                     'num_factura': num_factura_socio,
@@ -664,7 +688,13 @@ if not df_cobros.empty:
     
     # Solo ejecutar si se pulsa el botón
     if ejecutar_cruce:
-        st.info("ℹ️ **Nota:** Solo se consideran facturas 90 y socios con importe POSITIVO. Las facturas negativas (abonos) se ignoran.")
+        st.info("""
+        ℹ️ **Filtros aplicados:**
+        - ✅ Solo facturas 90 y socios con importe POSITIVO (con impuesto aplicado)
+        - ✅ Facturas 90 con fecha emisión ≤ fecha del pago
+        - ✅ Socios con fecha emisión ≤ fecha de su factura 90
+        - ⛔ Facturas negativas (abonos) se ignoran
+        """)
         
         with st.spinner("⏳ Buscando combinaciones óptimas de facturas... esto puede tardar unos segundos"):
             inicio = time.time()
