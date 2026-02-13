@@ -380,8 +380,9 @@ if archivo:
 
             # Pedir solo un día
             df_cobros['fec_operacion'] = df_cobros['fec_operacion'].dt.normalize()
-            dias_disponibles = sorted(df_cobros['fec_operacion'].dt.normalize().dropna().unique())
+            dias_disponibles = sorted(df_cobros['fec_operacion'].dropna().unique())
             fecha_seleccionada = st.selectbox("Selecciona el día:", dias_disponibles)
+
 
 
             
