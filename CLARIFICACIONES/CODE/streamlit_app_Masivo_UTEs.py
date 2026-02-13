@@ -381,6 +381,8 @@ else:
 
 if not df_cobros.empty:
     st.subheader("🔹 Selecciona el día para el cruce de pagos")
+    
+    st.info("💡 **Tip**: Puedes cambiar de día cuantas veces quieras. El cruce solo se ejecutará cuando pulses el botón.")
 
     # Pedir solo un día
     df_cobros['fec_operacion'] = df_cobros['fec_operacion'].dt.normalize()
@@ -406,66 +408,73 @@ if not df_cobros.empty:
     st.dataframe(df_pagos.head(10), use_container_width=True)
     st.write(f"Total importes en el día: {df_pagos['importe'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
-    #######--- 5) PREPARAR DATOS PARA CRUCE ---#######
+    #######--- 5) PREPARAR DATOS PARA CRUCE (SOLO UNA VEZ) ---#######
 
-    # NORMALIZACIONES BASE
-    df_pagos['CIF_UTE'] = (
-        df_pagos['CIF_UTE']
-        .astype(str)
-        .str.replace(".0", "", regex=False)
-        .str.strip()
-        .str.upper()
-    )
-    df_prisma['CIF'] = (
-        df_prisma['CIF']
-        .astype(str)
-        .str.replace(".0", "", regex=False)
-        .str.strip()
-        .str.upper()
-    )
-    df_prisma[col_num_factura_prisma] = (
-        df_prisma[col_num_factura_prisma]
-        .astype(str)
-        .str.strip()
-    )
+    # PREPARAR df_prisma_90 SOLO UNA VEZ y guardarlo en session_state
+    if "df_prisma_90_preparado" not in st.session_state:
+        st.info("⏳ Preparando datos de PRISMA para cruce (solo la primera vez)...")
+        
+        # NORMALIZACIONES BASE
+        df_prisma['CIF'] = (
+            df_prisma['CIF']
+            .astype(str)
+            .str.replace(".0", "", regex=False)
+            .str.strip()
+            .str.upper()
+        )
+        df_prisma[col_num_factura_prisma] = (
+            df_prisma[col_num_factura_prisma]
+            .astype(str)
+            .str.strip()
+        )
 
-    # -------------------------------
-    # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
-    # -------------------------------
+        # -------------------------------
+        # 1️⃣ OBTENER CIF UTE POR Id UTE (desde socios)
+        # -------------------------------
 
-    df_temp = df_prisma.copy()
-    df_temp[col_num_factura_prisma] = df_temp[col_num_factura_prisma].astype(str).str.strip()
-    df_temp['Id UTE'] = df_temp['Id UTE'].astype(str).str.strip()
-    df_temp['CIF'] = df_temp['CIF'].astype(str).str.strip()
+        df_temp = df_prisma.copy()
+        df_temp[col_num_factura_prisma] = df_temp[col_num_factura_prisma].astype(str).str.strip()
+        df_temp['Id UTE'] = df_temp['Id UTE'].astype(str).str.strip()
+        df_temp['CIF'] = df_temp['CIF'].astype(str).str.strip()
 
-    # Facturas que NO empiezan por 90
-    df_sin_90 = df_temp[~df_temp[col_num_factura_prisma].str.startswith("90")].copy()
-    cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
+        # Facturas que NO empiezan por 90
+        df_sin_90 = df_temp[~df_temp[col_num_factura_prisma].str.startswith("90")].copy()
+        cif_por_ute = df_sin_90.groupby('Id UTE')['CIF'].first().to_dict()
 
-    # -------------------------------
-    # 2️⃣ FACTURAS 90 + CIF UTE REAL
-    # -------------------------------
+        # -------------------------------
+        # 2️⃣ FACTURAS 90 + CIF UTE REAL
+        # -------------------------------
 
-    df_prisma_90 = df_temp[df_temp[col_num_factura_prisma].str.startswith("90")].copy()
-    df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip()
-    df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].apply(lambda x: cif_por_ute.get(x, "NONE"))
+        df_prisma_90 = df_temp[df_temp[col_num_factura_prisma].str.startswith("90")].copy()
+        df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].astype(str).str.strip()
+        df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['Id UTE'].apply(lambda x: cif_por_ute.get(x, "NONE"))
 
-    # Añadir columnas de nombre de UTE y cliente final si existen en df_prisma
-    if 'Nombre UTE' in df_prisma.columns:
-        df_prisma_90['Nombre_UTE'] = df_prisma_90['Id UTE'].map(df_prisma.set_index('Id UTE')['Nombre UTE'])
+        # Añadir columnas de nombre de UTE y cliente final si existen en df_prisma
+        if 'Nombre UTE' in df_prisma.columns:
+            df_prisma_90['Nombre_UTE'] = df_prisma_90['Id UTE'].map(df_prisma.set_index('Id UTE')['Nombre UTE'])
+        else:
+            df_prisma_90['Nombre_UTE'] = "DESCONOCIDO"
+
+        if 'Nombre Cliente' in df_prisma.columns:
+            df_prisma_90['Nombre_Cliente'] = df_prisma_90['CIF_UTE_REAL'].map(df_prisma.set_index('CIF')['Nombre Cliente'])
+        else:
+            df_prisma_90['Nombre_Cliente'] = "DESCONOCIDO"
+        
+        # Guardar en session_state
+        st.session_state.df_prisma_90_preparado = df_prisma_90
+        st.success("✅ Datos de PRISMA preparados")
     else:
-        df_prisma_90['Nombre_UTE'] = "DESCONOCIDO"
-
-    if 'Nombre Cliente' in df_prisma.columns:
-        df_prisma_90['Nombre_Cliente'] = df_prisma_90['CIF_UTE_REAL'].map(df_prisma.set_index('CIF')['Nombre Cliente'])
-    else:
-        df_prisma_90['Nombre_Cliente'] = "DESCONOCIDO"
+        # Recuperar desde session_state
+        df_prisma_90 = st.session_state.df_prisma_90_preparado
 
     # DEBUG mínimo
     with st.expander("🔍 Info facturas 90 preparadas"):
-        st.write("ℹ️ Filas de facturas 90:", len(df_prisma_90))
-        st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
-        st.dataframe(df_prisma_90[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'Nombre_UTE', 'Nombre_Cliente']].head(20))
+        st.write("ℹ️ Filas de facturas 90:", len(st.session_state.df_prisma_90_preparado))
+        st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (st.session_state.df_prisma_90_preparado['CIF_UTE_REAL'] == "NONE").sum())
+        st.dataframe(st.session_state.df_prisma_90_preparado[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'Nombre_UTE', 'Nombre_Cliente']].head(20))
+    
+    # Usar el df_prisma_90 desde session_state
+    df_prisma_90 = st.session_state.df_prisma_90_preparado
 
     # -------------------------------
     # 3️⃣ FUNCIÓN OR-TOOLS
@@ -570,8 +579,18 @@ if not df_cobros.empty:
         with st.spinner("⏳ Buscando combinaciones óptimas de facturas... esto puede tardar unos segundos"):
             inicio = time.time()
             
+            # Normalizar CIF_UTE solo cuando se va a ejecutar el cruce
+            df_pagos_normalizado = df_pagos.copy()
+            df_pagos_normalizado['CIF_UTE'] = (
+                df_pagos_normalizado['CIF_UTE']
+                .astype(str)
+                .str.replace(".0", "", regex=False)
+                .str.strip()
+                .str.upper()
+            )
+            
             df_resultados = cruzar_pagos_con_prisma_exacto(
-                df_pagos,
+                df_pagos_normalizado,
                 df_prisma_90,
                 col_num_factura_prisma,
                 0.01
