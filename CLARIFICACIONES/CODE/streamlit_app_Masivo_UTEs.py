@@ -538,25 +538,13 @@ if archivo:
             # -------------------------------
             st.write("🔹 Ejecutando solver para cruzar pagos con PRISMA...")
 
-            # Si había un cálculo anterior en marcha, lo cancelamos
-            if st.session_state.future is not None:
-                st.session_state.future.cancel()
-
-            # Lanzamos el nuevo cálculo
-            st.session_state.future = st.session_state.executor.submit(
-                cruzar_pagos_con_prisma_exacto,
-                df_pagos,
-                df_prisma_90,
-                col_num_factura_prisma,
-                0.01
-            )
-
             with st.spinner("⏳ Buscando combinaciones, esto puede tardar..."):
-                while st.session_state.future.running():
-                    time.sleep(0.1)
-
-            df_resultados = st.session_state.future.result()
-
+                df_resultados = cruzar_pagos_con_prisma_exacto(
+                    df_pagos,
+                    df_prisma_90,
+                    col_num_factura_prisma,
+                    0.01
+    )
             st.success("🔹 Solver completado")
             st.dataframe(df_resultados.head(50), use_container_width=True)
 
