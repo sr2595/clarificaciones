@@ -379,6 +379,7 @@ if archivo:
             st.subheader("🔹 Selecciona el día para el cruce de pagos")
 
             # Pedir solo un día
+            df_cobros['fec_operacion'] = df_cobros['fec_operacion'].dt.normalize()
             dias_disponibles = sorted(df_cobros['fec_operacion'].dt.normalize().dropna().unique())
             fecha_seleccionada = st.selectbox("Selecciona el día:", dias_disponibles)
 
