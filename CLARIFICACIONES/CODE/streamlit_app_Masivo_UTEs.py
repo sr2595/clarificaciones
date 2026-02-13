@@ -6,6 +6,8 @@ from datetime import datetime
 import unicodedata, re
 import io
 import os
+import concurrent.futures
+
 
 st.write("DEBUG archivo en ejecución:", os.path.abspath(__file__))
 
@@ -525,13 +527,19 @@ if archivo:
             # 4️⃣ Ejecutar solver
             # -------------------------------
             st.write("🔹 Ejecutando solver para cruzar pagos con PRISMA...")
-            df_resultados = cruzar_pagos_con_prisma_exacto(
-                df_pagos=df_pagos,
-                df_prisma_90=df_prisma_90,
-                col_num_factura_prisma=col_num_factura_prisma,
-                tolerancia=0.01
-            )
-            st.write("🔹 Solver completado")
+
+            with st.spinner("⏳ Buscando combinaciones, esto puede tardar..."):
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        cruzar_pagos_con_prisma_exacto,
+                        df_pagos,
+                        df_prisma_90,
+                        col_num_factura_prisma,
+                        0.01
+                    )
+                    df_resultados = future.result()
+
+            st.success("🔹 Solver completado")
             st.dataframe(df_resultados.head(50), use_container_width=True)
 
             # -------------------------------
