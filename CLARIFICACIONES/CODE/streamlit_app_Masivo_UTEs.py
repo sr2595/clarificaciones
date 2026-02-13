@@ -477,20 +477,11 @@ if not df_cobros.empty:
     df_prisma_90 = st.session_state.df_prisma_90_preparado
 
     # -------------------------------
-    # 3️⃣ FUNCIÓN OR-TOOLS CON SOCIOS
+    # 3️⃣ FUNCIÓN OR-TOOLS
     # -------------------------------
-    def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, df_prisma_completo, col_num_factura_prisma, tolerancia=0.01):
-        """
-        Cruza pagos con facturas 90 y además busca las facturas de socios asociadas a cada factura 90
-        """
+    def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, col_num_factura_prisma, tolerancia=0.01):
         resultados = []
         facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
-        
-        # Crear diccionario de facturas de socios por Id UTE (facturas que NO son 90)
-        df_socios = df_prisma_completo[~df_prisma_completo[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
-        socios_por_ute = {}
-        for id_ute, grupo in df_socios.groupby('Id UTE'):
-            socios_por_ute[str(id_ute).strip()] = grupo[[col_num_factura_prisma, 'IMPORTE_CORRECTO', 'CIF']].copy()
 
         for idx, pago in df_pagos.iterrows():
             try:
@@ -503,21 +494,21 @@ if not df_cobros.empty:
                         'CIF_UTE': cif_pago,
                         'fecha_pago': fecha_pago,
                         'importe_pago': importe_pago,
-                        'facturas_90_asignadas': None,
-                        'importe_facturas_90': 0.0,
-                        'facturas_socios': None,
-                        'importe_facturas_socios': 0.0,
-                        'diferencia_90_vs_socios': 0.0,
-                        'diferencia_pago_vs_90': importe_pago
+                        'facturas_asignadas': None,
+                        'importe_facturas': 0.0,
+                        'diferencia': importe_pago,
+                        'Nombre_UTE': None,
+                        'Nombre_Cliente': None
                     })
                     continue
 
                 df_facturas = facturas_por_cif[cif_pago].sort_values('IMPORTE_CORRECTO', ascending=True)
                 numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
                 importes_facturas = df_facturas['IMPORTE_CORRECTO'].tolist()
-                ids_ute = df_facturas['Id UTE'].tolist()
+                nombre_ute = df_facturas['Nombre_UTE'].iloc[0] if 'Nombre_UTE' in df_facturas else None
+                nombre_cliente = df_facturas['Nombre_Cliente'].iloc[0] if 'Nombre_Cliente' in df_facturas else None
 
-                # --- Modelo OR-Tools para facturas 90
+                # --- Modelo OR-Tools
                 model = cp_model.CpModel()
                 n = len(importes_facturas)
                 pagos_cent = int(round(importe_pago * 100))
@@ -529,83 +520,29 @@ if not df_cobros.empty:
                 model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
 
                 solver = cp_model.CpSolver()
-                solver.parameters.max_time_in_seconds = 3
-                solver.parameters.log_search_progress = False
+                solver.parameters.max_time_in_seconds = 3  # Reducido para evitar cuelgues
+                solver.parameters.log_search_progress = False  # No mostrar logs
                 status = solver.Solve(model)
 
                 if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
                     seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
-                    facturas_90_asignadas = [numeros_facturas[i] for i in seleccion]
-                    importe_facturas_90 = sum(importes_facturas[i] for i in seleccion)
-                    
-                    # Buscar facturas de socios para cada factura 90 seleccionada
-                    # Los socios COMPONEN la factura 90, no se suman a ella
-                    desglose_por_factura_90 = []
-                    
-                    for i in seleccion:
-                        num_factura_90 = numeros_facturas[i]
-                        importe_factura_90 = importes_facturas[i]
-                        id_ute = str(ids_ute[i]).strip()
-                        
-                        facturas_socios_de_esta_90 = []
-                        importe_socios_de_esta_90 = 0.0
-                        
-                        if id_ute in socios_por_ute:
-                            df_socios_ute = socios_por_ute[id_ute]
-                            for _, socio in df_socios_ute.iterrows():
-                                num_factura_socio = str(socio[col_num_factura_prisma])
-                                importe_socio = socio['IMPORTE_CORRECTO']
-                                cif_socio = str(socio['CIF'])
-                                facturas_socios_de_esta_90.append(f"{num_factura_socio} ({cif_socio}: {importe_socio:.2f}€)")
-                                importe_socios_de_esta_90 += importe_socio
-                        
-                        # Calcular diferencia entre la 90 y sus socios
-                        diferencia_90_socios = importe_factura_90 - importe_socios_de_esta_90
-                        
-                        desglose_por_factura_90.append({
-                            'factura_90': num_factura_90,
-                            'importe_90': importe_factura_90,
-                            'socios': facturas_socios_de_esta_90,
-                            'importe_socios': importe_socios_de_esta_90,
-                            'diferencia_90_socios': diferencia_90_socios
-                        })
-                    
-                    # Preparar strings para el resultado
-                    facturas_90_str = ', '.join([d['factura_90'] for d in desglose_por_factura_90])
-                    
-                    # Crear string detallado de socios agrupados por factura 90
-                    socios_detalle = []
-                    for d in desglose_por_factura_90:
-                        if d['socios']:
-                            socios_str = ' + '.join(d['socios'])
-                            socios_detalle.append(f"[{d['factura_90']}]: {socios_str}")
-                    
-                    facturas_socios_str = ' || '.join(socios_detalle) if socios_detalle else None
-                    
-                    # Totales
-                    importe_total_socios = sum(d['importe_socios'] for d in desglose_por_factura_90)
-                    diferencia_total_90_socios = sum(d['diferencia_90_socios'] for d in desglose_por_factura_90)
-                    
+                    facturas_asignadas = [numeros_facturas[i] for i in seleccion]
+                    importe_facturas = sum(importes_facturas[i] for i in seleccion)
                 else:
-                    facturas_90_str = None
-                    importe_facturas_90 = 0.0
-                    facturas_socios_str = None
-                    importe_total_socios = 0.0
-                    diferencia_total_90_socios = 0.0
+                    facturas_asignadas = None
+                    importe_facturas = 0.0
 
-                # Diferencia final: pago - facturas 90 (los socios ya están dentro de las 90)
-                diferencia_pago_vs_90 = importe_pago - importe_facturas_90
+                diferencia = importe_pago - (importe_facturas or 0.0)
 
                 resultados.append({
                     'CIF_UTE': cif_pago,
                     'fecha_pago': fecha_pago,
                     'importe_pago': importe_pago,
-                    'facturas_90_asignadas': facturas_90_str,
-                    'importe_facturas_90': importe_facturas_90,
-                    'facturas_socios': facturas_socios_str,
-                    'importe_facturas_socios': importe_total_socios,
-                    'diferencia_90_vs_socios': diferencia_total_90_socios,
-                    'diferencia_pago_vs_90': diferencia_pago_vs_90
+                    'facturas_asignadas': ', '.join(facturas_asignadas) if facturas_asignadas else None,
+                    'importe_facturas': importe_facturas,
+                    'diferencia': diferencia,
+                    'Nombre_UTE': nombre_ute,
+                    'Nombre_Cliente': nombre_cliente
                 })
             
             except Exception as e:
@@ -614,12 +551,11 @@ if not df_cobros.empty:
                     'CIF_UTE': pago.get('CIF_UTE', 'ERROR'),
                     'fecha_pago': pago.get('fec_operacion'),
                     'importe_pago': pago.get('importe', 0),
-                    'facturas_90_asignadas': f"ERROR: {str(e)}",
-                    'importe_facturas_90': 0.0,
-                    'facturas_socios': None,
-                    'importe_facturas_socios': 0.0,
-                    'diferencia_90_vs_socios': 0.0,
-                    'diferencia_pago_vs_90': pago.get('importe', 0)
+                    'facturas_asignadas': f"ERROR: {str(e)}",
+                    'importe_facturas': 0.0,
+                    'diferencia': pago.get('importe', 0),
+                    'Nombre_UTE': None,
+                    'Nombre_Cliente': None
                 })
                 continue
 
@@ -656,7 +592,6 @@ if not df_cobros.empty:
             df_resultados = cruzar_pagos_con_prisma_exacto(
                 df_pagos_normalizado,
                 df_prisma_90,
-                df_prisma,  # Pasamos el df_prisma completo para acceder a facturas de socios
                 col_num_factura_prisma,
                 0.01
             )
@@ -683,81 +618,23 @@ if not df_cobros.empty:
         col1, col2, col3, col4 = st.columns(4)
         
         total_pagos = len(df_resultados)
-        pagos_con_facturas = df_resultados['facturas_90_asignadas'].notna().sum()
+        pagos_con_facturas = df_resultados['facturas_asignadas'].notna().sum()
         pagos_sin_facturas = total_pagos - pagos_con_facturas
         importe_total_pagos = df_resultados['importe_pago'].sum()
-        importe_total_90 = df_resultados['importe_facturas_90'].sum()
-        importe_total_socios = df_resultados['importe_facturas_socios'].sum()
-        diferencia_90_vs_socios = df_resultados['diferencia_90_vs_socios'].sum()
-        diferencia_pago_vs_90 = df_resultados['diferencia_pago_vs_90'].sum()
+        importe_total_asignado = df_resultados['importe_facturas'].sum()
+        diferencia_total = df_resultados['diferencia'].sum()
         
         with col1:
             st.metric("Total Pagos", total_pagos)
         with col2:
-            st.metric("Con Facturas 90", pagos_con_facturas, delta=f"{(pagos_con_facturas/total_pagos*100):.1f}%")
+            st.metric("Con Facturas", pagos_con_facturas, delta=f"{(pagos_con_facturas/total_pagos*100):.1f}%")
         with col3:
             st.metric("Sin Facturas", pagos_sin_facturas)
         with col4:
-            st.metric("Dif. Pago vs 90", f"{diferencia_pago_vs_90:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-        
-        # Métricas adicionales de importes
-        st.markdown("---")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("💰 Total Pagos", f"{importe_total_pagos:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-        with col2:
-            st.metric("🔵 Facturas 90", f"{importe_total_90:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-        with col3:
-            st.metric("🟢 Facturas Socios", f"{importe_total_socios:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-        with col4:
-            st.metric("⚠️ Dif. 90 vs Socios", f"{diferencia_90_vs_socios:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.metric("Diferencia Total", f"{diferencia_total:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
         
         # Tabla de resultados
         st.dataframe(df_resultados, use_container_width=True, height=400)
-        
-        # Vista detallada con desglose
-        with st.expander("🔍 Ver desglose detallado de facturas por pago"):
-            for idx, row in df_resultados.iterrows():
-                if pd.notna(row['facturas_90_asignadas']):
-                    st.markdown(f"### 💰 Pago {idx+1}: {row['importe_pago']:,.2f} € ({row['CIF_UTE']})".replace(",", "X").replace(".", ",").replace("X", "."))
-                    st.markdown(f"**📅 Fecha:** {row['fecha_pago'].strftime('%d/%m/%Y')}")
-                    
-                    # Mostrar facturas 90
-                    st.markdown(f"**🔵 Facturas 90 asignadas:** {row['facturas_90_asignadas']}")
-                    st.markdown(f"**Importe total 90:** {row['importe_facturas_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-                    
-                    st.markdown("---")
-                    
-                    # Desglose de socios que componen las 90
-                    if pd.notna(row['facturas_socios']):
-                        st.markdown("**🟢 Facturas de socios que componen las 90:**")
-                        # Las facturas de socios ya vienen agrupadas por factura 90
-                        # Formato: [Factura90]: socio1 + socio2 || [Factura90_2]: socio3
-                        grupos_90 = row['facturas_socios'].split(' || ')
-                        for grupo in grupos_90:
-                            st.markdown(f"• {grupo}")
-                        
-                        st.markdown(f"**Total socios:** {row['importe_facturas_socios']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-                        st.markdown(f"**⚠️ Diferencia 90 vs Socios:** {row['diferencia_90_vs_socios']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-                    else:
-                        st.markdown("**🟢 Facturas de socios:** Sin facturas de socios encontradas")
-                    
-                    st.markdown("---")
-                    
-                    # Resumen final
-                    st.markdown(f"""
-                    **📊 Resumen del pago:**
-                    - 💰 Importe del pago: {row['importe_pago']:,.2f} €
-                    - 🔵 Total facturas 90: {row['importe_facturas_90']:,.2f} €
-                    - **⚠️ Diferencia Pago vs 90: {row['diferencia_pago_vs_90']:,.2f} €**
-                    
-                    **🔍 Composición de las facturas 90:**
-                    - 🟢 Total socios: {row['importe_facturas_socios']:,.2f} €
-                    - **⚠️ Diferencia 90 vs Socios: {row['diferencia_90_vs_socios']:,.2f} €** (lo que falta por encontrar en socios)
-                    """.replace(",", "X").replace(".", ",").replace("X", "."))
-                    
-                    st.markdown("---")
         
         # -------------------------------
         # 6️⃣ DESCARGAR EXCEL
