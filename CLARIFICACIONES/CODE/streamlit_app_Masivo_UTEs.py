@@ -543,7 +543,8 @@ if not df_cobros.empty:
                         'facturas_90_asignadas': None,
                         'importe_facturas_90': 0.0,
                         'desglose_facturas_90': None,
-                        'diferencia_pago_vs_90': importe_pago
+                        'diferencia_pago_vs_90': importe_pago,
+                        'advertencia': None
                     })
                     continue
 
@@ -564,15 +565,28 @@ if not df_cobros.empty:
                         'facturas_90_asignadas': 'SIN_FACTURAS_VALIDAS',
                         'importe_facturas_90': 0.0,
                         'desglose_facturas_90': None,
-                        'diferencia_pago_vs_90': importe_pago
+                        'diferencia_pago_vs_90': importe_pago,
+                        'advertencia': None
                     })
                     continue
                 
                 df_facturas = df_facturas.sort_values('IMPORTE_CON_IMPUESTO', ascending=True)
+                
+                # PRIORIZACIÓN POR FECHA: Ordenar por fecha de emisión (más antiguas primero)
+                # Esto hace que el solver elija facturas antiguas sobre modernas cuando tienen el mismo importe
+                df_facturas = df_facturas.sort_values(
+                    ['Fecha Emisión', 'IMPORTE_CON_IMPUESTO'], 
+                    ascending=[True, True]  # Fecha antigua primero, luego menor importe
+                )
+                
                 numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
                 importes_facturas = df_facturas['IMPORTE_CON_IMPUESTO'].tolist()  # CON IMPUESTO
                 ids_ute = df_facturas['Id UTE'].tolist()
                 fechas_90 = df_facturas['Fecha Emisión'].tolist()  # Guardar fechas de facturas 90
+                
+                # Detectar si hay facturas 90 con importes duplicados (múltiples opciones)
+                importes_unicos = len(set(importes_facturas))
+                hay_facturas_duplicadas = importes_unicos < len(importes_facturas)
 
                 # --- Modelo OR-Tools para facturas 90
                 model = cp_model.CpModel()
@@ -647,9 +661,15 @@ if not df_cobros.empty:
                     facturas_90_str = None
                     importe_facturas_90 = 0.0
                     desglose_por_factura_90 = None
+                    hay_facturas_duplicadas = False
 
                 # Diferencia pago vs facturas 90
                 diferencia_pago_vs_90 = importe_pago - importe_facturas_90
+                
+                # Flag de advertencia: si hay múltiples 90 con mismo importe
+                advertencia = None
+                if hay_facturas_duplicadas and facturas_90_str is not None:
+                    advertencia = "⚠️ ATENCIÓN: Había múltiples facturas 90 con importes similares. Se priorizaron las más antiguas."
 
                 resultados.append({
                     'CIF_UTE': cif_pago,
@@ -658,7 +678,8 @@ if not df_cobros.empty:
                     'facturas_90_asignadas': facturas_90_str,
                     'importe_facturas_90': importe_facturas_90,
                     'desglose_facturas_90': desglose_por_factura_90,  # Aquí guardamos el desglose completo
-                    'diferencia_pago_vs_90': diferencia_pago_vs_90
+                    'diferencia_pago_vs_90': diferencia_pago_vs_90,
+                    'advertencia': advertencia  # Nueva columna de advertencia
                 })
             
             except Exception as e:
@@ -670,7 +691,8 @@ if not df_cobros.empty:
                     'facturas_90_asignadas': f"ERROR: {str(e)}",
                     'importe_facturas_90': 0.0,
                     'desglose_facturas_90': None,
-                    'diferencia_pago_vs_90': pago.get('importe', 0)
+                    'diferencia_pago_vs_90': pago.get('importe', 0),
+                    'advertencia': None
                 })
                 continue
 
@@ -745,6 +767,7 @@ if not df_cobros.empty:
         total_pagos = len(df_resultados)
         pagos_con_facturas = df_resultados['facturas_90_asignadas'].notna().sum()
         pagos_sin_facturas = total_pagos - pagos_con_facturas
+        pagos_con_advertencia = df_resultados['advertencia'].notna().sum()  # Nueva métrica
         importe_total_pagos = df_resultados['importe_pago'].sum()
         importe_total_90 = df_resultados['importe_facturas_90'].sum()
         diferencia_pago_vs_90 = df_resultados['diferencia_pago_vs_90'].sum()
@@ -765,7 +788,10 @@ if not df_cobros.empty:
         with col3:
             st.metric("Sin Facturas", pagos_sin_facturas)
         with col4:
-            st.metric("Dif. Pago vs 90", f"{diferencia_pago_vs_90:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            if pagos_con_advertencia > 0:
+                st.metric("⚠️ Con Advertencia", pagos_con_advertencia, delta="Revisar", delta_color="inverse")
+            else:
+                st.metric("Dif. Pago vs 90", f"{diferencia_pago_vs_90:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
         
         # Métricas adicionales de importes
         st.markdown("---")
@@ -781,6 +807,9 @@ if not df_cobros.empty:
             st.metric("⚠️ Dif. 90 vs Socios", f"{diferencia_total_90_vs_socios:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
         
         # Tabla de resultados
+        if pagos_con_advertencia > 0:
+            st.warning(f"⚠️ **{pagos_con_advertencia} pago(s) tienen advertencia**: Había múltiples facturas 90 similares. Se priorizaron las más antiguas. Revisa la columna 'advertencia' en el Excel.")
+        
         st.dataframe(df_resultados, use_container_width=True, height=400)
         
         # Vista detallada con desglose
@@ -791,6 +820,10 @@ if not df_cobros.empty:
                     st.markdown(f"**📅 Fecha:** {row['fecha_pago'].strftime('%d/%m/%Y')}")
                     st.markdown(f"**🔵 Total facturas 90:** {row['importe_facturas_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
                     st.markdown(f"**⚠️ Diferencia Pago vs 90:** {row['diferencia_pago_vs_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                    
+                    # Mostrar advertencia si existe
+                    if pd.notna(row['advertencia']):
+                        st.warning(row['advertencia'])
                     
                     st.markdown("---")
                     
@@ -856,7 +889,8 @@ if not df_cobros.empty:
                         'Facturas_Socios': socios_str,
                         'Importe_Socios': factura_90_data['importe_socios'],
                         'Diferencia_90_vs_Socios': factura_90_data['diferencia_90_socios'],
-                        'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90']
+                        'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90'],
+                        'Advertencia': row['advertencia'] if pd.notna(row['advertencia']) else ''
                     })
             else:
                 # Pago sin facturas asignadas
@@ -870,7 +904,8 @@ if not df_cobros.empty:
                     'Facturas_Socios': None,
                     'Importe_Socios': 0.0,
                     'Diferencia_90_vs_Socios': 0.0,
-                    'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90']
+                    'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90'],
+                    'Advertencia': row['advertencia'] if pd.notna(row['advertencia']) else ''
                 })
         
         df_excel = pd.DataFrame(filas_excel)
