@@ -478,10 +478,14 @@ if not df_cobros.empty:
         # Normalizar CIF en COBRA para comparación
         df['CIF_Norm'] = df[col_cif].astype(str).str.replace(" ", "").str.strip().str.upper()
         
+        # IMPORTANTE: Normalizar el CIF ORIGINAL de PRISMA (no el CIF_UTE_REAL)
+        # Las facturas 90 en COBRA tienen el CIF del cliente final, no el de la UTE
+        df_prisma_90['CIF_Original_Norm'] = df_prisma_90['CIF'].astype(str).str.replace(" ", "").str.strip().str.upper()
+        
         # DEBUG: Mostrar muestras antes del cruce
         with st.expander("🔍 DEBUG: Ver datos antes del cruce"):
             st.write("**Muestra PRISMA (facturas 90):**")
-            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'CIF']].head(10))
+            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'CIF', 'CIF_Original_Norm', 'CIF_UTE_REAL']].head(10))
             
             st.write("**Muestra COBRA (todas las facturas):**")
             st.dataframe(df[['Num_Factura_Norm', 'CIF_Norm']].head(10))
@@ -494,14 +498,14 @@ if not df_cobros.empty:
         
         # OPTIMIZACIÓN: Usar merge de pandas en lugar de bucle for
         # Hacer el cruce: facturas que están en PRISMA Y en COBRA
-        # Comparamos por número de factura Y por CIF (para asegurar que es el mismo cliente)
+        # Comparamos por número de factura Y por CIF ORIGINAL (cliente final)
         
         # Crear subset de COBRA con solo las columnas necesarias
         df_cobra_subset = df[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates()
         
-        # Crear subset de PRISMA_90 con las columnas necesarias
-        df_prisma_90_subset = df_prisma_90[['Num_Factura_Norm', 'CIF']].copy()
-        df_prisma_90_subset.rename(columns={'CIF': 'CIF_Norm'}, inplace=True)
+        # Crear subset de PRISMA_90 con las columnas necesarias - USAR CIF ORIGINAL
+        df_prisma_90_subset = df_prisma_90[['Num_Factura_Norm', 'CIF_Original_Norm']].copy()
+        df_prisma_90_subset.rename(columns={'CIF_Original_Norm': 'CIF_Norm'}, inplace=True)
         
         # Hacer merge para encontrar coincidencias
         facturas_en_ambos = pd.merge(
