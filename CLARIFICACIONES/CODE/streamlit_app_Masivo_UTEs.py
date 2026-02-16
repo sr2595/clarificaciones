@@ -555,7 +555,7 @@ if not df_cobros.empty:
             with st.expander(f"📋 Facturas 90 SOLO en PRISMA (ignoradas para cruce: {len(facturas_solo_prisma)} facturas)"):
                 st.info("Estas facturas 90 están en PRISMA pero NO en COBRA, por lo que NO se considerarán en el cruce con pagos:")
                 st.dataframe(
-                    facturas_solo_prisma[[col_num_factura_prisma, 'CIF', 'Id UTE', 'IMPORTE_CON_IMPUESTO', col_fecha_prisma]].head(50),
+                    facturas_solo_prisma[[col_num_factura_prisma, 'CIF', 'Id UTE', 'IMPORTE_CON_IMPUESTO', 'Fecha Emisión']].head(50),
                     use_container_width=True
                 )
                 st.write(f"**Total facturas solo en PRISMA:** {len(facturas_solo_prisma)}")
