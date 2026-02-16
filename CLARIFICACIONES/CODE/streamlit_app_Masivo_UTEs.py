@@ -478,20 +478,27 @@ if not df_cobros.empty:
         # Normalizar CIF en COBRA para comparación
         df['CIF_Norm'] = df[col_cif].astype(str).str.replace(" ", "").str.strip().str.upper()
         
+        # OPTIMIZACIÓN: Usar merge de pandas en lugar de bucle for
         # Hacer el cruce: facturas que están en PRISMA Y en COBRA
         # Comparamos por número de factura Y por CIF (para asegurar que es el mismo cliente)
-        facturas_90_en_cobra = set()
         
-        for _, factura_90 in df_prisma_90.iterrows():
-            num_factura = factura_90['Num_Factura_Norm']
-            cif_prisma = factura_90['CIF']  # Ya está normalizado
-            
-            # Buscar esta factura en COBRA con el mismo CIF
-            match = df[(df['Num_Factura_Norm'] == num_factura) & (df['CIF_Norm'] == cif_prisma)]
-            
-            if not match.empty:
-                # Esta factura 90 está en COBRA, la incluimos
-                facturas_90_en_cobra.add(num_factura)
+        # Crear subset de COBRA con solo las columnas necesarias
+        df_cobra_subset = df[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates()
+        
+        # Crear subset de PRISMA_90 con las columnas necesarias
+        df_prisma_90_subset = df_prisma_90[['Num_Factura_Norm', 'CIF']].copy()
+        df_prisma_90_subset.rename(columns={'CIF': 'CIF_Norm'}, inplace=True)
+        
+        # Hacer merge para encontrar coincidencias
+        facturas_en_ambos = pd.merge(
+            df_prisma_90_subset,
+            df_cobra_subset,
+            on=['Num_Factura_Norm', 'CIF_Norm'],
+            how='inner'
+        )
+        
+        # Obtener el set de facturas que están en ambos
+        facturas_90_en_cobra = set(facturas_en_ambos['Num_Factura_Norm'].unique())
         
         # Filtrar df_prisma_90 para quedarnos solo con las que están en COBRA
         df_prisma_90_filtrado = df_prisma_90[df_prisma_90['Num_Factura_Norm'].isin(facturas_90_en_cobra)].copy()
