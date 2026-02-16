@@ -329,7 +329,8 @@ if "df_cobros_procesado" not in st.session_state:
         'importe': ['importe', 'imp', 'monto', 'amount', 'valor'],
         'posible_factura': ['posible_factura', 'factura', 'posiblefactura'],
         'norma_43': ['norma_43', 'norma43'],
-        'CIF_UTE': ['cif', 'cif_ute']
+        'CIF_UTE': ['cif', 'cif_ute'],
+        'denominacion': ['denominacion', 'nombre', 'razon_social', 'nombre_ute']
     }
 
     for target, possibles in col_map.items():
@@ -401,6 +402,8 @@ if not df_cobros.empty:
     columnas_cruce = ['fec_operacion', 'importe', 'posible_factura', 'CIF_UTE']
     if 'norma_43' in df_cobros_filtrado.columns:
         columnas_cruce.append('norma_43')
+    if 'denominacion' in df_cobros_filtrado.columns:
+        columnas_cruce.append('denominacion')
 
     df_pagos = df_cobros_filtrado[columnas_cruce].copy()
 
@@ -722,6 +725,7 @@ if not df_cobros.empty:
             # Guardar resultados en session_state
             st.session_state.df_resultados = df_resultados
             st.session_state.fecha_resultados = fecha_seleccionada
+            st.session_state.df_pagos_normalizado = df_pagos_normalizado  # Guardar para usar en Excel
             
             st.success(f"✅ Cruce completado en {fin - inicio:.2f} segundos")
     
@@ -819,9 +823,21 @@ if not df_cobros.empty:
         # 6️⃣ DESCARGAR EXCEL CON DESGLOSE
         # -------------------------------
         
+        # Crear diccionario CIF -> Nombre UTE desde df_pagos_normalizado para búsqueda rápida
+        cif_a_nombre = {}
+        if "df_pagos_normalizado" in st.session_state and 'denominacion' in st.session_state.df_pagos_normalizado.columns:
+            for _, pago in st.session_state.df_pagos_normalizado.iterrows():
+                cif = pago['CIF_UTE']
+                nombre = pago.get('denominacion', 'DESCONOCIDO')
+                if pd.notna(nombre):
+                    cif_a_nombre[cif] = str(nombre)
+        
         # Crear DataFrame plano con desglose de cada factura 90
         filas_excel = []
         for _, row in df_resultados.iterrows():
+            # Buscar nombre de la UTE
+            nombre_ute = cif_a_nombre.get(row['CIF_UTE'], 'DESCONOCIDO')
+            
             if row['desglose_facturas_90'] is not None:
                 for factura_90_data in row['desglose_facturas_90']:
                     # Convertir socios a string
@@ -832,7 +848,8 @@ if not df_cobros.empty:
                     
                     filas_excel.append({
                         'CIF_UTE': row['CIF_UTE'],
-                        'Fecha_Pago': row['fecha_pago'],
+                        'Nombre_UTE': nombre_ute,
+                        'Fecha_Pago': row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,  # Solo fecha, sin hora
                         'Importe_Pago': row['importe_pago'],
                         'Factura_90': factura_90_data['factura_90'],
                         'Importe_90': factura_90_data['importe_90'],
@@ -845,7 +862,8 @@ if not df_cobros.empty:
                 # Pago sin facturas asignadas
                 filas_excel.append({
                     'CIF_UTE': row['CIF_UTE'],
-                    'Fecha_Pago': row['fecha_pago'],
+                    'Nombre_UTE': nombre_ute,
+                    'Fecha_Pago': row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,  # Solo fecha, sin hora
                     'Importe_Pago': row['importe_pago'],
                     'Factura_90': None,
                     'Importe_90': 0.0,
