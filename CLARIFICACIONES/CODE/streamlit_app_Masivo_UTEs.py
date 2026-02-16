@@ -478,6 +478,20 @@ if not df_cobros.empty:
         # Normalizar CIF en COBRA para comparación
         df['CIF_Norm'] = df[col_cif].astype(str).str.replace(" ", "").str.strip().str.upper()
         
+        # DEBUG: Mostrar muestras antes del cruce
+        with st.expander("🔍 DEBUG: Ver datos antes del cruce"):
+            st.write("**Muestra PRISMA (facturas 90):**")
+            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'CIF']].head(10))
+            
+            st.write("**Muestra COBRA (todas las facturas):**")
+            st.dataframe(df[['Num_Factura_Norm', 'CIF_Norm']].head(10))
+            
+            st.write("**Facturas 90 en COBRA:**")
+            facturas_90_cobra = df[df['Num_Factura_Norm'].str.startswith('90', na=False)]
+            st.write(f"Total facturas que empiezan por '90' en COBRA: {len(facturas_90_cobra)}")
+            if len(facturas_90_cobra) > 0:
+                st.dataframe(facturas_90_cobra[['Num_Factura_Norm', 'CIF_Norm']].head(10))
+        
         # OPTIMIZACIÓN: Usar merge de pandas en lugar de bucle for
         # Hacer el cruce: facturas que están en PRISMA Y en COBRA
         # Comparamos por número de factura Y por CIF (para asegurar que es el mismo cliente)
@@ -496,6 +510,15 @@ if not df_cobros.empty:
             on=['Num_Factura_Norm', 'CIF_Norm'],
             how='inner'
         )
+        
+        st.write(f"🔍 **DEBUG Merge:**")
+        st.write(f"- Filas en PRISMA_90 subset: {len(df_prisma_90_subset)}")
+        st.write(f"- Filas en COBRA subset: {len(df_cobra_subset)}")
+        st.write(f"- Filas después del merge (coincidencias): {len(facturas_en_ambos)}")
+        
+        if len(facturas_en_ambos) > 0:
+            st.write("**Primeras coincidencias encontradas:**")
+            st.dataframe(facturas_en_ambos.head(10))
         
         # Obtener el set de facturas que están en ambos
         facturas_90_en_cobra = set(facturas_en_ambos['Num_Factura_Norm'].unique())
