@@ -465,14 +465,56 @@ if not df_cobros.empty:
         
         # Guardar en session_state
         st.session_state.df_prisma_90_preparado = df_prisma_90
-        st.success("✅ Datos de PRISMA preparados")
+        
+        # -------------------------------
+        # 2.5️⃣ CRUCE PRISMA ↔ COBRA: Filtrar solo facturas 90 que están en COBRA
+        # -------------------------------
+        st.info("🔄 Cruzando facturas 90 entre PRISMA y COBRA...")
+        
+        # Normalizar números de factura en ambos archivos para comparación
+        df_prisma_90['Num_Factura_Norm'] = df_prisma_90[col_num_factura_prisma].astype(str).str.strip().str.upper()
+        df['Num_Factura_Norm'] = df[col_factura].astype(str).str.strip().str.upper()
+        
+        # Normalizar CIF en COBRA para comparación
+        df['CIF_Norm'] = df[col_cif].astype(str).str.replace(" ", "").str.strip().str.upper()
+        
+        # Hacer el cruce: facturas que están en PRISMA Y en COBRA
+        # Comparamos por número de factura Y por CIF (para asegurar que es el mismo cliente)
+        facturas_90_en_cobra = set()
+        
+        for _, factura_90 in df_prisma_90.iterrows():
+            num_factura = factura_90['Num_Factura_Norm']
+            cif_prisma = factura_90['CIF']  # Ya está normalizado
+            
+            # Buscar esta factura en COBRA con el mismo CIF
+            match = df[(df['Num_Factura_Norm'] == num_factura) & (df['CIF_Norm'] == cif_prisma)]
+            
+            if not match.empty:
+                # Esta factura 90 está en COBRA, la incluimos
+                facturas_90_en_cobra.add(num_factura)
+        
+        # Filtrar df_prisma_90 para quedarnos solo con las que están en COBRA
+        df_prisma_90_filtrado = df_prisma_90[df_prisma_90['Num_Factura_Norm'].isin(facturas_90_en_cobra)].copy()
+        
+        st.write(f"📊 **Resultado del cruce PRISMA ↔ COBRA:**")
+        st.write(f"- Facturas 90 en PRISMA: {len(df_prisma_90)}")
+        st.write(f"- Facturas 90 también en COBRA: {len(df_prisma_90_filtrado)}")
+        st.write(f"- Facturas 90 SOLO en PRISMA (se ignorarán): {len(df_prisma_90) - len(df_prisma_90_filtrado)}")
+        
+        # REEMPLAZAR df_prisma_90 por la versión filtrada
+        df_prisma_90 = df_prisma_90_filtrado
+        
+        # Actualizar también en session_state
+        st.session_state.df_prisma_90_preparado = df_prisma_90
+        
+        st.success("✅ Datos de PRISMA preparados y filtrados con COBRA")
     else:
         # Recuperar desde session_state
         df_prisma_90 = st.session_state.df_prisma_90_preparado
 
     # DEBUG mínimo
-    with st.expander("🔍 Info facturas 90 preparadas"):
-        st.write("ℹ️ Filas de facturas 90:", len(st.session_state.df_prisma_90_preparado))
+    with st.expander("🔍 Info facturas 90 preparadas (después del cruce con COBRA)"):
+        st.write("ℹ️ Filas de facturas 90 (filtradas con COBRA):", len(st.session_state.df_prisma_90_preparado))
         st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (st.session_state.df_prisma_90_preparado['CIF_UTE_REAL'] == "NONE").sum())
         
         # Estadísticas de facturas positivas vs negativas (CON IMPUESTO)
@@ -481,11 +523,35 @@ if not df_cobros.empty:
         st.write(f"✅ Facturas 90 POSITIVAS (se usarán): {facturas_90_positivas}")
         st.write(f"⛔ Facturas 90 NEGATIVAS (se ignorarán): {facturas_90_negativas}")
         st.write("💡 **Nota:** Se usan importes CON impuesto aplicado (IVA, IGIC, etc.)")
+        st.write("🔄 **Filtro COBRA:** Solo se muestran facturas 90 que también están en COBRA")
         
         st.dataframe(st.session_state.df_prisma_90_preparado[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'IMPORTE_CON_IMPUESTO', 'Fecha Emisión']].head(20))
     
     # Usar el df_prisma_90 desde session_state
     df_prisma_90 = st.session_state.df_prisma_90_preparado
+    
+    # Mostrar facturas 90 que NO están en COBRA (solo en PRISMA)
+    # Para esto necesitamos comparar con la lista original antes del filtro
+    # Vamos a recalcular cuáles no están en COBRA
+    if 'Num_Factura_Norm' in df_prisma_90.columns:
+        # Las que están en COBRA son las que tenemos en df_prisma_90
+        facturas_en_cobra = set(df_prisma_90['Num_Factura_Norm'].tolist())
+        
+        # Obtener todas las facturas 90 originales del session_state de df_prisma
+        df_prisma_todas_90 = df_prisma[df_prisma[col_num_factura_prisma].astype(str).str.startswith("90")].copy()
+        df_prisma_todas_90['Num_Factura_Norm'] = df_prisma_todas_90[col_num_factura_prisma].astype(str).str.strip().str.upper()
+        
+        # Facturas solo en PRISMA
+        facturas_solo_prisma = df_prisma_todas_90[~df_prisma_todas_90['Num_Factura_Norm'].isin(facturas_en_cobra)]
+        
+        if len(facturas_solo_prisma) > 0:
+            with st.expander(f"📋 Facturas 90 SOLO en PRISMA (ignoradas para cruce: {len(facturas_solo_prisma)} facturas)"):
+                st.info("Estas facturas 90 están en PRISMA pero NO en COBRA, por lo que NO se considerarán en el cruce con pagos:")
+                st.dataframe(
+                    facturas_solo_prisma[[col_num_factura_prisma, 'CIF', 'Id UTE', 'IMPORTE_CON_IMPUESTO', col_fecha_prisma]].head(50),
+                    use_container_width=True
+                )
+                st.write(f"**Total facturas solo en PRISMA:** {len(facturas_solo_prisma)}")
     
     # Mostrar facturas negativas que serán ignoradas
     facturas_negativas = df_prisma_90[df_prisma_90['IMPORTE_CON_IMPUESTO'] <= 0]
@@ -715,10 +781,13 @@ if not df_cobros.empty:
     if ejecutar_cruce:
         st.info("""
         ℹ️ **Filtros aplicados:**
+        - ✅ Solo facturas 90 que están tanto en PRISMA como en COBRA
         - ✅ Solo facturas 90 y socios con importe POSITIVO (con impuesto aplicado)
         - ✅ Facturas 90 con fecha emisión ≤ fecha del pago
         - ✅ Socios con fecha emisión ≤ fecha de su factura 90
+        - ✅ Priorización de facturas 90 más antiguas cuando hay múltiples opciones
         - ⛔ Facturas negativas (abonos) se ignoran
+        - ⛔ Facturas 90 solo en PRISMA (no en COBRA) se ignoran
         """)
         
         with st.spinner("⏳ Buscando combinaciones óptimas de facturas... esto puede tardar unos segundos"):
