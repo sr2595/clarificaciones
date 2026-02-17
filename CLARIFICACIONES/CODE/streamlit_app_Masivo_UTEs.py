@@ -201,7 +201,7 @@ if "df_cobra_procesado" not in st.session_state:
     st.info("⏳ Procesando archivo COBRA por primera vez...")
     
     # Leer COBRA desde bytes
-    df_raw = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=None)
+    df_raw = pd.read_csv(BytesIO(st.session_state.cobra_bytes), header=None)
 
     # Buscar fila que contiene la cabecera
     header_row = None
