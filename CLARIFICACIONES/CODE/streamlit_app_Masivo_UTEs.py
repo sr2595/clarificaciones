@@ -186,7 +186,7 @@ if not df_prisma.empty:
         st.write(f"- Total importe con impuesto: {df_prisma['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
 # --------- 2) Subida y normalización de COBRA ---------
-archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls", "csv"])
+archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
 
 # Guardar bytes en session_state
 if archivo_cobra is not None:
@@ -201,14 +201,7 @@ if "df_cobra_procesado" not in st.session_state:
     st.info("⏳ Procesando archivo COBRA por primera vez...")
     
     # Leer COBRA desde bytes
-    df_raw = pd.read_csv(
-        BytesIO(st.session_state.cobra_bytes),
-        sep=";",        
-        encoding="latin1",
-        on_bad_lines="skip",
-        low_memory=False
-    )
-
+    df_raw = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=None)
 
     # Buscar fila que contiene la cabecera
     header_row = None
