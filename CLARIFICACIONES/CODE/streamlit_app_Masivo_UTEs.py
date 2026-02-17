@@ -850,6 +850,46 @@ if not df_cobros.empty:
                 .str.upper()
             )
             
+            with st.expander("🔍 DEBUG: CIFs usados para buscar socios TSOL en COBRA", expanded=True):
+                # CIFs únicos en df_prisma_90 (CIF_UTE_REAL - lo que buscaremos en COBRA)
+                cifs_prisma_ute = df_prisma_90['CIF_UTE_REAL'].dropna().unique()
+                st.write(f"**CIF_UTE_REAL en PRISMA (los que se buscarán en COBRA): {len(cifs_prisma_ute)}**")
+                st.write(list(cifs_prisma_ute)[:15])
+                
+                # CIFs en COBRA después de quitar L-00, filtrado por no-TSS/TM01/T001
+                df_cobra_debug = df.copy()
+                df_cobra_debug['CIF_UTE_NORM'] = (
+                    df_cobra_debug[col_cif]
+                    .astype(str).str.replace(" ", "").str.strip().str.upper()
+                    .str.replace("L-00", "", regex=False)
+                )
+                if col_sociedad:
+                    df_cobra_debug['SOC_NORM'] = df_cobra_debug[col_sociedad].astype(str).str.strip().str.upper()
+                    df_cobra_otros_debug = df_cobra_debug[~df_cobra_debug['SOC_NORM'].isin({'TSS', 'TM01', 'T001'})]
+                else:
+                    df_cobra_otros_debug = df_cobra_debug
+                
+                cifs_cobra_otros = df_cobra_otros_debug['CIF_UTE_NORM'].dropna().unique()
+                st.write(f"**CIFs en COBRA (no-TSS, tras quitar L-00): {len(cifs_cobra_otros)}**")
+                st.write(list(cifs_cobra_otros)[:15])
+                
+                # Sociedades disponibles en COBRA no-TSS
+                if col_sociedad:
+                    st.write("**Sociedades en COBRA (excluidas TSS/TM01/T001):**")
+                    st.dataframe(df_cobra_otros_debug['SOC_NORM'].value_counts().reset_index().rename(columns={'index':'Sociedad','SOC_NORM':'Count'}))
+                
+                # Cruces que SÍ coinciden
+                coinciden = set(cifs_prisma_ute) & set(cifs_cobra_otros)
+                st.write(f"**CIFs que coinciden entre PRISMA y COBRA-otros: {len(coinciden)}**")
+                if len(coinciden) > 0:
+                    st.write(list(coinciden)[:10])
+                else:
+                    st.error("❌ Ningún CIF coincide. Revisa el formato de CIF_UTE_REAL en PRISMA vs CIF en COBRA.")
+                    # Mostrar comparación directa del primero de cada lado
+                    if len(cifs_prisma_ute) > 0 and len(cifs_cobra_otros) > 0:
+                        st.write(f"Ejemplo PRISMA: `{repr(cifs_prisma_ute[0])}`")
+                        st.write(f"Ejemplo COBRA:  `{repr(cifs_cobra_otros[0])}`")
+
             df_resultados = cruzar_pagos_con_prisma_exacto(
                 df_pagos_normalizado,
                 df_prisma_90,
