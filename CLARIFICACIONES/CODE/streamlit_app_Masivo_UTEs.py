@@ -470,7 +470,16 @@ if not df_cobros.empty:
     # Normalizar COBRA para el cruce
     df_cobra_cruce = df.copy()
     df_cobra_cruce['Num_Factura_Norm'] = df_cobra_cruce[col_factura].astype(str).str.strip().str.upper()
-    df_cobra_cruce['CIF_Norm'] = df_cobra_cruce[col_cif].astype(str).str.replace(" ", "").str.strip().str.upper()
+    
+    # El CIF en COBRA empieza por "L-00": "L-00A03734357" → quitamos el prefijo "L-00"
+    df_cobra_cruce['CIF_Norm'] = (
+        df_cobra_cruce[col_cif]
+        .astype(str)
+        .str.replace(" ", "")
+        .str.strip()
+        .str.upper()
+        .str.replace("L-00", "", regex=False)  # Quitar prefijo L-00
+    )
 
     # FILTRO COBRA: solo facturas de sociedad TSS (estas son las 90s en COBRA)
     if col_sociedad:
