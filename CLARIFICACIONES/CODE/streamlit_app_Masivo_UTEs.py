@@ -256,6 +256,7 @@ if "df_cobra_procesado" not in st.session_state:
     st.session_state.col_factura = col_factura
     st.session_state.col_importe = col_importe
     st.session_state.col_cif = col_cif
+    st.session_state.col_sociedad = col_sociedad
     
     # Resumen del archivo
     total = df['IMPORTE_CORRECTO'].sum(skipna=True)
@@ -274,6 +275,7 @@ else:
     col_factura = st.session_state.col_factura
     col_importe = st.session_state.col_importe
     col_cif = st.session_state.col_cif
+    col_sociedad = st.session_state.get('col_sociedad', None)
     
     st.success(f"✅ Archivo COBRA ya cargado ({len(df)} filas)")
 
@@ -462,7 +464,7 @@ if not df_cobros.empty:
         df_prisma_90_base = st.session_state.df_prisma_90_base
         st.success(f"✅ Base PRISMA ya cargada ({len(df_prisma_90_base)} facturas 90)")
 
-    # PASO B: Cruce PRISMA ↔ COBRA — siempre se recalcula (depende de df de COBRA)
+    # PASO B: Cruce PRISMA ↔ COBRA — siempre se recalcula
     st.info("🔄 Cruzando facturas 90 entre PRISMA y COBRA...")
 
     # Normalizar COBRA para el cruce
@@ -470,49 +472,60 @@ if not df_cobros.empty:
     df_cobra_cruce['Num_Factura_Norm'] = df_cobra_cruce[col_factura].astype(str).str.strip().str.upper()
     df_cobra_cruce['CIF_Norm'] = df_cobra_cruce[col_cif].astype(str).str.replace(" ", "").str.strip().str.upper()
 
+    # FILTRO COBRA: solo facturas de sociedad TSS (estas son las 90s en COBRA)
+    if col_sociedad:
+        df_cobra_cruce['Sociedad_Norm'] = df_cobra_cruce[col_sociedad].astype(str).str.strip().str.upper()
+        df_cobra_tss = df_cobra_cruce[df_cobra_cruce['Sociedad_Norm'] == 'TSS'].copy()
+    else:
+        # Fallback si no se detectó columna sociedad: usar todas
+        df_cobra_tss = df_cobra_cruce.copy()
+        st.warning("⚠️ No se detectó columna 'Sociedad' en COBRA. Se usarán todas las facturas.")
+
     # DEBUG expandible
     with st.expander("🔍 DEBUG: Ver datos antes del cruce"):
+        st.write(f"**COBRA total filas:** {len(df_cobra_cruce)} | **COBRA filtrado TSS:** {len(df_cobra_tss)}")
+        if col_sociedad:
+            sociedades = df_cobra_cruce['Sociedad_Norm'].value_counts()
+            st.write("**Valores únicos columna Sociedad:**")
+            st.dataframe(sociedades.reset_index().rename(columns={'index': 'Sociedad', 'Sociedad_Norm': 'Count'}))
+        
         st.write("**PRISMA - muestra facturas 90 (Num + CIF original):**")
         st.dataframe(df_prisma_90_base[['Num_Factura_Norm', 'CIF_Original_Norm', 'CIF_UTE_REAL']].head(10))
 
-        st.write("**COBRA - muestra todas las facturas (Num + CIF):**")
-        st.dataframe(df_cobra_cruce[['Num_Factura_Norm', 'CIF_Norm']].head(10))
+        st.write("**COBRA TSS - muestra (Num + CIF):**")
+        st.dataframe(df_cobra_tss[['Num_Factura_Norm', 'CIF_Norm']].head(10))
 
-        facturas_90_cobra_debug = df_cobra_cruce[df_cobra_cruce['Num_Factura_Norm'].str.startswith('90', na=False)]
-        st.write(f"**Facturas en COBRA que empiezan por '90': {len(facturas_90_cobra_debug)}**")
-        if len(facturas_90_cobra_debug) > 0:
-            st.dataframe(facturas_90_cobra_debug[['Num_Factura_Norm', 'CIF_Norm']].head(10))
-
-        # Coincidencias solo por número (sin CIF) — diagnóstico
-        solo_num = set(df_prisma_90_base['Num_Factura_Norm']) & set(df_cobra_cruce['Num_Factura_Norm'])
-        st.write(f"**Coincidencias SOLO por número de factura (sin CIF): {len(solo_num)}**")
+        # Coincidencias solo por número — diagnóstico
+        solo_num = set(df_prisma_90_base['Num_Factura_Norm']) & set(df_cobra_tss['Num_Factura_Norm'])
+        st.write(f"**Coincidencias SOLO por número (sin CIF): {len(solo_num)}**")
         if len(solo_num) > 0:
             st.write("Ejemplos:", list(solo_num)[:5])
 
     # Merge por número de factura Y CIF original
-    df_cobra_subset = df_cobra_cruce[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates()
+    df_cobra_subset = df_cobra_tss[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates()
     df_prisma_subset = df_prisma_90_base[['Num_Factura_Norm', 'CIF_Original_Norm']].copy()
     df_prisma_subset = df_prisma_subset.rename(columns={'CIF_Original_Norm': 'CIF_Norm'})
 
     facturas_en_ambos = pd.merge(df_prisma_subset, df_cobra_subset, on=['Num_Factura_Norm', 'CIF_Norm'], how='inner')
     facturas_90_en_cobra = set(facturas_en_ambos['Num_Factura_Norm'].unique())
 
-    # Si el merge por CIF+num da 0, intentar solo por número como fallback
+    # Fallback: si el merge por CIF+num da 0, intentar solo por número
     if len(facturas_90_en_cobra) == 0:
-        st.warning("⚠️ No se encontraron coincidencias por número+CIF. Intentando cruce solo por número de factura...")
-        solo_num_match = set(df_prisma_90_base['Num_Factura_Norm']) & set(df_cobra_cruce['Num_Factura_Norm'])
+        st.warning("⚠️ Sin coincidencias por número+CIF. Usando cruce solo por número de factura (fallback)...")
+        solo_num_match = set(df_prisma_90_base['Num_Factura_Norm']) & set(df_cobra_tss['Num_Factura_Norm'])
         if len(solo_num_match) > 0:
             facturas_90_en_cobra = solo_num_match
-            st.warning(f"⚠️ Usando cruce solo por número: {len(facturas_90_en_cobra)} coincidencias. Verifica que los CIF sean correctos en ambos archivos.")
+            st.warning(f"⚠️ Fallback activo: {len(facturas_90_en_cobra)} coincidencias por número. Verifica que los CIF coincidan entre PRISMA y COBRA.")
         else:
-            st.error("❌ No se encontraron coincidencias ni por número+CIF ni solo por número. Revisa el debug arriba.")
+            st.error("❌ Sin coincidencias ni por número+CIF ni solo por número. Revisa el debug arriba.")
 
     df_prisma_90 = df_prisma_90_base[df_prisma_90_base['Num_Factura_Norm'].isin(facturas_90_en_cobra)].copy()
 
-    st.write(f"📊 **Resultado del cruce PRISMA ↔ COBRA:**")
+    st.write(f"📊 **Resultado del cruce PRISMA ↔ COBRA (TSS):**")
     st.write(f"- Facturas 90 en PRISMA: {len(df_prisma_90_base)}")
-    st.write(f"- Facturas 90 también en COBRA: {len(df_prisma_90)}")
-    st.write(f"- Facturas 90 SOLO en PRISMA (se ignorarán): {len(df_prisma_90_base) - len(df_prisma_90)}")
+    st.write(f"- Facturas en COBRA (TSS): {len(df_cobra_tss)}")
+    st.write(f"- Coincidencias en ambos: {len(df_prisma_90)}")
+    st.write(f"- Solo en PRISMA (ignoradas): {len(df_prisma_90_base) - len(df_prisma_90)}")
 
     # Guardar en session_state el resultado filtrado
     st.session_state.df_prisma_90_preparado = df_prisma_90
