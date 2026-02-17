@@ -186,7 +186,7 @@ if not df_prisma.empty:
         st.write(f"- Total importe con impuesto: {df_prisma['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
 # --------- 2) Subida y normalización de COBRA ---------
-archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls"])
+archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls", "csv"])
 
 # Guardar bytes en session_state
 if archivo_cobra is not None:
