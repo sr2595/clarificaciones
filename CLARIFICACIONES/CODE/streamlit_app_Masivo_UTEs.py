@@ -483,18 +483,43 @@ if not df_cobros.empty:
         df_prisma_90['CIF_Original_Norm'] = df_prisma_90['CIF'].astype(str).str.replace(" ", "").str.strip().str.upper()
         
         # DEBUG: Mostrar muestras antes del cruce
-        with st.expander("🔍 DEBUG: Ver datos antes del cruce"):
-            st.write("**Muestra PRISMA (facturas 90):**")
-            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'CIF', 'CIF_Original_Norm', 'CIF_UTE_REAL']].head(10))
+        with st.expander("🔍 DEBUG: Ver datos antes del cruce", expanded=True):
+            st.write("### PRISMA - Facturas 90 (primeras 10):")
+            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'CIF_Original_Norm', 'CIF_UTE_REAL']].head(10))
+            st.write(f"Ejemplo Num_Factura_Norm PRISMA: `{df_prisma_90['Num_Factura_Norm'].iloc[0] if len(df_prisma_90) > 0 else 'vacío'}`")
+            st.write(f"Ejemplo CIF_Original_Norm PRISMA: `{df_prisma_90['CIF_Original_Norm'].iloc[0] if len(df_prisma_90) > 0 else 'vacío'}`")
             
-            st.write("**Muestra COBRA (todas las facturas):**")
+            st.write("---")
+            st.write("### COBRA - Todas las facturas (primeras 10):")
             st.dataframe(df[['Num_Factura_Norm', 'CIF_Norm']].head(10))
+            st.write(f"Ejemplo Num_Factura_Norm COBRA: `{df['Num_Factura_Norm'].iloc[0] if len(df) > 0 else 'vacío'}`")
+            st.write(f"Ejemplo CIF_Norm COBRA: `{df['CIF_Norm'].iloc[0] if len(df) > 0 else 'vacío'}`")
             
-            st.write("**Facturas 90 en COBRA:**")
+            st.write("---")
+            st.write("### COBRA - Facturas que empiezan por 90:")
             facturas_90_cobra = df[df['Num_Factura_Norm'].str.startswith('90', na=False)]
-            st.write(f"Total facturas que empiezan por '90' en COBRA: {len(facturas_90_cobra)}")
+            st.write(f"Total: **{len(facturas_90_cobra)}**")
             if len(facturas_90_cobra) > 0:
                 st.dataframe(facturas_90_cobra[['Num_Factura_Norm', 'CIF_Norm']].head(10))
+                st.write(f"Ejemplo Num_Factura_Norm 90 COBRA: `{facturas_90_cobra['Num_Factura_Norm'].iloc[0]}`")
+                st.write(f"Ejemplo CIF_Norm COBRA: `{facturas_90_cobra['CIF_Norm'].iloc[0]}`")
+            
+            st.write("---")
+            st.write("### Comparación directa de un ejemplo:")
+            if len(df_prisma_90) > 0 and len(facturas_90_cobra) > 0:
+                p_num = df_prisma_90['Num_Factura_Norm'].iloc[0]
+                p_cif = df_prisma_90['CIF_Original_Norm'].iloc[0]
+                c_num = facturas_90_cobra['Num_Factura_Norm'].iloc[0]
+                c_cif = facturas_90_cobra['CIF_Norm'].iloc[0]
+                st.write(f"PRISMA  → Num: `{p_num}` | CIF: `{p_cif}`")
+                st.write(f"COBRA   → Num: `{c_num}` | CIF: `{c_cif}`")
+                st.write(f"¿Mismo número? `{p_num == c_num}` | ¿Mismo CIF? `{p_cif == c_cif}`")
+                
+                # Intentar cruce SOLO por número de factura (sin CIF)
+                solo_num = set(df_prisma_90['Num_Factura_Norm']) & set(df['Num_Factura_Norm'])
+                st.write(f"**Coincidencias solo por número de factura (sin CIF):** {len(solo_num)}")
+                if len(solo_num) > 0:
+                    st.write("Ejemplos de coincidencias por número:", list(solo_num)[:5])
         
         # OPTIMIZACIÓN: Usar merge de pandas en lugar de bucle for
         # Hacer el cruce: facturas que están en PRISMA Y en COBRA
