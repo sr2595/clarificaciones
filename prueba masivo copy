@@ -191,49 +191,34 @@ archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cob
 # Guardar bytes en session_state
 if archivo_cobra is not None:
     st.session_state.cobra_bytes = archivo_cobra.getvalue()
-    st.session_state.cobra_nombre = archivo_cobra.name  
 
 # Si no hay bytes, no seguimos
 if "cobra_bytes" not in st.session_state:
     st.stop()
 
+# PROCESAR COBRA SOLO UNA VEZ
 if "df_cobra_procesado" not in st.session_state:
     st.info("⏳ Procesando archivo COBRA por primera vez...")
     
-    nombre = st.session_state.get('cobra_nombre', '')
-    cobra_bytes = st.session_state.cobra_bytes
+    # Leer COBRA desde bytes
+    df_raw = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=None)
 
-    # --- Leer archivo ---
-    if nombre.endswith('.csv'):
-        chunks = []
-        for chunk in pd.read_csv(
-            BytesIO(cobra_bytes),
-            sep=";",
-            encoding="latin1",
-            on_bad_lines="skip",
-            chunksize=50_000
-        ):
-            chunks.append(chunk)
-        df = pd.concat(chunks, ignore_index=True)
-        del chunks
-    else:
-        # Detectar cabecera solo leyendo 20 filas
-        df_raw = pd.read_excel(BytesIO(cobra_bytes), header=None, engine="openpyxl", nrows=20)
-        header_row = None
-        for i in range(len(df_raw)):
-            vals = [str(x).lower() for x in df_raw.iloc[i].tolist()]
-            if any("factura" in v or "fecha" in v or "importe" in v for v in vals):
-                header_row = i
-                break
-        del df_raw  # 🧹 liberar
-        
-        if header_row is None:
-            st.error("❌ No se encontró cabecera reconocible en el archivo Excel")
-            st.stop()
-        
-        df = pd.read_excel(BytesIO(cobra_bytes), header=header_row, engine="openpyxl")
-    
-    # --- Detectar columnas ANTES de filtrar ---
+    # Buscar fila que contiene la cabecera
+    header_row = None
+    for i in range(min(20, len(df_raw))):
+        vals = [str(x).lower() for x in df_raw.iloc[i].tolist()]
+        if any("factura" in v or "fecha" in v or "importe" in v for v in vals):
+            header_row = i
+            break
+
+    if header_row is None:
+        st.error("❌ No se encontró cabecera reconocible en el archivo Excel")
+        st.stop()
+
+    # Releer usando esa fila como cabecera
+    df = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=header_row)
+
+    # --- Detectar columnas ---
     col_fecha_emision = find_col(df, ['FECHA', 'Fecha Emision', 'Fecha Emisión', 'FX_EMISION'])
     col_factura       = find_col(df, ['FACTURA', 'Nº Factura', 'NRO_FACTURA', 'Núm.Doc.Deuda'])
     col_importe       = find_col(df, ['IMPORTE', 'TOTAL', 'TOTAL_FACTURA'])
@@ -255,20 +240,16 @@ if "df_cobra_procesado" not in st.session_state:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
 
-    # 🔥 FILTRAR COBRA AQUÍ — antes de normalizar y guardar en session_state
-    df = filtrar_cobra_ligero(df, col_sociedad, col_importe)
-    
-    # 🧹 Liberar bytes crudos — ya no los necesitamos
-    del st.session_state.cobra_bytes
-
     # --- Normalizar ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
     df[col_cif] = df[col_cif].astype(str)
     df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
     df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
-    df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
 
+    # Detectar UTES
+    df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
+    
     # Guardar en session_state
     st.session_state.df_cobra_procesado = df
     st.session_state.col_fecha_emision = col_fecha_emision
@@ -276,9 +257,9 @@ if "df_cobra_procesado" not in st.session_state:
     st.session_state.col_importe = col_importe
     st.session_state.col_cif = col_cif
     st.session_state.col_sociedad = col_sociedad
-
-    # ✅ Calcular resumen DESPUÉS de normalizar
-    total  = df['IMPORTE_CORRECTO'].sum(skipna=True)
+    
+    # Resumen del archivo
+    total = df['IMPORTE_CORRECTO'].sum(skipna=True)
     minimo = df['IMPORTE_CORRECTO'].min(skipna=True)
     maximo = df['IMPORTE_CORRECTO'].max(skipna=True)
 
@@ -287,7 +268,6 @@ if "df_cobra_procesado" not in st.session_state:
     st.write(f"- Suma total importes: {total:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
     st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
     st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-
 else:
     # Recuperar desde session_state
     df = st.session_state.df_cobra_procesado
@@ -298,7 +278,7 @@ else:
     col_sociedad = st.session_state.get('col_sociedad', None)
     
     st.success(f"✅ Archivo COBRA ya cargado ({len(df)} filas)")
-    
+
 # --------- 3) Subida de archivo de pagos (Cruce_Movs) ---------
 cobros_file = st.file_uploader(
     "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
