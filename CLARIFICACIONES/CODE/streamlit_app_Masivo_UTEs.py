@@ -591,16 +591,18 @@ if not df_cobros.empty:
         resultados = []
         facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
         
-        # Preparar COBRA para búsqueda de socios: normalizar CIF (quitar L-00) y sociedad
+        # Preparar COBRA para búsqueda de socios: normalizar CIF y sociedad
+        # Los CIFs en COBRA pueden tener prefijos L-00 (UTEs/TSS) o C- (otros socios)
+        # Hay que quitar ambos prefijos para comparar con CIF_UTE_REAL de PRISMA
+        def normalizar_cif_cobra(valor):
+            s = str(valor).replace(" ", "").strip().upper()
+            s = s.replace("L-00", "")
+            if s.startswith("C-"):
+                s = s[2:]
+            return s
+        
         df_cobra_socios = df_cobra.copy()
-        df_cobra_socios['CIF_UTE_NORM'] = (
-            df_cobra_socios[col_cif_cobra]
-            .astype(str)
-            .str.replace(" ", "")
-            .str.strip()
-            .str.upper()
-            .str.replace("L-00", "", regex=False)
-        )
+        df_cobra_socios['CIF_UTE_NORM'] = df_cobra_socios[col_cif_cobra].apply(normalizar_cif_cobra)
         df_cobra_socios['SOCIEDAD_NORM'] = df_cobra_socios[col_sociedad_cobra].astype(str).str.strip().str.upper() if col_sociedad_cobra else 'DESCONOCIDA'
         df_cobra_socios['IMPORTE_COBRA'] = df_cobra_socios[col_importe_cobra].apply(convertir_importe_europeo)
         df_cobra_socios['NUM_FACTURA_COBRA'] = df_cobra_socios[col_factura_cobra].astype(str).str.strip()
@@ -856,13 +858,18 @@ if not df_cobros.empty:
                 st.write(f"**CIF_UTE_REAL en PRISMA (los que se buscarán en COBRA): {len(cifs_prisma_ute)}**")
                 st.write(list(cifs_prisma_ute)[:15])
                 
-                # CIFs en COBRA después de quitar L-00, filtrado por no-TSS/TM01/T001
+                # CIFs en COBRA después de quitar L-00 Y C-, filtrado por no-TSS/TM01/T001
+                # Función helper para normalizar CIF en COBRA (quitar L-00 y C-)
+                def normalizar_cif_debug(valor):
+                    s = str(valor).replace(" ", "").strip().upper()
+                    s = s.replace("L-00", "")
+                    if s.startswith("C-"):
+                        s = s[2:]
+                    return s
+                
                 df_cobra_debug = df.copy()
-                df_cobra_debug['CIF_UTE_NORM'] = (
-                    df_cobra_debug[col_cif]
-                    .astype(str).str.replace(" ", "").str.strip().str.upper()
-                    .str.replace("L-00", "", regex=False)
-                )
+                df_cobra_debug['CIF_UTE_NORM'] = df_cobra_debug[col_cif].apply(normalizar_cif_debug)
+                
                 if col_sociedad:
                     df_cobra_debug['SOC_NORM'] = df_cobra_debug[col_sociedad].astype(str).str.strip().str.upper()
                     df_cobra_otros_debug = df_cobra_debug[~df_cobra_debug['SOC_NORM'].isin({'TSS', 'TM01', 'T001'})]
@@ -870,7 +877,7 @@ if not df_cobros.empty:
                     df_cobra_otros_debug = df_cobra_debug
                 
                 cifs_cobra_otros = df_cobra_otros_debug['CIF_UTE_NORM'].dropna().unique()
-                st.write(f"**CIFs en COBRA (no-TSS, tras quitar L-00): {len(cifs_cobra_otros)}**")
+                st.write(f"**CIFs en COBRA (no-TSS, tras quitar L-00 y C-): {len(cifs_cobra_otros)}**")
                 st.write(list(cifs_cobra_otros)[:15])
                 
                 # Sociedades disponibles en COBRA no-TSS
