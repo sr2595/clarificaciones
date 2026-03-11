@@ -503,118 +503,96 @@ if not df_cobros.empty:
         df_prisma_90_base = st.session_state.df_prisma_90_base
         st.success(f"✅ Base PRISMA ya cargada ({len(df_prisma_90_base)} facturas 90)")
 
-    # PASO B: Cruce PRISMA ↔ COBRA — siempre se recalcula
-    st.info("🔄 Cruzando facturas 90 entre PRISMA y COBRA...")
+    # PASO B: Base = todas las facturas 90 de COBRA (TSS)
+    st.info("🔄 Preparando facturas 90 desde COBRA como base...")
 
-    # Normalizar COBRA para el cruce
     df_cobra_cruce = df.copy()
     df_cobra_cruce['Num_Factura_Norm'] = df_cobra_cruce[col_factura].astype(str).str.strip().str.upper()
-    
-    # El CIF en COBRA empieza por "L-00": "L-00A03734357" → quitamos el prefijo "L-00"
     df_cobra_cruce['CIF_Norm'] = (
         df_cobra_cruce[col_cif]
         .astype(str)
         .str.replace(" ", "")
         .str.strip()
         .str.upper()
-        .str.replace("L-00", "", regex=False)  # Quitar prefijo L-00
+        .str.replace("L-00", "", regex=False)
     )
 
-    # FILTRO COBRA: solo facturas de sociedad TSS (estas son las 90s en COBRA)
+    # Filtrar solo TSS en COBRA → estas son las facturas 90 base
     if col_sociedad:
         df_cobra_cruce['Sociedad_Norm'] = df_cobra_cruce[col_sociedad].astype(str).str.strip().str.upper()
         df_cobra_tss = df_cobra_cruce[df_cobra_cruce['Sociedad_Norm'] == 'TSS'].copy()
     else:
-        # Fallback si no se detectó columna sociedad: usar todas
         df_cobra_tss = df_cobra_cruce.copy()
-        st.warning("⚠️ No se detectó columna 'Sociedad' en COBRA. Se usarán todas las facturas.")
+        st.warning("⚠️ No se detectó columna 'Sociedad'. Se usarán todas las facturas.")
 
-    # DEBUG expandible
-    with st.expander("🔍 DEBUG: Ver datos antes del cruce"):
-        st.write(f"**COBRA total filas:** {len(df_cobra_cruce)} | **COBRA filtrado TSS:** {len(df_cobra_tss)}")
-        if col_sociedad:
-            sociedades = df_cobra_cruce['Sociedad_Norm'].value_counts()
-            st.write("**Valores únicos columna Sociedad:**")
-            st.dataframe(sociedades.reset_index().rename(columns={'index': 'Sociedad', 'Sociedad_Norm': 'Count'}))
-        
-        st.write("**PRISMA - muestra facturas 90 (Num + CIF original):**")
-        st.dataframe(df_prisma_90_base[['Num_Factura_Norm', 'CIF_Original_Norm', 'CIF_UTE_REAL']].head(10))
+    # Filtrar solo facturas que empiezan por 90
+    df_cobra_90 = df_cobra_tss[
+        df_cobra_tss['Num_Factura_Norm'].str.startswith('90')
+    ].copy()
 
-        st.write("**COBRA TSS - muestra (Num + CIF):**")
-        st.dataframe(df_cobra_tss[['Num_Factura_Norm', 'CIF_Norm']].head(10))
+    st.write(f"📊 Facturas 90 en COBRA (TSS): **{len(df_cobra_90)}**")
 
-        # Coincidencias solo por número — diagnóstico
-        solo_num = set(df_prisma_90_base['Num_Factura_Norm']) & set(df_cobra_tss['Num_Factura_Norm'])
-        st.write(f"**Coincidencias SOLO por número (sin CIF): {len(solo_num)}**")
-        if len(solo_num) > 0:
-            st.write("Ejemplos:", list(solo_num)[:5])
+    # Cruzar con PRISMA para obtener CIF_UTE_REAL y datos de socios
+    # Left join: nos quedamos con TODAS las 90 de COBRA, con o sin match en PRISMA
+    df_prisma_90_base['Num_Factura_Norm_P'] = df_prisma_90_base['Num_Factura_Norm']
 
-    # Merge por número de factura Y CIF original
-    # NOTA: df_cobra_tss ya contiene TODAS las facturas TSS (no filtramos por "90")
-    # El cruce con PRISMA (que solo tiene 90s) ya hace la selección correcta naturalmente
-    df_cobra_subset = df_cobra_tss[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates()
-    df_prisma_subset = df_prisma_90_base[['Num_Factura_Norm', 'CIF_Original_Norm']].copy()
-    df_prisma_subset = df_prisma_subset.rename(columns={'CIF_Original_Norm': 'CIF_Norm'})
+    df_prisma_90 = pd.merge(
+        df_cobra_90[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates(),
+        df_prisma_90_base,
+        left_on='Num_Factura_Norm',
+        right_on='Num_Factura_Norm',
+        how='left'  # ← LEFT JOIN: todas las de COBRA, aunque no estén en PRISMA
+    )
 
-    facturas_en_ambos = pd.merge(df_prisma_subset, df_cobra_subset, on=['Num_Factura_Norm', 'CIF_Norm'], how='inner')
-    facturas_90_en_cobra = set(facturas_en_ambos['Num_Factura_Norm'].unique())
-    
-    metodo_cruce = "CIF + Número de factura"
+    # Para las que no tienen match en PRISMA, usar el CIF de COBRA como CIF_UTE_REAL
+    df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna(df_prisma_90['CIF_Norm'])
 
-    # Fallback: si el merge por CIF+num da 0, intentar solo por número (también sobre todas las TSS)
-    if len(facturas_90_en_cobra) == 0:
-        solo_num_match = set(df_prisma_90_base['Num_Factura_Norm']) & set(df_cobra_tss['Num_Factura_Norm'])
-        if len(solo_num_match) > 0:
-            facturas_90_en_cobra = solo_num_match
-            metodo_cruce = "Solo número de factura (FALLBACK — CIF no coincidió)"
-            st.warning(f"⚠️ Fallback activo: los CIF no coincidieron entre PRISMA y COBRA. Se cruza solo por número de factura.")
-        else:
-            st.error("❌ Sin coincidencias ni por número+CIF ni solo por número. Revisa el debug arriba.")
-            metodo_cruce = "SIN COINCIDENCIAS"
+    # Rellenar columnas que pueden ser NaN por el left join
+    df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
+    df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].fillna('DESCONOCIDO')
 
-    df_prisma_90 = df_prisma_90_base[df_prisma_90_base['Num_Factura_Norm'].isin(facturas_90_en_cobra)].copy()
+    st.write(f"- 90s de COBRA con match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].notna().sum()}**")
+    st.write(f"- 90s de COBRA SIN match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].isna().sum()}**")
 
-    st.write(f"📊 **Resultado del cruce PRISMA ↔ COBRA (TSS):**")
-    st.write(f"- 🔑 Método usado: **{metodo_cruce}**")
-    st.write(f"- Facturas 90 en PRISMA: {len(df_prisma_90_base)}")
-    st.write(f"- Facturas en COBRA (TSS, todas): {len(df_cobra_tss)}")
-    st.write(f"- Coincidencias en ambos: **{len(df_prisma_90)}**")
-    st.write(f"- Solo en PRISMA (ignoradas): {len(df_prisma_90_base) - len(df_prisma_90)}")
-
-    # Guardar en session_state el resultado filtrado
+    # Guardar
     st.session_state.df_prisma_90_preparado = df_prisma_90
 
-    # DEBUG mínimo - ahora usa df_prisma_90 directo (ya calculado arriba)
-    with st.expander("🔍 Info facturas 90 (después del cruce con COBRA)"):
-        st.write("ℹ️ Filas de facturas 90 (filtradas con COBRA):", len(df_prisma_90))
+    # DEBUG
+    with st.expander("🔍 Info facturas 90 (base COBRA + enriquecido con PRISMA)"):
+        st.write("ℹ️ Total facturas 90 base (COBRA):", len(df_prisma_90))
         if len(df_prisma_90) > 0:
-            st.write("ℹ️ Facturas 90 sin CIF_UTE_REAL asignado:", (df_prisma_90['CIF_UTE_REAL'] == "NONE").sum())
+            con_match = df_prisma_90['Num_Factura_Norm_P'].notna().sum()
+            sin_match = df_prisma_90['Num_Factura_Norm_P'].isna().sum()
             facturas_90_positivas = (df_prisma_90['IMPORTE_CON_IMPUESTO'] > 0).sum()
             facturas_90_negativas = (df_prisma_90['IMPORTE_CON_IMPUESTO'] <= 0).sum()
-            st.write(f"✅ Facturas 90 POSITIVAS (se usarán): {facturas_90_positivas}")
-            st.write(f"⛔ Facturas 90 NEGATIVAS (se ignorarán): {facturas_90_negativas}")
-            st.dataframe(df_prisma_90[[col_num_factura_prisma, 'Id UTE', 'CIF_UTE_REAL', 'IMPORTE_CON_IMPUESTO', 'Fecha Emisión']].head(20))
-    
-    # Mostrar facturas 90 que NO están en COBRA (solo en PRISMA)
-    if len(df_prisma_90_base) > len(df_prisma_90):
-        facturas_solo_prisma = df_prisma_90_base[~df_prisma_90_base['Num_Factura_Norm'].isin(facturas_90_en_cobra)]
-        with st.expander(f"📋 Facturas 90 SOLO en PRISMA (ignoradas: {len(facturas_solo_prisma)})"):
-            st.info("Estas facturas 90 están en PRISMA pero NO en COBRA:")
+            st.write(f"✅ Con match en PRISMA (tienen socios TDE/TME): {con_match}")
+            st.write(f"⚠️ Sin match en PRISMA (solo buscarán en COBRA TSOL): {sin_match}")
+            st.write(f"✅ Facturas 90 con importe positivo: {facturas_90_positivas}")
+            st.write(f"⛔ Facturas 90 con importe 0 (sin datos PRISMA): {facturas_90_negativas}")
+            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'Id UTE', 'CIF_UTE_REAL', 'IMPORTE_CON_IMPUESTO']].head(20))
+
+    # Mostrar facturas 90 de PRISMA que NO están en COBRA (informativo)
+    facturas_solo_prisma = df_prisma_90_base[
+        ~df_prisma_90_base['Num_Factura_Norm'].isin(df_cobra_90['Num_Factura_Norm'])
+    ]
+    if len(facturas_solo_prisma) > 0:
+        with st.expander(f"📋 Facturas 90 en PRISMA pero NO en COBRA (informativo: {len(facturas_solo_prisma)})"):
+            st.info("Estas facturas existen en PRISMA pero no en COBRA — no se usarán en el cruce:")
             st.dataframe(
-                facturas_solo_prisma[[col_num_factura_prisma, 'CIF', 'CIF_Original_Norm', 'Id UTE', 'IMPORTE_CON_IMPUESTO', 'Fecha Emisión']].head(50),
+                facturas_solo_prisma[['Num_Factura_Norm', 'CIF', 'CIF_Original_Norm', 'Id UTE', 'IMPORTE_CON_IMPUESTO']].head(50),
                 use_container_width=True
             )
     
     # Mostrar facturas negativas que serán ignoradas
-    facturas_negativas = df_prisma_90[df_prisma_90['IMPORTE_CON_IMPUESTO'] <= 0]
+    facturas_negativas = df_prisma_90[df_prisma_90['IMPORTE_CON_IMPUESTO'] < 0]
     if len(facturas_negativas) > 0:
         with st.expander(f"⚠️ Facturas 90 NEGATIVAS que se ignorarán ({len(facturas_negativas)} facturas)"):
             st.warning("Estas facturas negativas (abonos/devoluciones) NO se considerarán en el cruce con pagos:")
             st.dataframe(
-                facturas_negativas[[col_num_factura_prisma, 'CIF_UTE_REAL', 'Id UTE', 'IMPORTE_CON_IMPUESTO', 'Fecha Emisión']].sort_values('IMPORTE_CON_IMPUESTO'),
+                facturas_negativas[['Num_Factura_Norm', 'CIF_UTE_REAL', 'Id UTE', 'IMPORTE_CON_IMPUESTO']].sort_values('IMPORTE_CON_IMPUESTO'),
                 use_container_width=True
             )
-            st.write(f"**Total importe negativo (con impuesto):** {facturas_negativas['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            st.write(f"**Total importe negativo:** {facturas_negativas['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
     # -------------------------------
     # 3️⃣ FUNCIÓN OR-TOOLS CON SOCIOS
@@ -868,15 +846,15 @@ if not df_cobros.empty:
     # Solo ejecutar si se pulsa el botón
     if ejecutar_cruce:
         st.info("""
-        ℹ️ **Filtros aplicados:**
-        - ✅ Solo facturas 90 que están tanto en PRISMA como en COBRA
-        - ✅ Solo facturas 90 y socios con importe POSITIVO (con impuesto aplicado)
-        - ✅ Facturas 90 con fecha emisión ≤ fecha del pago
-        - ✅ Socios con fecha emisión ≤ fecha de su factura 90
-        - ✅ Priorización de facturas 90 más antiguas cuando hay múltiples opciones
-        - ⛔ Facturas negativas (abonos) se ignoran
-        - ⛔ Facturas 90 solo en PRISMA (no en COBRA) se ignoran
-        """)
+            ℹ️ **Filtros aplicados:**
+            - ✅ Base = TODAS las facturas 90 de COBRA (TSS)
+            - ✅ PRISMA se usa para obtener socios TDE/TME cuando hay match
+            - ✅ COBRA TSOL cubre diferencias cuando no hay socios en PRISMA
+            - ✅ Facturas 90 con fecha emisión ≤ fecha del pago
+            - ✅ Socios con fecha emisión ≤ fecha de su factura 90
+            - ✅ Priorización de facturas 90 más antiguas
+            - ⛔ Facturas con importe negativo se ignoran
+            """)
         
         with st.spinner("⏳ Buscando combinaciones óptimas de facturas... esto puede tardar unos segundos"):
             inicio = time.time()
