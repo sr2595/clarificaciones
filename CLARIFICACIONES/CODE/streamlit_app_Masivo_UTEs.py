@@ -56,10 +56,6 @@ def convertir_importe_europeo(valor):
         return None
 
 def aplicar_impuestos_a_prisma(df_prisma, col_importe='IMPORTE_CORRECTO', col_tipo_impuesto='Tipo Impuesto'):
-    """
-    Aplica el impuesto correspondiente a cada fila de PRISMA
-    y devuelve el DataFrame con nueva columna 'IMPORTE_CON_IMPUESTO'.
-    """
     factores = {
         "IGIC - 7": 1.07,
         "IPSIC - 10": 1.10,
@@ -69,17 +65,37 @@ def aplicar_impuestos_a_prisma(df_prisma, col_importe='IMPORTE_CORRECTO', col_ti
         "EXENTO": 1.0,
         "IVA - EXENTO": 1.0,
     }
-
-    # Normalizamos la columna tipo impuesto
     df_prisma[col_tipo_impuesto] = df_prisma[col_tipo_impuesto].astype(str).str.strip().str.upper()
-
-    # Crear nueva columna con el importe ya con impuesto aplicado
     df_prisma['IMPORTE_CON_IMPUESTO'] = df_prisma.apply(
         lambda row: float(row[col_importe] * factores.get(row[col_tipo_impuesto], 1.0)),
         axis=1
     )
-
     return df_prisma
+
+def filtrar_cobra_ligero(df, col_sociedad, col_importe):
+    """
+    Filtra COBRA para quedarse solo con lo necesario:
+    - Sociedades TSS y TSOL
+    - Importes positivos
+    """
+    filas_originales = len(df)
+    
+    # 1️⃣ Filtrar por sociedad TSS y TSOL
+    if col_sociedad:
+        soc_norm = df[col_sociedad].astype(str).str.strip().str.upper()
+        df = df[soc_norm.isin(['TSS', 'TSOL'])].copy()
+    
+    # 2️⃣ Eliminar importes negativos y cero
+    if col_importe:
+        importes = df[col_importe].apply(convertir_importe_europeo)
+        df = df[importes > 0].copy()
+    
+    filas_finales = len(df)
+    reduccion = (1 - filas_finales / filas_originales) * 100 if filas_originales > 0 else 0
+    
+    st.success(f"✂️ COBRA reducido: {filas_originales:,} → {filas_finales:,} filas ({reduccion:.1f}% eliminado)")
+    
+    return df
 
 # --------- 1) Subida y normalización de PRISMA ---------
 archivo_prisma = st.file_uploader("Sube el archivo PRISMA (CSV)", type=["csv"])
@@ -142,6 +158,9 @@ if "df_prisma_procesado" not in st.session_state:
     # Aplicar impuestos
     df_prisma = aplicar_impuestos_a_prisma(df_prisma, col_tipo_impuesto=col_tipo_imp_prisma)
     
+    # 🧹 Liberar bytes crudos
+    del st.session_state.prisma_bytes  
+
     # Guardar en session_state
     st.session_state.df_prisma_procesado = df_prisma
     st.session_state.col_num_factura_prisma = col_num_factura_prisma
@@ -298,7 +317,7 @@ else:
     col_sociedad = st.session_state.get('col_sociedad', None)
     
     st.success(f"✅ Archivo COBRA ya cargado ({len(df)} filas)")
-    
+
 # --------- 3) Subida de archivo de pagos (Cruce_Movs) ---------
 cobros_file = st.file_uploader(
     "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
