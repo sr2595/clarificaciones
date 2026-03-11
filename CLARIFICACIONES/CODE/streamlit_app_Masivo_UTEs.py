@@ -549,7 +549,6 @@ if not df_cobros.empty:
     df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].fillna('DESCONOCIDO')
 
     # 🔥 Para las que NO tienen match en PRISMA, coger importe directamente de COBRA
-    # (ya viene con impuesto incluido, no hay que aplicar nada)
     df_cobra_90_importes = df_cobra_90[['Num_Factura_Norm', col_importe]].copy()
     df_cobra_90_importes['IMPORTE_COBRA_DIRECTO'] = df_cobra_90_importes[col_importe].apply(convertir_importe_europeo)
 
@@ -559,11 +558,28 @@ if not df_cobros.empty:
         how='left'
     )
 
-    # Donde PRISMA no tiene importe, usar el de COBRA directamente
     mask_sin_prisma = df_prisma_90['IMPORTE_CON_IMPUESTO'].isna() | (df_prisma_90['IMPORTE_CON_IMPUESTO'] == 0)
     df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_CON_IMPUESTO'] = df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_COBRA_DIRECTO']
     df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
     df_prisma_90 = df_prisma_90.drop(columns=['IMPORTE_COBRA_DIRECTO'])
+
+    # 🔥 Para las que NO tienen match en PRISMA, coger también la FECHA de COBRA
+    df_cobra_90_fechas = df_cobra_90[['Num_Factura_Norm', col_fecha_emision]].copy()
+    df_cobra_90_fechas['FECHA_COBRA'] = pd.to_datetime(df_cobra_90_fechas[col_fecha_emision], dayfirst=True, errors='coerce')
+
+    df_prisma_90 = df_prisma_90.merge(
+        df_cobra_90_fechas[['Num_Factura_Norm', 'FECHA_COBRA']],
+        on='Num_Factura_Norm',
+        how='left'
+    )
+
+    # Donde PRISMA no tiene fecha, usar la de COBRA
+    if 'Fecha Emisión' not in df_prisma_90.columns:
+        df_prisma_90['Fecha Emisión'] = pd.NaT
+
+    mask_sin_fecha = df_prisma_90['Fecha Emisión'].isna()
+    df_prisma_90.loc[mask_sin_fecha, 'Fecha Emisión'] = df_prisma_90.loc[mask_sin_fecha, 'FECHA_COBRA']
+    df_prisma_90 = df_prisma_90.drop(columns=['FECHA_COBRA'])
 
     st.write(f"- 90s de COBRA con match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].notna().sum()}**")
     st.write(f"- 90s de COBRA SIN match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].isna().sum()}**")
