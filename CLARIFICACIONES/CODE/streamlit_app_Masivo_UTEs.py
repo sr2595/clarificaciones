@@ -544,12 +544,26 @@ if not df_cobros.empty:
         how='left'  # ← LEFT JOIN: todas las de COBRA, aunque no estén en PRISMA
     )
 
-    # Para las que no tienen match en PRISMA, usar el CIF de COBRA como CIF_UTE_REAL
+  # Para las que no tienen match en PRISMA, usar el CIF de COBRA como CIF_UTE_REAL
     df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna(df_prisma_90['CIF_Norm'])
-
-    # Rellenar columnas que pueden ser NaN por el left join
-    df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
     df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].fillna('DESCONOCIDO')
+
+    # 🔥 Para las que NO tienen match en PRISMA, coger importe directamente de COBRA
+    # (ya viene con impuesto incluido, no hay que aplicar nada)
+    df_cobra_90_importes = df_cobra_90[['Num_Factura_Norm', col_importe]].copy()
+    df_cobra_90_importes['IMPORTE_COBRA_DIRECTO'] = df_cobra_90_importes[col_importe].apply(convertir_importe_europeo)
+
+    df_prisma_90 = df_prisma_90.merge(
+        df_cobra_90_importes[['Num_Factura_Norm', 'IMPORTE_COBRA_DIRECTO']],
+        on='Num_Factura_Norm',
+        how='left'
+    )
+
+    # Donde PRISMA no tiene importe, usar el de COBRA directamente
+    mask_sin_prisma = df_prisma_90['IMPORTE_CON_IMPUESTO'].isna() | (df_prisma_90['IMPORTE_CON_IMPUESTO'] == 0)
+    df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_CON_IMPUESTO'] = df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_COBRA_DIRECTO']
+    df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
+    df_prisma_90 = df_prisma_90.drop(columns=['IMPORTE_COBRA_DIRECTO'])
 
     st.write(f"- 90s de COBRA con match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].notna().sum()}**")
     st.write(f"- 90s de COBRA SIN match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].isna().sum()}**")
