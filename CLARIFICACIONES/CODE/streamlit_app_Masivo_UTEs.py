@@ -191,6 +191,7 @@ archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cob
 # Guardar bytes en session_state
 if archivo_cobra is not None:
     st.session_state.cobra_bytes = archivo_cobra.getvalue()
+    st.session_state.cobra_nombre = archivo_cobra.name  
 
 # Si no hay bytes, no seguimos
 if "cobra_bytes" not in st.session_state:
@@ -200,23 +201,32 @@ if "cobra_bytes" not in st.session_state:
 if "df_cobra_procesado" not in st.session_state:
     st.info("⏳ Procesando archivo COBRA por primera vez...")
     
-    # Leer COBRA desde bytes
-    df_raw = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=None)
+    nombre = archivo_cobra.name if archivo_cobra else st.session_state.get('cobra_nombre', '')
 
-    # Buscar fila que contiene la cabecera
-    header_row = None
-    for i in range(min(20, len(df_raw))):
-        vals = [str(x).lower() for x in df_raw.iloc[i].tolist()]
-        if any("factura" in v or "fecha" in v or "importe" in v for v in vals):
-            header_row = i
-            break
+    if nombre.endswith('.csv'):
+        df = pd.read_csv(
+            BytesIO(st.session_state.cobra_bytes),
+            sep=";",          # Cámbialo a "," si tu CSV usa comas
+            encoding="latin1",
+            on_bad_lines="skip"
+        )
+        header_row = 0  # En CSV la cabecera ya está en la primera fila
+    else:
+        df_raw = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=None, engine="openpyxl")
+        
+        # Buscar fila que contiene la cabecera
+        header_row = None
+        for i in range(min(20, len(df_raw))):
+            vals = [str(x).lower() for x in df_raw.iloc[i].tolist()]
+            if any("factura" in v or "fecha" in v or "importe" in v for v in vals):
+                header_row = i
+                break
 
-    if header_row is None:
-        st.error("❌ No se encontró cabecera reconocible en el archivo Excel")
-        st.stop()
+        if header_row is None:
+            st.error("❌ No se encontró cabecera reconocible en el archivo Excel")
+            st.stop()
 
-    # Releer usando esa fila como cabecera
-    df = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=header_row)
+        df = pd.read_excel(BytesIO(st.session_state.cobra_bytes), header=header_row, engine="openpyxl")
 
     # --- Detectar columnas ---
     col_fecha_emision = find_col(df, ['FECHA', 'Fecha Emision', 'Fecha Emisión', 'FX_EMISION'])
