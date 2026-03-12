@@ -698,9 +698,16 @@ if not df_cobros.empty:
                 df_facturas = facturas_por_cif[cif_pago].copy()
                 df_facturas = df_facturas[
                     (df_facturas['IMPORTE_CON_IMPUESTO'] > 0) &
-                    (df_facturas['Fecha Emisión'] <= fecha_pago)
+                    (
+                        df_facturas['Fecha Emisión'].isna() |  # ← incluir las sin fecha (vienen de COBRA)
+                        (df_facturas['Fecha Emisión'] <= fecha_pago)
+                    )
                 ].copy()
-                
+
+                # DEBUG temporal — eliminar cuando funcione
+                if idx < 5:
+                    st.write(f"🔍 CIF: {cif_pago} | Facturas disponibles: {len(df_facturas)} | Fechas NaT: {df_facturas['Fecha Emisión'].isna().sum()}")
+
                 if df_facturas.empty:
                     resultados.append({
                         'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
@@ -708,7 +715,7 @@ if not df_cobros.empty:
                         'desglose_facturas_90': None, 'diferencia_pago_vs_90': importe_pago, 'advertencia': None
                     })
                     continue
-                
+
                 df_facturas = df_facturas.sort_values(['Fecha Emisión', 'IMPORTE_CON_IMPUESTO'], ascending=[True, True])
                 numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
                 importes_facturas = df_facturas['IMPORTE_CON_IMPUESTO'].tolist()
