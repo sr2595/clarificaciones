@@ -502,90 +502,86 @@ if not df_cobros.empty:
     else:
         df_prisma_90_base = st.session_state.df_prisma_90_base
         st.success(f"✅ Base PRISMA ya cargada ({len(df_prisma_90_base)} facturas 90)")
+        
+# PASO B: Base = todas las facturas 90 de COBRA (TSS)
+    if "df_prisma_90_preparado" not in st.session_state:
+        st.info("🔄 Preparando facturas 90 desde COBRA como base...")
 
-    # PASO B: Base = todas las facturas 90 de COBRA (TSS)
-    st.info("🔄 Preparando facturas 90 desde COBRA como base...")
+        df_cobra_cruce = df.copy()
+        df_cobra_cruce['Num_Factura_Norm'] = df_cobra_cruce[col_factura].astype(str).str.strip().str.upper()
+        df_cobra_cruce['CIF_Norm'] = (
+            df_cobra_cruce[col_cif]
+            .astype(str)
+            .str.replace(" ", "")
+            .str.strip()
+            .str.upper()
+            .str.replace("L-00", "", regex=False)
+        )
 
-    df_cobra_cruce = df.copy()
-    df_cobra_cruce['Num_Factura_Norm'] = df_cobra_cruce[col_factura].astype(str).str.strip().str.upper()
-    df_cobra_cruce['CIF_Norm'] = (
-        df_cobra_cruce[col_cif]
-        .astype(str)
-        .str.replace(" ", "")
-        .str.strip()
-        .str.upper()
-        .str.replace("L-00", "", regex=False)
-    )
+        if col_sociedad:
+            df_cobra_cruce['Sociedad_Norm'] = df_cobra_cruce[col_sociedad].astype(str).str.strip().str.upper()
+            df_cobra_tss = df_cobra_cruce[df_cobra_cruce['Sociedad_Norm'] == 'TSS'].copy()
+        else:
+            df_cobra_tss = df_cobra_cruce.copy()
+            st.warning("⚠️ No se detectó columna 'Sociedad'. Se usarán todas las facturas.")
 
-    # Filtrar solo TSS en COBRA → estas son las facturas 90 base
-    if col_sociedad:
-        df_cobra_cruce['Sociedad_Norm'] = df_cobra_cruce[col_sociedad].astype(str).str.strip().str.upper()
-        df_cobra_tss = df_cobra_cruce[df_cobra_cruce['Sociedad_Norm'] == 'TSS'].copy()
+        df_cobra_90 = df_cobra_tss[
+            df_cobra_tss['Num_Factura_Norm'].str.startswith('90')
+        ].copy()
+
+        st.write(f"📊 Facturas 90 en COBRA (TSS): **{len(df_cobra_90)}**")
+
+        df_prisma_90_base['Num_Factura_Norm_P'] = df_prisma_90_base['Num_Factura_Norm']
+
+        df_prisma_90 = pd.merge(
+            df_cobra_90[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates(),
+            df_prisma_90_base,
+            left_on='Num_Factura_Norm',
+            right_on='Num_Factura_Norm',
+            how='left'
+        )
+
+        df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna(df_prisma_90['CIF_Norm'])
+        df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].fillna('DESCONOCIDO')
+
+        df_cobra_90_importes = df_cobra_90[['Num_Factura_Norm', col_importe]].copy()
+        df_cobra_90_importes['IMPORTE_COBRA_DIRECTO'] = df_cobra_90_importes[col_importe].apply(convertir_importe_europeo)
+
+        df_prisma_90 = df_prisma_90.merge(
+            df_cobra_90_importes[['Num_Factura_Norm', 'IMPORTE_COBRA_DIRECTO']],
+            on='Num_Factura_Norm',
+            how='left'
+        )
+
+        mask_sin_prisma = df_prisma_90['IMPORTE_CON_IMPUESTO'].isna() | (df_prisma_90['IMPORTE_CON_IMPUESTO'] == 0)
+        df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_CON_IMPUESTO'] = df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_COBRA_DIRECTO']
+        df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
+        df_prisma_90 = df_prisma_90.drop(columns=['IMPORTE_COBRA_DIRECTO'])
+
+        df_cobra_90_fechas = df_cobra_90[['Num_Factura_Norm', col_fecha_emision]].copy()
+        df_cobra_90_fechas['FECHA_COBRA'] = pd.to_datetime(df_cobra_90_fechas[col_fecha_emision], dayfirst=True, errors='coerce')
+
+        df_prisma_90 = df_prisma_90.merge(
+            df_cobra_90_fechas[['Num_Factura_Norm', 'FECHA_COBRA']],
+            on='Num_Factura_Norm',
+            how='left'
+        )
+
+        if 'Fecha Emisión' not in df_prisma_90.columns:
+            df_prisma_90['Fecha Emisión'] = pd.NaT
+
+        mask_sin_fecha = df_prisma_90['Fecha Emisión'].isna()
+        df_prisma_90.loc[mask_sin_fecha, 'Fecha Emisión'] = df_prisma_90.loc[mask_sin_fecha, 'FECHA_COBRA']
+        df_prisma_90 = df_prisma_90.drop(columns=['FECHA_COBRA'])
+
+        st.write(f"- 90s de COBRA con match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].notna().sum()}**")
+        st.write(f"- 90s de COBRA SIN match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].isna().sum()}**")
+
+        st.session_state.df_prisma_90_preparado = df_prisma_90
+        st.success(f"✅ Facturas 90 preparadas: {len(df_prisma_90)}")
     else:
-        df_cobra_tss = df_cobra_cruce.copy()
-        st.warning("⚠️ No se detectó columna 'Sociedad'. Se usarán todas las facturas.")
-
-    # Filtrar solo facturas que empiezan por 90
-    df_cobra_90 = df_cobra_tss[
-        df_cobra_tss['Num_Factura_Norm'].str.startswith('90')
-    ].copy()
-
-    st.write(f"📊 Facturas 90 en COBRA (TSS): **{len(df_cobra_90)}**")
-
-    # Cruzar con PRISMA para obtener CIF_UTE_REAL y datos de socios
-    # Left join: nos quedamos con TODAS las 90 de COBRA, con o sin match en PRISMA
-    df_prisma_90_base['Num_Factura_Norm_P'] = df_prisma_90_base['Num_Factura_Norm']
-
-    df_prisma_90 = pd.merge(
-        df_cobra_90[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates(),
-        df_prisma_90_base,
-        left_on='Num_Factura_Norm',
-        right_on='Num_Factura_Norm',
-        how='left'  # ← LEFT JOIN: todas las de COBRA, aunque no estén en PRISMA
-    )
-
-  # Para las que no tienen match en PRISMA, usar el CIF de COBRA como CIF_UTE_REAL
-    df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna(df_prisma_90['CIF_Norm'])
-    df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].fillna('DESCONOCIDO')
-
-    # 🔥 Para las que NO tienen match en PRISMA, coger importe directamente de COBRA
-    df_cobra_90_importes = df_cobra_90[['Num_Factura_Norm', col_importe]].copy()
-    df_cobra_90_importes['IMPORTE_COBRA_DIRECTO'] = df_cobra_90_importes[col_importe].apply(convertir_importe_europeo)
-
-    df_prisma_90 = df_prisma_90.merge(
-        df_cobra_90_importes[['Num_Factura_Norm', 'IMPORTE_COBRA_DIRECTO']],
-        on='Num_Factura_Norm',
-        how='left'
-    )
-
-    mask_sin_prisma = df_prisma_90['IMPORTE_CON_IMPUESTO'].isna() | (df_prisma_90['IMPORTE_CON_IMPUESTO'] == 0)
-    df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_CON_IMPUESTO'] = df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_COBRA_DIRECTO']
-    df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
-    df_prisma_90 = df_prisma_90.drop(columns=['IMPORTE_COBRA_DIRECTO'])
-
-    # 🔥 Para las que NO tienen match en PRISMA, coger también la FECHA de COBRA
-    df_cobra_90_fechas = df_cobra_90[['Num_Factura_Norm', col_fecha_emision]].copy()
-    df_cobra_90_fechas['FECHA_COBRA'] = pd.to_datetime(df_cobra_90_fechas[col_fecha_emision], dayfirst=True, errors='coerce')
-
-    df_prisma_90 = df_prisma_90.merge(
-        df_cobra_90_fechas[['Num_Factura_Norm', 'FECHA_COBRA']],
-        on='Num_Factura_Norm',
-        how='left'
-    )
-
-    # Donde PRISMA no tiene fecha, usar la de COBRA
-    if 'Fecha Emisión' not in df_prisma_90.columns:
-        df_prisma_90['Fecha Emisión'] = pd.NaT
-
-    mask_sin_fecha = df_prisma_90['Fecha Emisión'].isna()
-    df_prisma_90.loc[mask_sin_fecha, 'Fecha Emisión'] = df_prisma_90.loc[mask_sin_fecha, 'FECHA_COBRA']
-    df_prisma_90 = df_prisma_90.drop(columns=['FECHA_COBRA'])
-
-    st.write(f"- 90s de COBRA con match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].notna().sum()}**")
-    st.write(f"- 90s de COBRA SIN match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].isna().sum()}**")
-
-    # Guardar
-    st.session_state.df_prisma_90_preparado = df_prisma_90
+        df_prisma_90 = st.session_state.df_prisma_90_preparado
+        st.success(f"✅ Facturas 90 ya cargadas ({len(df_prisma_90)} facturas)")
 
     # DEBUG
     with st.expander("🔍 Info facturas 90 (base COBRA + enriquecido con PRISMA)"):
