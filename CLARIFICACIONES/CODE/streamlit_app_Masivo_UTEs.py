@@ -860,6 +860,9 @@ if not df_cobros.empty:
 
         return pd.DataFrame(resultados)
 
+    st.write(f"⚠️ Filas en df_prisma_90 ANTES del solver: {len(df_prisma_90)}")
+    st.write(f"⚠️ Facturas únicas: {df_prisma_90['Num_Factura_Norm'].nunique()}")
+    st.write(f"⚠️ CIFs únicos: {df_prisma_90['CIF_UTE_REAL'].nunique()}")
     # -------------------------------
     # 4️⃣ BOTÓN PARA EJECUTAR EL SOLVER
     # -------------------------------
