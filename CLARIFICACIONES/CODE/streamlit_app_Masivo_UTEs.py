@@ -758,6 +758,20 @@ if not df_cobros.empty:
                 importe_pago = pago['importe']
                 fecha_pago  = pago['fec_operacion']
 
+                # DEBUG — mostrar info para pagos grandes sin solución
+                if abs(importe_pago - 143429.88) < 1:
+                    st.warning(f"🔍 DEBUG pago 143K — CIF_UTE en pago: `{repr(cif_pago)}`")
+                    st.warning(f"🔍 CIFs disponibles en facturas_por_cif (primeros 10): {list(facturas_por_cif.keys())[:10]}")
+                    if cif_pago in facturas_por_cif:
+                        df_debug_90 = facturas_por_cif[cif_pago]
+                        st.warning(f"🔍 90s para este CIF: {len(df_debug_90)} facturas")
+                        st.dataframe(df_debug_90[['Num_Factura_Norm','CIF_UTE_REAL','IMPORTE_CON_IMPUESTO','Fecha Emisión','TIENE_MATCH_PRISMA']].head(10))
+                    else:
+                        st.error(f"🔍 CIF `{repr(cif_pago)}` NO está en facturas_por_cif")
+                        # Buscar si existe similar con diferente formato
+                        similares = [k for k in facturas_por_cif.keys() if str(k).replace(' ','') in str(cif_pago).replace(' ','') or str(cif_pago).replace(' ','') in str(k).replace(' ','')]
+                        st.error(f"🔍 CIFs similares encontrados: {similares[:5]}")
+
                 if cif_pago not in facturas_por_cif:
                     resultados.append({
                         'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
@@ -767,9 +781,12 @@ if not df_cobros.empty:
                     continue
 
                 df_facturas = facturas_por_cif[cif_pago].copy()
+                # Tolerancia de búsqueda: la 90 puede ser hasta 2€ mayor que el pago
+                # (el cliente puede haber pagado ligeramente de menos por error)
+                TOLERANCIA_BUSQUEDA_90 = 2.0
                 df_facturas = df_facturas[
                     (df_facturas['IMPORTE_CON_IMPUESTO'] > 0) &
-                    (df_facturas['IMPORTE_CON_IMPUESTO'] <= importe_pago + tolerancia) &
+                    (df_facturas['IMPORTE_CON_IMPUESTO'] <= importe_pago + max(tolerancia, TOLERANCIA_BUSQUEDA_90)) &
                     (
                         df_facturas['Fecha Emisión'].isna() |
                         (df_facturas['Fecha Emisión'] <= fecha_pago)
@@ -777,10 +794,23 @@ if not df_cobros.empty:
                 ].copy()
 
                 if df_facturas.empty:
+                    # Buscar sin filtro de importe para informar qué 90s existen
+                    todas_90 = facturas_por_cif[cif_pago].copy()
+                    todas_90 = todas_90[
+                        (todas_90['IMPORTE_CON_IMPUESTO'] > 0) &
+                        (
+                            todas_90['Fecha Emisión'].isna() |
+                            (todas_90['Fecha Emisión'] <= fecha_pago)
+                        )
+                    ]
+                    lista_90s = ', '.join(todas_90['Num_Factura_Norm'].tolist()) if not todas_90.empty else 'ninguna'
                     resultados.append({
                         'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
-                        'facturas_90_asignadas': 'SIN_FACTURAS_VALIDAS', 'importe_facturas_90': 0.0,
-                        'desglose_facturas_90': None, 'diferencia_pago_vs_90': importe_pago, 'advertencia': None
+                        'facturas_90_asignadas': 'SIN_COMBINACION_VALIDA',
+                        'importe_facturas_90': 0.0,
+                        'desglose_facturas_90': None,
+                        'diferencia_pago_vs_90': importe_pago,
+                        'advertencia': f'90s disponibles para este CIF (no cuadran con el pago): {lista_90s}'
                     })
                     continue
 
@@ -1017,10 +1047,24 @@ if not df_cobros.empty:
                     facturas_90_str = ', '.join([d['factura_90'] for d in desglose_por_factura_90])
 
                 else:
-                    facturas_90_str         = None
+                    # Solver no encontró combinación exacta — listar las 90s disponibles como informativo
+                    lista_90s_disponibles = ', '.join([
+                        f"{numeros_facturas[i]} ({importes_facturas[i]:.2f}€)"
+                        for i in range(len(numeros_facturas))
+                    ])
+                    facturas_90_str         = 'SIN_COMBINACION_EXACTA'
                     importe_facturas_90     = 0.0
                     desglose_por_factura_90 = None
                     hay_facturas_duplicadas = False
+                    resultados.append({
+                        'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
+                        'facturas_90_asignadas': 'SIN_COMBINACION_EXACTA',
+                        'importe_facturas_90': 0.0,
+                        'desglose_facturas_90': None,
+                        'diferencia_pago_vs_90': importe_pago,
+                        'advertencia': f'90s disponibles (no cuadran exacto con pago {importe_pago:.2f}€): {lista_90s_disponibles}'
+                    })
+                    continue
 
                 diferencia_pago_vs_90 = importe_pago - importe_facturas_90
                 advertencia = None
