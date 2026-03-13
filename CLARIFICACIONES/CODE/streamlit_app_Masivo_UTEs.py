@@ -665,30 +665,45 @@ if not df_cobros.empty:
                 if cif_orig and cif_grp and cif_grp.lower() not in ('nan', 'none', ''):
                     cif_a_grupo[cif_orig] = cif_grp
 
-        # ── Preparar COBRA TSOL indexada por CIF_GRUPO ──────────────────────────
-        # Para CASO 2: dado un CIF_GRUPO buscamos facturas TSOL de UTEs del grupo
+        # ── Preparar COBRA (no-TSS) indexada por CIF_GRUPO → CIF_UTE ───────────
+        # Para CASO 2: dado un CIF_GRUPO buscamos facturas de UTEs del grupo
         # Un CIF de UTE empieza por 'U' (tras quitar el prefijo L-00)
-        cobra_tsol_por_grupo = {}   # cif_grupo → DataFrame de filas TSOL con CIF de UTE
+        # Estructura: cobra_utes_por_grupo[cif_grupo][cif_ute_sin_prefijo] = DataFrame de facturas
+        # Máximo UNA factura por sociedad (TSOL, TDE, TME...) dentro del mismo CIF UTE
+        SOCIEDADES_TSS_EXCLUIR = {'TSS', 'TM01', 'T001'}
+        cobra_utes_por_grupo = {}  # cif_grupo → {cif_ute → DataFrame de facturas no-TSS}
         if col_grupo_cobra and col_sociedad_cobra:
-            df_tsol = df_cobra[
-                df_cobra[col_sociedad_cobra].astype(str).str.strip().str.upper() == 'TSOL'
+            df_no_tss = df_cobra[
+                ~df_cobra[col_sociedad_cobra].astype(str).str.strip().str.upper().isin(SOCIEDADES_TSS_EXCLUIR)
             ].copy()
-            df_tsol['IMPORTE_COBRA'] = df_tsol[col_importe_cobra].apply(convertir_importe_europeo)
-            df_tsol['NUM_FACTURA_COBRA'] = df_tsol[col_factura_cobra].astype(str).str.strip()
-            df_tsol['CIF_ORIGINAL'] = df_tsol[col_cif_cobra].astype(str).str.strip()
-            df_tsol['CIF_SIN_PREFIJO'] = (
-                df_tsol['CIF_ORIGINAL']
+            df_no_tss['IMPORTE_COBRA']    = df_no_tss[col_importe_cobra].apply(convertir_importe_europeo)
+            df_no_tss['NUM_FACTURA_COBRA'] = df_no_tss[col_factura_cobra].astype(str).str.strip()
+            df_no_tss['SOCIEDAD_NORM']    = df_no_tss[col_sociedad_cobra].astype(str).str.strip().str.upper()
+            df_no_tss['CIF_ORIGINAL']     = df_no_tss[col_cif_cobra].astype(str).str.strip()
+            df_no_tss['CIF_SIN_PREFIJO']  = (
+                df_no_tss['CIF_ORIGINAL']
                 .str.replace(" ", "")
                 .str.upper()
                 .str.replace("L-00", "", regex=False)
             )
-            df_tsol['CIF_GRUPO_NORM'] = df_tsol[col_grupo_cobra].astype(str).str.strip()
+            df_no_tss['CIF_GRUPO_NORM']   = df_no_tss[col_grupo_cobra].astype(str).str.strip()
+            # Incluir fecha de emisión si existe
+            if col_fecha_emision in df_no_tss.columns:
+                df_no_tss['FECHA_EMISION_COBRA'] = pd.to_datetime(df_no_tss[col_fecha_emision], dayfirst=True, errors='coerce')
+            else:
+                df_no_tss['FECHA_EMISION_COBRA'] = pd.NaT
 
-            for grp, grp_df in df_tsol.groupby('CIF_GRUPO_NORM'):
-                # Quedarse solo con UTEs: CIF sin prefijo empieza por U
-                utes_del_grupo = grp_df[grp_df['CIF_SIN_PREFIJO'].str.startswith('U')]
-                if not utes_del_grupo.empty:
-                    cobra_tsol_por_grupo[grp] = utes_del_grupo.copy()
+            # Solo importe positivo
+            df_no_tss = df_no_tss[df_no_tss['IMPORTE_COBRA'].notna() & (df_no_tss['IMPORTE_COBRA'] > 0)]
+
+            for grp, grp_df in df_no_tss.groupby('CIF_GRUPO_NORM'):
+                # Solo UTEs del grupo: CIF sin prefijo empieza por U
+                utes_df = grp_df[grp_df['CIF_SIN_PREFIJO'].str.upper().str.startswith('U')]
+                if utes_df.empty:
+                    continue
+                cobra_utes_por_grupo[grp] = {}
+                for cif_ute, ute_df in utes_df.groupby('CIF_SIN_PREFIJO'):
+                    cobra_utes_por_grupo[grp][cif_ute] = ute_df.copy()
 
         # ── Preparar COBRA no-TSS indexada por CIF normalizado (para CASO 1) ────
         SOCIEDADES_EXCLUIDAS = {'TSS', 'TM01', 'T001'}
@@ -873,59 +888,109 @@ if not df_cobros.empty:
                                 else:
                                     estado_cobra = "❌ CIF no encontrado en COBRA para completar diferencia (CASO 1)"
 
-                        # ── CASO 2: sin match en PRISMA → buscar TSOL en COBRA ──
+                        # ── CASO 2: sin match en PRISMA → buscar socios en COBRA por grupo ──
                         else:
                             # cif_cliente_final = CIF de la factura 90 en COBRA (con L-00)
-                            # Buscar su CIF grupal
+                            # Reglas:
+                            #   - Máximo UNA factura por sociedad (TSOL/TDE/TME) dentro del MISMO CIF UTE
+                            #   - Nunca mezclar facturas de diferentes CIFs UTE para cubrir una misma 90
+                            #   - Fecha emisión ≤ fecha del pago
                             cif_grupo = cif_a_grupo.get(cif_cliente_final, None)
+                            imp90_cent = int(round(importe_factura_90 * 100))
 
-                            if cif_grupo and cif_grupo in cobra_tsol_por_grupo:
-                                df_tsol_grupo = cobra_tsol_por_grupo[cif_grupo].copy()
-                                # Filtrar por importe ≤ importe de la 90 (no puede ser mayor)
-                                df_tsol_grupo = df_tsol_grupo[
-                                    df_tsol_grupo['IMPORTE_COBRA'].notna() &
-                                    (df_tsol_grupo['IMPORTE_COBRA'] > 0) &
-                                    (df_tsol_grupo['IMPORTE_COBRA'] <= importe_factura_90 + tolerancia)
-                                ].copy()
+                            if cif_grupo and cif_grupo in cobra_utes_por_grupo:
+                                utes_del_grupo = cobra_utes_por_grupo[cif_grupo]
+                                mejor_resultado = None  # (socios_lista, importe_total, cif_ute)
 
-                                if not df_tsol_grupo.empty:
-                                    # Buscar UNA factura TSOL que cuadre exactamente con importe_90
-                                    importes_tsol = df_tsol_grupo['IMPORTE_COBRA'].tolist()
-                                    nums_tsol     = df_tsol_grupo['NUM_FACTURA_COBRA'].tolist()
-                                    cifs_tsol     = df_tsol_grupo['CIF_SIN_PREFIJO'].tolist()
+                                for cif_ute, df_ute in utes_del_grupo.items():
+                                    # Filtrar por fecha ≤ fecha del pago
+                                    df_ute_fecha = df_ute[
+                                        df_ute['FECHA_EMISION_COBRA'].isna() |
+                                        (df_ute['FECHA_EMISION_COBRA'] <= fecha_pago)
+                                    ].copy()
 
-                                    imp90_cent    = int(round(importe_factura_90 * 100))
-                                    tsol_cent     = [int(round(v * 100)) for v in importes_tsol]
+                                    if df_ute_fecha.empty:
+                                        continue
+
+                                    # Máximo UNA factura por sociedad dentro del mismo CIF UTE
+                                    # Criterio: la más cercana en fecha POSTERIOR a la emisión de la 90
+                                    # (fecha factura socio >= fecha emisión 90)
+                                    # Si no hay fecha de la 90, usar cualquier factura anterior al pago
+                                    filas_seleccionadas = []
+                                    for soc, df_soc in df_ute_fecha.groupby('SOCIEDAD_NORM'):
+                                        # Solo facturas con fecha >= fecha emisión de la 90
+                                        if pd.notna(fecha_factura_90):
+                                            df_soc_valida = df_soc[
+                                                df_soc['FECHA_EMISION_COBRA'].isna() |
+                                                (df_soc['FECHA_EMISION_COBRA'] >= fecha_factura_90)
+                                            ].copy()
+                                        else:
+                                            df_soc_valida = df_soc.copy()
+
+                                        if df_soc_valida.empty:
+                                            continue
+
+                                        # La más cercana a la fecha de emisión de la 90 (más antigua válida)
+                                        if df_soc_valida['FECHA_EMISION_COBRA'].notna().any():
+                                            df_soc_valida = df_soc_valida.sort_values('FECHA_EMISION_COBRA', ascending=True)
+                                        filas_seleccionadas.append(df_soc_valida.iloc[[0]])
+
+                                    if not filas_seleccionadas:
+                                        continue
+                                    df_una_por_soc = pd.concat(filas_seleccionadas, ignore_index=True)
+
+                                    # Filtrar las que individualmente no superan el importe de la 90
+                                    df_una_por_soc = df_una_por_soc[
+                                        df_una_por_soc['IMPORTE_COBRA'] <= importe_factura_90 + tolerancia
+                                    ].copy()
+
+                                    if df_una_por_soc.empty:
+                                        continue
+
+                                    importes_ute  = df_una_por_soc['IMPORTE_COBRA'].tolist()
+                                    nums_ute      = df_una_por_soc['NUM_FACTURA_COBRA'].tolist()
+                                    socs_ute      = df_una_por_soc['SOCIEDAD_NORM'].tolist()
+                                    nte           = len(importes_ute)
+                                    ute_cent      = [int(round(v * 100)) for v in importes_ute]
 
                                     model_t = cp_model.CpModel()
-                                    nt = len(tsol_cent)
-                                    xt = [model_t.NewBoolVar(f"xt_{j}") for j in range(nt)]
-                                    # Máximo 1 factura TSOL por 90 sin match
-                                    model_t.Add(sum(xt) == 1)
-                                    model_t.Add(sum(xt[j] * tsol_cent[j] for j in range(nt)) >= imp90_cent - tol_cent)
-                                    model_t.Add(sum(xt[j] * tsol_cent[j] for j in range(nt)) <= imp90_cent + tol_cent)
+                                    xt = [model_t.NewBoolVar(f"xt_{cif_ute}_{j}") for j in range(nte)]
+                                    # Suma debe cuadrar con importe de la 90
+                                    model_t.Add(sum(xt[j] * ute_cent[j] for j in range(nte)) >= imp90_cent - tol_cent)
+                                    model_t.Add(sum(xt[j] * ute_cent[j] for j in range(nte)) <= imp90_cent + tol_cent)
                                     solver_t = cp_model.CpSolver()
                                     solver_t.parameters.max_time_in_seconds = 2
                                     solver_t.parameters.log_search_progress = False
                                     status_t = solver_t.Solve(model_t)
 
                                     if status_t in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                                        sel_t = [j for j in range(nt) if solver_t.Value(xt[j]) == 1]
+                                        sel_t = [j for j in range(nte) if solver_t.Value(xt[j]) == 1]
+                                        candidatos = []
+                                        importe_candidato = 0.0
                                         for j in sel_t:
-                                            socios_cobra.append({
-                                                'num_factura': nums_tsol[j],
-                                                'cif': cifs_tsol[j],
-                                                'importe': importes_tsol[j],
-                                                'fuente': 'COBRA (TSOL)'
+                                            candidatos.append({
+                                                'num_factura': nums_ute[j],
+                                                'cif': cif_ute,
+                                                'importe': importes_ute[j],
+                                                'fuente': f'COBRA ({socs_ute[j]})'
                                             })
-                                            importe_socios_cobra += importes_tsol[j]
-                                        estado_cobra = f"✅ TSOL encontrada (grupo {cif_grupo})"
-                                    else:
-                                        estado_cobra = f"⚠️ No se encontró TSOL que cuadre con {importe_factura_90:.2f}€ en grupo {cif_grupo}"
+                                            importe_candidato += importes_ute[j]
+                                        # Guardar si es la primera solución válida
+                                        if mejor_resultado is None:
+                                            mejor_resultado = (candidatos, importe_candidato, cif_ute)
+                                        # Preferir solución con diferencia más pequeña
+                                        elif abs(importe_candidato - importe_factura_90) < abs(mejor_resultado[1] - importe_factura_90):
+                                            mejor_resultado = (candidatos, importe_candidato, cif_ute)
+
+                                if mejor_resultado is not None:
+                                    socios_cobra        = mejor_resultado[0]
+                                    importe_socios_cobra = mejor_resultado[1]
+                                    socs_encontradas    = ', '.join(set(s['fuente'] for s in socios_cobra))
+                                    estado_cobra = f"✅ Socios encontrados en CIF UTE {mejor_resultado[2]} (grupo {cif_grupo}): {socs_encontradas}"
                                 else:
-                                    estado_cobra = f"⚠️ Grupo {cif_grupo} no tiene facturas TSOL de UTEs válidas"
+                                    estado_cobra = f"⚠️ Ningún CIF UTE del grupo {cif_grupo} cuadra con {importe_factura_90:.2f}€"
                             elif cif_grupo:
-                                estado_cobra = f"⚠️ Grupo {cif_grupo} no tiene facturas TSOL de UTEs"
+                                estado_cobra = f"⚠️ Grupo {cif_grupo} no tiene CIFs UTE con facturas válidas"
                             else:
                                 estado_cobra = f"❌ No se encontró CIF grupal para {cif_cliente_final}"
 
