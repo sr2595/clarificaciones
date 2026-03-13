@@ -1093,6 +1093,56 @@ if not df_cobros.empty:
     st.write(f"⚠️ Facturas únicas: {df_prisma_90['Num_Factura_Norm'].nunique()}")
     st.write(f"⚠️ CIFs únicos: {df_prisma_90['CIF_UTE_REAL'].nunique()}")
 
+    # ── DEBUG: comparar CIFs de pagos vs CIFs de facturas 90 ──────────────────
+    with st.expander("🔍 DEBUG: CIFs pagos vs CIFs facturas 90 (sin ejecutar cruce)", expanded=False):
+        # CIFs normalizados de los pagos del día
+        cifs_pagos = (
+            df_pagos['CIF_UTE']
+            .astype(str)
+            .str.replace(".0", "", regex=False)
+            .str.strip()
+            .str.upper()
+            .unique()
+        )
+        # CIFs en df_prisma_90
+        cifs_90 = df_prisma_90['CIF_UTE_REAL'].dropna().unique()
+
+        coinciden = set(cifs_pagos) & set(cifs_90)
+        solo_en_pagos = set(cifs_pagos) - set(cifs_90)
+
+        st.write(f"**CIFs en pagos del día:** {len(cifs_pagos)}")
+        st.write(f"**CIFs en facturas 90:** {len(cifs_90)}")
+        st.write(f"**✅ Coinciden:** {len(coinciden)} → {sorted(coinciden)[:10]}")
+        st.write(f"**❌ Solo en pagos (no tienen 90):** {len(solo_en_pagos)}")
+
+        # Para los que no coinciden, mostrar ejemplos y buscar similares
+        if solo_en_pagos:
+            st.markdown("---")
+            st.write("**Detalle de CIFs en pagos sin match en 90s:**")
+            for cif_p in sorted(solo_en_pagos)[:15]:
+                similares = [c for c in cifs_90 if cif_p in str(c) or str(c) in cif_p]
+                st.write(f"- Pago CIF: `{repr(cif_p)}` → similares en 90s: {similares[:3] if similares else '❌ ninguno'}")
+
+        # Mostrar ejemplos raw de ambos lados para detectar diferencias de formato
+        st.markdown("---")
+        st.write("**Ejemplos raw CIFs en pagos:**", list(cifs_pagos)[:5])
+        st.write("**Ejemplos raw CIFs en 90s:**", list(cifs_90)[:5])
+
+        # Mostrar las 90s del CIF 666479 (el del pago de 143K) si existe
+        cif_buscar = [c for c in cifs_90 if '666479' in str(c)]
+        if cif_buscar:
+            st.write(f"**90s encontradas para CIF que contiene '666479': {cif_buscar}**")
+            st.dataframe(df_prisma_90[df_prisma_90['CIF_UTE_REAL'].isin(cif_buscar)][
+                ['Num_Factura_Norm','CIF_UTE_REAL','CIF_ORIGINAL','IMPORTE_CON_IMPUESTO','Fecha Emisión','TIENE_MATCH_PRISMA']
+            ])
+        else:
+            st.error("❌ Ningún CIF_UTE_REAL en df_prisma_90 contiene '666479'")
+            # Buscar en CIF_ORIGINAL por si está ahí
+            cif_orig_buscar = df_prisma_90[df_prisma_90['CIF_ORIGINAL'].astype(str).str.contains('666479', na=False)]
+            if not cif_orig_buscar.empty:
+                st.warning(f"⚠️ SÍ está en CIF_ORIGINAL pero NO en CIF_UTE_REAL — problema de mapeo")
+                st.dataframe(cif_orig_buscar[['Num_Factura_Norm','CIF_UTE_REAL','CIF_ORIGINAL','IMPORTE_CON_IMPUESTO','TIENE_MATCH_PRISMA']].head(10))
+
     # -------------------------------
     # 4️⃣ BOTÓN PARA EJECUTAR EL SOLVER
     # -------------------------------
