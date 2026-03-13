@@ -213,7 +213,7 @@ if archivo_cobra is not None:
     st.session_state.cobra_nombre = archivo_cobra.name  
 
 # Si no hay bytes, no seguimos
-if "cobra_bytes" not in st.session_state:
+if "cobra_bytes" not in st.session_state and "df_cobra_procesado" not in st.session_state:
     st.stop()
 
 if "df_cobra_procesado" not in st.session_state:
@@ -283,7 +283,9 @@ if "df_cobra_procesado" not in st.session_state:
     # --- Normalizar ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
-    df[col_cif] = df[col_cif].astype(str)
+    df[col_cif] = df[col_cif].astype(str).str.strip()  # conservar original (con L-00)
+    if col_grupo:
+        df[col_grupo] = df[col_grupo].astype(str).str.strip()
     df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
     df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
     df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
@@ -295,6 +297,7 @@ if "df_cobra_procesado" not in st.session_state:
     st.session_state.col_importe = col_importe
     st.session_state.col_cif = col_cif
     st.session_state.col_sociedad = col_sociedad
+    st.session_state.col_grupo = col_grupo
 
     # ✅ Calcular resumen DESPUÉS de normalizar
     total  = df['IMPORTE_CORRECTO'].sum(skipna=True)
@@ -315,6 +318,7 @@ else:
     col_importe = st.session_state.col_importe
     col_cif = st.session_state.col_cif
     col_sociedad = st.session_state.get('col_sociedad', None)
+    col_grupo = st.session_state.get('col_grupo', None)
     
     st.success(f"✅ Archivo COBRA ya cargado ({len(df)} filas)")
 
@@ -330,7 +334,7 @@ if cobros_file is not None:
     st.session_state.cobros_bytes = cobros_file.getvalue()
 
 # Si no hay bytes, no seguimos
-if "cobros_bytes" not in st.session_state:
+if "cobros_bytes" not in st.session_state and "df_cobros_procesado" not in st.session_state:
     st.stop()
 
 # PROCESAR PAGOS SOLO UNA VEZ
@@ -503,7 +507,7 @@ if not df_cobros.empty:
         df_prisma_90_base = st.session_state.df_prisma_90_base
         st.success(f"✅ Base PRISMA ya cargada ({len(df_prisma_90_base)} facturas 90)")
 
-# PASO B: Base = todas las facturas 90 de COBRA (TSS)
+    # PASO B: Base = todas las facturas 90 de COBRA (TSS)
     if "df_prisma_90_preparado" not in st.session_state:
         st.info("🔄 Preparando facturas 90 desde COBRA como base...")
 
@@ -517,6 +521,8 @@ if not df_cobros.empty:
             .str.upper()
             .str.replace("L-00", "", regex=False)
         )
+        # CIF original sin normalizar (para buscar en TSOL)
+        df_cobra_cruce['CIF_ORIGINAL'] = df_cobra_cruce[col_cif].astype(str).str.strip()
 
         if col_sociedad:
             df_cobra_cruce['Sociedad_Norm'] = df_cobra_cruce[col_sociedad].astype(str).str.strip().str.upper()
@@ -534,16 +540,20 @@ if not df_cobros.empty:
         df_prisma_90_base['Num_Factura_Norm_P'] = df_prisma_90_base['Num_Factura_Norm']
 
         df_prisma_90 = pd.merge(
-            df_cobra_90[['Num_Factura_Norm', 'CIF_Norm']].drop_duplicates(),
+            df_cobra_90[['Num_Factura_Norm', 'CIF_Norm', 'CIF_ORIGINAL']].drop_duplicates(subset='Num_Factura_Norm'),
             df_prisma_90_base,
-            left_on='Num_Factura_Norm',
-            right_on='Num_Factura_Norm',
+            on='Num_Factura_Norm',
             how='left'
         )
 
+        # Para las sin match en PRISMA: CIF_UTE_REAL = CIF_Norm (CIF de COBRA sin L-00)
         df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna(df_prisma_90['CIF_Norm'])
         df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].fillna('DESCONOCIDO')
 
+        # Marcar si tiene match en PRISMA o no (para saber qué lógica usar en el solver)
+        df_prisma_90['TIENE_MATCH_PRISMA'] = df_prisma_90['Num_Factura_Norm_P'].notna()
+
+        # Importe: para las con match usamos PRISMA (con impuesto), para las sin match usamos COBRA directamente
         df_cobra_90_importes = df_cobra_90[['Num_Factura_Norm', col_importe]].copy()
         df_cobra_90_importes['IMPORTE_COBRA_DIRECTO'] = df_cobra_90_importes[col_importe].apply(convertir_importe_europeo)
 
@@ -553,11 +563,13 @@ if not df_cobros.empty:
             how='left'
         )
 
+        # Sin match: usar importe de COBRA directamente (ya incluye impuesto)
         mask_sin_prisma = df_prisma_90['IMPORTE_CON_IMPUESTO'].isna() | (df_prisma_90['IMPORTE_CON_IMPUESTO'] == 0)
         df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_CON_IMPUESTO'] = df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_COBRA_DIRECTO']
         df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
         df_prisma_90 = df_prisma_90.drop(columns=['IMPORTE_COBRA_DIRECTO'])
 
+        # Fecha: para las sin match usar fecha de COBRA
         df_cobra_90_fechas = df_cobra_90[['Num_Factura_Norm', col_fecha_emision]].copy()
         df_cobra_90_fechas['FECHA_COBRA'] = pd.to_datetime(df_cobra_90_fechas[col_fecha_emision], dayfirst=True, errors='coerce')
 
@@ -574,21 +586,21 @@ if not df_cobros.empty:
         df_prisma_90.loc[mask_sin_fecha, 'Fecha Emisión'] = df_prisma_90.loc[mask_sin_fecha, 'FECHA_COBRA']
         df_prisma_90 = df_prisma_90.drop(columns=['FECHA_COBRA'])
 
-        st.write(f"- 90s de COBRA con match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].notna().sum()}**")
-        st.write(f"- 90s de COBRA SIN match en PRISMA: **{df_prisma_90['Num_Factura_Norm_P'].isna().sum()}**")
+        con_match = df_prisma_90['TIENE_MATCH_PRISMA'].sum()
+        sin_match = (~df_prisma_90['TIENE_MATCH_PRISMA']).sum()
+        st.write(f"- 90s de COBRA con match en PRISMA: **{con_match}**")
+        st.write(f"- 90s de COBRA SIN match en PRISMA: **{sin_match}**")
 
         # DEBUG — dentro del if para que df_cobra_90 esté definido
         with st.expander("🔍 Info facturas 90 (base COBRA + enriquecido con PRISMA)"):
-            con_match = df_prisma_90['Num_Factura_Norm_P'].notna().sum()
-            sin_match = df_prisma_90['Num_Factura_Norm_P'].isna().sum()
             facturas_90_positivas = (df_prisma_90['IMPORTE_CON_IMPUESTO'] > 0).sum()
             facturas_90_negativas = (df_prisma_90['IMPORTE_CON_IMPUESTO'] <= 0).sum()
             st.write(f"ℹ️ Total facturas 90 base (COBRA): {len(df_prisma_90)}")
-            st.write(f"✅ Con match en PRISMA: {con_match}")
-            st.write(f"⚠️ Sin match en PRISMA: {sin_match}")
+            st.write(f"✅ Con match en PRISMA (socios TDE/TME disponibles): {con_match}")
+            st.write(f"⚠️ Sin match en PRISMA (buscarán en COBRA TSOL): {sin_match}")
             st.write(f"✅ Con importe positivo: {facturas_90_positivas}")
             st.write(f"⛔ Con importe 0: {facturas_90_negativas}")
-            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'Id UTE', 'CIF_UTE_REAL', 'IMPORTE_CON_IMPUESTO']].head(20))
+            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'Id UTE', 'CIF_UTE_REAL', 'CIF_ORIGINAL', 'TIENE_MATCH_PRISMA', 'IMPORTE_CON_IMPUESTO']].head(20))
 
         # Informativo: solo en PRISMA, no en COBRA
         facturas_solo_prisma = df_prisma_90_base[
@@ -623,53 +635,97 @@ if not df_cobros.empty:
     # -------------------------------
     # 3️⃣ FUNCIÓN OR-TOOLS CON SOCIOS
     # -------------------------------
-    def cruzar_pagos_con_prisma_exacto(df_pagos, df_prisma_90, df_prisma_completo, df_cobra, col_num_factura_prisma, col_cif_cobra, col_sociedad_cobra, col_factura_cobra, col_importe_cobra, tolerancia=0.01):
+    def cruzar_pagos_con_prisma_exacto(
+        df_pagos, df_prisma_90, df_prisma_completo, df_cobra,
+        col_num_factura_prisma, col_cif_cobra, col_sociedad_cobra,
+        col_factura_cobra, col_importe_cobra, col_grupo_cobra,
+        tolerancia=0.01
+    ):
         """
-        Cruza pagos con facturas 90 y además busca las facturas de socios asociadas a cada factura 90.
-        Si hay diferencia entre la 90 y los socios de PRISMA, busca en COBRA (sociedades no TSS/TM01/T001)
+        CASO 1: Factura 90 CON match en PRISMA
+          → Socios son los de PRISMA (TDE/TME del mismo Id UTE)
+          → Si la suma de socios PRISMA ≠ importe_90, buscar UNA factura TSOL en COBRA
+            usando CIF_UTE_REAL (que es el CIF del socio/UTE ya normalizado)
+
+        CASO 2: Factura 90 SIN match en PRISMA
+          → Tomar CIF_ORIGINAL de la 90 en COBRA (CIF del cliente final)
+          → Buscar en COBRA la columna col_grupo para ese CIF → obtener CIF grupal
+          → Dentro del grupo, buscar filas con CIF que empiece por 'U' → UTEs
+          → Entre esas UTEs, filtrar TSOL y buscar UNA factura que cuadre con importe_90
         """
-        # Sociedades a EXCLUIR en la búsqueda de socios en COBRA
-        SOCIEDADES_EXCLUIDAS = {'TSS', 'TM01', 'T001'}
-        
         resultados = []
-        facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
-        
-        # Preparar COBRA para búsqueda de socios: normalizar CIF y sociedad
-        # Los CIFs en COBRA pueden tener prefijos L-00 (UTEs/TSS) o C- (otros socios)
-        # Hay que quitar ambos prefijos para comparar con CIF_UTE_REAL de PRISMA
+
+        # ── Preparar lookup CIF_ORIGINAL → CIF_GRUPO en COBRA ──────────────────
+        # Construimos: cif_original → cif_grupo (usando todas las filas de COBRA)
+        cif_a_grupo = {}
+        if col_grupo_cobra:
+            for _, row in df_cobra[[col_cif_cobra, col_grupo_cobra]].drop_duplicates().iterrows():
+                cif_orig = str(row[col_cif_cobra]).strip()
+                cif_grp  = str(row[col_grupo_cobra]).strip()
+                if cif_orig and cif_grp and cif_grp.lower() not in ('nan', 'none', ''):
+                    cif_a_grupo[cif_orig] = cif_grp
+
+        # ── Preparar COBRA TSOL indexada por CIF_GRUPO ──────────────────────────
+        # Para CASO 2: dado un CIF_GRUPO buscamos facturas TSOL de UTEs del grupo
+        # Un CIF de UTE empieza por 'U' (tras quitar el prefijo L-00)
+        cobra_tsol_por_grupo = {}   # cif_grupo → DataFrame de filas TSOL con CIF de UTE
+        if col_grupo_cobra and col_sociedad_cobra:
+            df_tsol = df_cobra[
+                df_cobra[col_sociedad_cobra].astype(str).str.strip().str.upper() == 'TSOL'
+            ].copy()
+            df_tsol['IMPORTE_COBRA'] = df_tsol[col_importe_cobra].apply(convertir_importe_europeo)
+            df_tsol['NUM_FACTURA_COBRA'] = df_tsol[col_factura_cobra].astype(str).str.strip()
+            df_tsol['CIF_ORIGINAL'] = df_tsol[col_cif_cobra].astype(str).str.strip()
+            df_tsol['CIF_SIN_PREFIJO'] = (
+                df_tsol['CIF_ORIGINAL']
+                .str.replace(" ", "")
+                .str.upper()
+                .str.replace("L-00", "", regex=False)
+            )
+            df_tsol['CIF_GRUPO_NORM'] = df_tsol[col_grupo_cobra].astype(str).str.strip()
+
+            for grp, grp_df in df_tsol.groupby('CIF_GRUPO_NORM'):
+                # Quedarse solo con UTEs: CIF sin prefijo empieza por U
+                utes_del_grupo = grp_df[grp_df['CIF_SIN_PREFIJO'].str.startswith('U')]
+                if not utes_del_grupo.empty:
+                    cobra_tsol_por_grupo[grp] = utes_del_grupo.copy()
+
+        # ── Preparar COBRA no-TSS indexada por CIF normalizado (para CASO 1) ────
+        SOCIEDADES_EXCLUIDAS = {'TSS', 'TM01', 'T001'}
+
         def normalizar_cif_cobra(valor):
             s = str(valor).replace(" ", "").strip().upper()
             s = s.replace("L-00", "")
             if s.startswith("C-"):
                 s = s[2:]
             return s
-        
+
         df_cobra_socios = df_cobra.copy()
         df_cobra_socios['CIF_UTE_NORM'] = df_cobra_socios[col_cif_cobra].apply(normalizar_cif_cobra)
-        df_cobra_socios['SOCIEDAD_NORM'] = df_cobra_socios[col_sociedad_cobra].astype(str).str.strip().str.upper() if col_sociedad_cobra else 'DESCONOCIDA'
+        df_cobra_socios['SOCIEDAD_NORM'] = (
+            df_cobra_socios[col_sociedad_cobra].astype(str).str.strip().str.upper()
+            if col_sociedad_cobra else 'DESCONOCIDA'
+        )
         df_cobra_socios['IMPORTE_COBRA'] = df_cobra_socios[col_importe_cobra].apply(convertir_importe_europeo)
         df_cobra_socios['NUM_FACTURA_COBRA'] = df_cobra_socios[col_factura_cobra].astype(str).str.strip()
-        
-        # Filtrar: excluir sociedades TSS, TM01, T001 → nos quedan TSOL y otros
+
         df_cobra_otros = df_cobra_socios[
             ~df_cobra_socios['SOCIEDAD_NORM'].isin(SOCIEDADES_EXCLUIDAS)
         ].copy()
-        
-        # Indexar por CIF_UTE para búsqueda rápida
         cobra_otros_por_cif = {cif: g for cif, g in df_cobra_otros.groupby('CIF_UTE_NORM')}
-        
-        # Crear diccionario de socios PRISMA por Id UTE
+
+        # ── Socios PRISMA por Id UTE ─────────────────────────────────────────────
         df_socios = df_prisma_completo[
             (~df_prisma_completo[col_num_factura_prisma].astype(str).str.startswith("90")) &
             (df_prisma_completo['IMPORTE_CON_IMPUESTO'] > 0)
         ].copy()
-        
+
         col_fecha_factura = None
         for posible_col in ['Fecha Emisión', 'Fecha Emision', 'FECHA_EMISION', 'Fecha']:
             if posible_col in df_prisma_completo.columns:
                 col_fecha_factura = posible_col
                 break
-        
+
         socios_por_ute = {}
         for id_ute, grupo in df_socios.groupby('Id UTE'):
             cols_socios = [col_num_factura_prisma, 'IMPORTE_CON_IMPUESTO', 'CIF']
@@ -677,11 +733,15 @@ if not df_cobros.empty:
                 cols_socios.append(col_fecha_factura)
             socios_por_ute[str(id_ute).strip()] = grupo[cols_socios].copy()
 
+        # ── Agrupar facturas 90 por CIF_UTE_REAL ────────────────────────────────
+        facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
+
+        # ── Bucle de pagos ───────────────────────────────────────────────────────
         for idx, pago in df_pagos.iterrows():
             try:
-                cif_pago = pago['CIF_UTE']
+                cif_pago    = pago['CIF_UTE']
                 importe_pago = pago['importe']
-                fecha_pago = pago['fec_operacion']
+                fecha_pago  = pago['fec_operacion']
 
                 if cif_pago not in facturas_por_cif:
                     resultados.append({
@@ -694,15 +754,12 @@ if not df_cobros.empty:
                 df_facturas = facturas_por_cif[cif_pago].copy()
                 df_facturas = df_facturas[
                     (df_facturas['IMPORTE_CON_IMPUESTO'] > 0) &
+                    (df_facturas['IMPORTE_CON_IMPUESTO'] <= importe_pago + tolerancia) &
                     (
-                        df_facturas['Fecha Emisión'].isna() |  # ← incluir las sin fecha (vienen de COBRA)
+                        df_facturas['Fecha Emisión'].isna() |
                         (df_facturas['Fecha Emisión'] <= fecha_pago)
                     )
                 ].copy()
-
-                # DEBUG temporal — eliminar cuando funcione
-                if idx < 5:
-                    st.write(f"🔍 CIF: {cif_pago} | Facturas disponibles: {len(df_facturas)} | Fechas NaT: {df_facturas['Fecha Emisión'].isna().sum()}")
 
                 if df_facturas.empty:
                     resultados.append({
@@ -713,18 +770,22 @@ if not df_cobros.empty:
                     continue
 
                 df_facturas = df_facturas.sort_values(['Fecha Emisión', 'IMPORTE_CON_IMPUESTO'], ascending=[True, True])
-                numeros_facturas = df_facturas[col_num_factura_prisma].tolist()
+                numeros_facturas  = df_facturas['Num_Factura_Norm'].tolist()
                 importes_facturas = df_facturas['IMPORTE_CON_IMPUESTO'].tolist()
-                ids_ute = df_facturas['Id UTE'].tolist()
-                fechas_90 = df_facturas['Fecha Emisión'].tolist()
-                importes_unicos = len(set(importes_facturas))
+                ids_ute           = df_facturas['Id UTE'].tolist()
+                fechas_90         = df_facturas['Fecha Emisión'].tolist()
+                tiene_match       = df_facturas['TIENE_MATCH_PRISMA'].tolist()
+                cifs_originales   = df_facturas['CIF_ORIGINAL'].tolist()  # CIF del cliente final (con L-00)
+
+                importes_unicos       = len(set(importes_facturas))
                 hay_facturas_duplicadas = importes_unicos < len(importes_facturas)
 
+                # Solver OR-Tools para seleccionar qué facturas 90 cubren el pago
                 model = cp_model.CpModel()
                 n = len(importes_facturas)
-                pagos_cent = int(round(importe_pago * 100))
+                pagos_cent    = int(round(importe_pago * 100))
                 facturas_cent = [int(round(f * 100)) for f in importes_facturas]
-                tol_cent = int(round(tolerancia * 100))
+                tol_cent      = int(round(tolerancia * 100))
                 x = [model.NewBoolVar(f"x_{i}") for i in range(n)]
                 model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
                 model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
@@ -733,110 +794,166 @@ if not df_cobros.empty:
                 solver.parameters.log_search_progress = False
                 status = solver.Solve(model)
 
-                if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+                if status in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
                     seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
                     desglose_por_factura_90 = []
                     importe_facturas_90 = 0.0
-                    
+
                     for i in seleccion:
-                        num_factura_90 = numeros_facturas[i]
+                        num_factura_90   = numeros_facturas[i]
                         importe_factura_90 = importes_facturas[i]
-                        id_ute = str(ids_ute[i]).strip()
+                        id_ute           = str(ids_ute[i]).strip()
                         fecha_factura_90 = fechas_90[i]
+                        es_caso1         = tiene_match[i]       # True = CASO 1, False = CASO 2
+                        cif_cliente_final = cifs_originales[i]  # CIF original de COBRA (con L-00)
                         importe_facturas_90 += importe_factura_90
-                        
-                        # --- Socios de PRISMA ---
-                        socios_lista = []
+
+                        socios_lista              = []
                         importe_socios_de_esta_90 = 0.0
-                        
-                        if id_ute in socios_por_ute:
-                            df_socios_ute = socios_por_ute[id_ute]
-                            if col_fecha_factura and col_fecha_factura in df_socios_ute.columns:
-                                df_socios_ute = df_socios_ute[df_socios_ute[col_fecha_factura] <= fecha_factura_90].copy()
-                            for _, socio in df_socios_ute.iterrows():
-                                socios_lista.append({
-                                    'num_factura': str(socio[col_num_factura_prisma]),
-                                    'cif': str(socio['CIF']),
-                                    'importe': socio['IMPORTE_CON_IMPUESTO'],
-                                    'fuente': 'PRISMA'
-                                })
-                                importe_socios_de_esta_90 += socio['IMPORTE_CON_IMPUESTO']
-                        
-                        diferencia_90_socios = round(importe_factura_90 - importe_socios_de_esta_90, 2)
-                        
-                        # --- Si hay diferencia, buscar en COBRA (TSOL y otros) ---
-                        socios_cobra = []
-                        importe_socios_cobra = 0.0
-                        estado_cobra = None
-                        
-                        if abs(diferencia_90_socios) > tolerancia:
-                            # Buscar por CIF_UTE_REAL en COBRA (sociedades no excluidas)
-                            cif_ute_real = df_facturas.iloc[i]['CIF_UTE_REAL'] if 'CIF_UTE_REAL' in df_facturas.columns else cif_pago
-                            
-                            if cif_ute_real in cobra_otros_por_cif:
-                                df_cobra_cif = cobra_otros_por_cif[cif_ute_real].copy()
-                                
-                                # Intentar cuadrar la diferencia con las facturas de COBRA
-                                importes_cobra = df_cobra_cif['IMPORTE_COBRA'].dropna().tolist()
-                                nums_cobra = df_cobra_cif['NUM_FACTURA_COBRA'].tolist()
-                                socs_cobra = df_cobra_cif['SOCIEDAD_NORM'].tolist()
-                                
-                                if importes_cobra:
-                                    # Intentar cuadrar diferencia con facturas de COBRA
-                                    dif_cent = int(round(diferencia_90_socios * 100))
-                                    cobra_cent = [int(round(v * 100)) for v in importes_cobra]
-                                    
-                                    model_c = cp_model.CpModel()
-                                    nc = len(cobra_cent)
-                                    xc = [model_c.NewBoolVar(f"xc_{j}") for j in range(nc)]
-                                    model_c.Add(sum(xc[j] * cobra_cent[j] for j in range(nc)) >= dif_cent - tol_cent)
-                                    model_c.Add(sum(xc[j] * cobra_cent[j] for j in range(nc)) <= dif_cent + tol_cent)
-                                    solver_c = cp_model.CpSolver()
-                                    solver_c.parameters.max_time_in_seconds = 2
-                                    solver_c.parameters.log_search_progress = False
-                                    status_c = solver_c.Solve(model_c)
-                                    
-                                    if status_c in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                                        seleccion_c = [j for j in range(nc) if solver_c.Value(xc[j]) == 1]
-                                        for j in seleccion_c:
-                                            socios_cobra.append({
-                                                'num_factura': nums_cobra[j],
-                                                'cif': cif_ute_real,
-                                                'importe': importes_cobra[j],
-                                                'fuente': f'COBRA ({socs_cobra[j]})'
-                                            })
-                                            importe_socios_cobra += importes_cobra[j]
-                                        estado_cobra = f"✅ Encontrado en COBRA ({', '.join(set(socs_cobra[j] for j in seleccion_c))})"
+                        socios_cobra              = []
+                        importe_socios_cobra      = 0.0
+                        estado_cobra              = None
+
+                        # ── CASO 1: tiene match en PRISMA → socios TDE/TME ──────
+                        if es_caso1:
+                            if id_ute in socios_por_ute:
+                                df_socios_ute = socios_por_ute[id_ute]
+                                if col_fecha_factura and col_fecha_factura in df_socios_ute.columns:
+                                    df_socios_ute = df_socios_ute[
+                                        df_socios_ute[col_fecha_factura] <= fecha_factura_90
+                                    ].copy()
+                                for _, socio in df_socios_ute.iterrows():
+                                    socios_lista.append({
+                                        'num_factura': str(socio[col_num_factura_prisma]),
+                                        'cif': str(socio['CIF']),
+                                        'importe': socio['IMPORTE_CON_IMPUESTO'],
+                                        'fuente': 'PRISMA'
+                                    })
+                                    importe_socios_de_esta_90 += socio['IMPORTE_CON_IMPUESTO']
+
+                            diferencia_90_socios = round(importe_factura_90 - importe_socios_de_esta_90, 2)
+
+                            # Si hay diferencia, buscar en COBRA (CASO 1 también puede necesitar TSOL)
+                            if abs(diferencia_90_socios) > tolerancia:
+                                cif_ute_real = df_facturas.iloc[i]['CIF_UTE_REAL'] if 'CIF_UTE_REAL' in df_facturas.columns else cif_pago
+                                if cif_ute_real in cobra_otros_por_cif:
+                                    df_cobra_cif = cobra_otros_por_cif[cif_ute_real].copy()
+                                    importes_cobra = df_cobra_cif['IMPORTE_COBRA'].dropna().tolist()
+                                    nums_cobra     = df_cobra_cif['NUM_FACTURA_COBRA'].tolist()
+                                    socs_cobra     = df_cobra_cif['SOCIEDAD_NORM'].tolist()
+
+                                    if importes_cobra:
+                                        dif_cent   = int(round(diferencia_90_socios * 100))
+                                        cobra_cent = [int(round(v * 100)) for v in importes_cobra]
+                                        model_c = cp_model.CpModel()
+                                        nc = len(cobra_cent)
+                                        xc = [model_c.NewBoolVar(f"xc_{j}") for j in range(nc)]
+                                        model_c.Add(sum(xc[j] * cobra_cent[j] for j in range(nc)) >= dif_cent - tol_cent)
+                                        model_c.Add(sum(xc[j] * cobra_cent[j] for j in range(nc)) <= dif_cent + tol_cent)
+                                        solver_c = cp_model.CpSolver()
+                                        solver_c.parameters.max_time_in_seconds = 2
+                                        solver_c.parameters.log_search_progress = False
+                                        status_c = solver_c.Solve(model_c)
+
+                                        if status_c in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                                            sel_c = [j for j in range(nc) if solver_c.Value(xc[j]) == 1]
+                                            for j in sel_c:
+                                                socios_cobra.append({
+                                                    'num_factura': nums_cobra[j],
+                                                    'cif': cif_ute_real,
+                                                    'importe': importes_cobra[j],
+                                                    'fuente': f'COBRA ({socs_cobra[j]})'
+                                                })
+                                                importe_socios_cobra += importes_cobra[j]
+                                            estado_cobra = f"✅ Encontrado en COBRA ({', '.join(set(socs_cobra[j] for j in sel_c))})"
+                                        else:
+                                            estado_cobra = "⚠️ No se pudo cuadrar diferencia en COBRA (CASO 1)"
                                     else:
-                                        estado_cobra = "⚠️ No se pudo cuadrar diferencia en COBRA"
+                                        estado_cobra = "⚠️ CIF encontrado en COBRA pero sin importes válidos"
                                 else:
-                                    estado_cobra = "⚠️ CIF encontrado en COBRA pero sin importes válidos"
+                                    estado_cobra = "❌ CIF no encontrado en COBRA para completar diferencia (CASO 1)"
+
+                        # ── CASO 2: sin match en PRISMA → buscar TSOL en COBRA ──
+                        else:
+                            # cif_cliente_final = CIF de la factura 90 en COBRA (con L-00)
+                            # Buscar su CIF grupal
+                            cif_grupo = cif_a_grupo.get(cif_cliente_final, None)
+
+                            if cif_grupo and cif_grupo in cobra_tsol_por_grupo:
+                                df_tsol_grupo = cobra_tsol_por_grupo[cif_grupo].copy()
+                                # Filtrar por importe ≤ importe de la 90 (no puede ser mayor)
+                                df_tsol_grupo = df_tsol_grupo[
+                                    df_tsol_grupo['IMPORTE_COBRA'].notna() &
+                                    (df_tsol_grupo['IMPORTE_COBRA'] > 0) &
+                                    (df_tsol_grupo['IMPORTE_COBRA'] <= importe_factura_90 + tolerancia)
+                                ].copy()
+
+                                if not df_tsol_grupo.empty:
+                                    # Buscar UNA factura TSOL que cuadre exactamente con importe_90
+                                    importes_tsol = df_tsol_grupo['IMPORTE_COBRA'].tolist()
+                                    nums_tsol     = df_tsol_grupo['NUM_FACTURA_COBRA'].tolist()
+                                    cifs_tsol     = df_tsol_grupo['CIF_SIN_PREFIJO'].tolist()
+
+                                    imp90_cent    = int(round(importe_factura_90 * 100))
+                                    tsol_cent     = [int(round(v * 100)) for v in importes_tsol]
+
+                                    model_t = cp_model.CpModel()
+                                    nt = len(tsol_cent)
+                                    xt = [model_t.NewBoolVar(f"xt_{j}") for j in range(nt)]
+                                    # Máximo 1 factura TSOL por 90 sin match
+                                    model_t.Add(sum(xt) == 1)
+                                    model_t.Add(sum(xt[j] * tsol_cent[j] for j in range(nt)) >= imp90_cent - tol_cent)
+                                    model_t.Add(sum(xt[j] * tsol_cent[j] for j in range(nt)) <= imp90_cent + tol_cent)
+                                    solver_t = cp_model.CpSolver()
+                                    solver_t.parameters.max_time_in_seconds = 2
+                                    solver_t.parameters.log_search_progress = False
+                                    status_t = solver_t.Solve(model_t)
+
+                                    if status_t in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                                        sel_t = [j for j in range(nt) if solver_t.Value(xt[j]) == 1]
+                                        for j in sel_t:
+                                            socios_cobra.append({
+                                                'num_factura': nums_tsol[j],
+                                                'cif': cifs_tsol[j],
+                                                'importe': importes_tsol[j],
+                                                'fuente': 'COBRA (TSOL)'
+                                            })
+                                            importe_socios_cobra += importes_tsol[j]
+                                        estado_cobra = f"✅ TSOL encontrada (grupo {cif_grupo})"
+                                    else:
+                                        estado_cobra = f"⚠️ No se encontró TSOL que cuadre con {importe_factura_90:.2f}€ en grupo {cif_grupo}"
+                                else:
+                                    estado_cobra = f"⚠️ Grupo {cif_grupo} no tiene facturas TSOL de UTEs válidas"
+                            elif cif_grupo:
+                                estado_cobra = f"⚠️ Grupo {cif_grupo} no tiene facturas TSOL de UTEs"
                             else:
-                                estado_cobra = "❌ CIF no encontrado en COBRA (sociedades no-TSS)"
-                        
+                                estado_cobra = f"❌ No se encontró CIF grupal para {cif_cliente_final}"
+
                         # Combinar socios PRISMA + socios COBRA
-                        todos_socios = socios_lista + socios_cobra
+                        todos_socios              = socios_lista + socios_cobra
                         importe_total_socios_final = importe_socios_de_esta_90 + importe_socios_cobra
-                        diferencia_final = round(importe_factura_90 - importe_total_socios_final, 2)
-                        
+                        diferencia_final           = round(importe_factura_90 - importe_total_socios_final, 2)
+
                         desglose_por_factura_90.append({
-                            'factura_90': num_factura_90,
-                            'importe_90': importe_factura_90,
-                            'socios': todos_socios,
-                            'importe_socios': importe_total_socios_final,
-                            'diferencia_90_socios': diferencia_final,
-                            'socios_prisma': socios_lista,
-                            'socios_cobra': socios_cobra,
+                            'factura_90':            num_factura_90,
+                            'importe_90':            importe_factura_90,
+                            'caso':                  'CASO 1 (PRISMA)' if es_caso1 else 'CASO 2 (sin PRISMA)',
+                            'cif_cliente_final':     cif_cliente_final,
+                            'socios':                todos_socios,
+                            'importe_socios':        importe_total_socios_final,
+                            'diferencia_90_socios':  diferencia_final,
+                            'socios_prisma':         socios_lista,
+                            'socios_cobra':          socios_cobra,
                             'importe_socios_prisma': importe_socios_de_esta_90,
-                            'importe_socios_cobra': importe_socios_cobra,
-                            'estado_cobra': estado_cobra  # None si no hubo diferencia
+                            'importe_socios_cobra':  importe_socios_cobra,
+                            'estado_cobra':          estado_cobra
                         })
-                    
+
                     facturas_90_str = ', '.join([d['factura_90'] for d in desglose_por_factura_90])
-                    
+
                 else:
-                    facturas_90_str = None
-                    importe_facturas_90 = 0.0
+                    facturas_90_str         = None
+                    importe_facturas_90     = 0.0
                     desglose_por_factura_90 = None
                     hay_facturas_duplicadas = False
 
@@ -851,7 +968,7 @@ if not df_cobros.empty:
                     'desglose_facturas_90': desglose_por_factura_90,
                     'diferencia_pago_vs_90': diferencia_pago_vs_90, 'advertencia': advertencia
                 })
-            
+
             except Exception as e:
                 resultados.append({
                     'CIF_UTE': pago.get('CIF_UTE', 'ERROR'), 'fecha_pago': pago.get('fec_operacion'),
@@ -866,6 +983,7 @@ if not df_cobros.empty:
     st.write(f"⚠️ Filas en df_prisma_90 ANTES del solver: {len(df_prisma_90)}")
     st.write(f"⚠️ Facturas únicas: {df_prisma_90['Num_Factura_Norm'].nunique()}")
     st.write(f"⚠️ CIFs únicos: {df_prisma_90['CIF_UTE_REAL'].nunique()}")
+
     # -------------------------------
     # 4️⃣ BOTÓN PARA EJECUTAR EL SOLVER
     # -------------------------------
@@ -884,11 +1002,10 @@ if not df_cobros.empty:
         st.info("""
             ℹ️ **Filtros aplicados:**
             - ✅ Base = TODAS las facturas 90 de COBRA (TSS)
-            - ✅ PRISMA se usa para obtener socios TDE/TME cuando hay match
-            - ✅ COBRA TSOL cubre diferencias cuando no hay socios en PRISMA
+            - ✅ CASO 1: 90 con match en PRISMA → socios TDE/TME de PRISMA + TSOL si hay diferencia
+            - ✅ CASO 2: 90 sin match en PRISMA → busca UNA factura TSOL por CIF grupal
             - ✅ Facturas 90 con fecha emisión ≤ fecha del pago
-            - ✅ Socios con fecha emisión ≤ fecha de su factura 90
-            - ✅ Priorización de facturas 90 más antiguas
+            - ✅ Solo facturas 90 con importe ≤ importe del pago
             - ⛔ Facturas con importe negativo se ignoran
             """)
         
@@ -904,51 +1021,6 @@ if not df_cobros.empty:
                 .str.strip()
                 .str.upper()
             )
-            
-            with st.expander("🔍 DEBUG: CIFs usados para buscar socios TSOL en COBRA", expanded=True):
-                # CIFs únicos en df_prisma_90 (CIF_UTE_REAL - lo que buscaremos en COBRA)
-                cifs_prisma_ute = df_prisma_90['CIF_UTE_REAL'].dropna().unique()
-                st.write(f"**CIF_UTE_REAL en PRISMA (los que se buscarán en COBRA): {len(cifs_prisma_ute)}**")
-                st.write(list(cifs_prisma_ute)[:15])
-                
-                # CIFs en COBRA después de quitar L-00 Y C-, filtrado por no-TSS/TM01/T001
-                # Función helper para normalizar CIF en COBRA (quitar L-00 y C-)
-                def normalizar_cif_debug(valor):
-                    s = str(valor).replace(" ", "").strip().upper()
-                    s = s.replace("L-00", "")
-                    if s.startswith("C-"):
-                        s = s[2:]
-                    return s
-                
-                df_cobra_debug = df.copy()
-                df_cobra_debug['CIF_UTE_NORM'] = df_cobra_debug[col_cif].apply(normalizar_cif_debug)
-                
-                if col_sociedad:
-                    df_cobra_debug['SOC_NORM'] = df_cobra_debug[col_sociedad].astype(str).str.strip().str.upper()
-                    df_cobra_otros_debug = df_cobra_debug[~df_cobra_debug['SOC_NORM'].isin({'TSS', 'TM01', 'T001'})]
-                else:
-                    df_cobra_otros_debug = df_cobra_debug
-                
-                cifs_cobra_otros = df_cobra_otros_debug['CIF_UTE_NORM'].dropna().unique()
-                st.write(f"**CIFs en COBRA (no-TSS, tras quitar L-00 y C-): {len(cifs_cobra_otros)}**")
-                st.write(list(cifs_cobra_otros)[:15])
-                
-                # Sociedades disponibles en COBRA no-TSS
-                if col_sociedad:
-                    st.write("**Sociedades en COBRA (excluidas TSS/TM01/T001):**")
-                    st.dataframe(df_cobra_otros_debug['SOC_NORM'].value_counts().reset_index().rename(columns={'index':'Sociedad','SOC_NORM':'Count'}))
-                
-                # Cruces que SÍ coinciden
-                coinciden = set(cifs_prisma_ute) & set(cifs_cobra_otros)
-                st.write(f"**CIFs que coinciden entre PRISMA y COBRA-otros: {len(coinciden)}**")
-                if len(coinciden) > 0:
-                    st.write(list(coinciden)[:10])
-                else:
-                    st.error("❌ Ningún CIF coincide. Revisa el formato de CIF_UTE_REAL en PRISMA vs CIF en COBRA.")
-                    # Mostrar comparación directa del primero de cada lado
-                    if len(cifs_prisma_ute) > 0 and len(cifs_cobra_otros) > 0:
-                        st.write(f"Ejemplo PRISMA: `{repr(cifs_prisma_ute[0])}`")
-                        st.write(f"Ejemplo COBRA:  `{repr(cifs_cobra_otros[0])}`")
 
             df_resultados = cruzar_pagos_con_prisma_exacto(
                 df_pagos_normalizado,
@@ -960,6 +1032,7 @@ if not df_cobros.empty:
                 col_sociedad,            # Columna Sociedad de COBRA
                 col_factura,             # Columna Factura de COBRA
                 col_importe,             # Columna Importe de COBRA
+                col_grupo,               # Columna CIF Grupo de COBRA  ← NUEVO
                 0.01
             )
             
@@ -968,7 +1041,7 @@ if not df_cobros.empty:
             # Guardar resultados en session_state
             st.session_state.df_resultados = df_resultados
             st.session_state.fecha_resultados = fecha_seleccionada
-            st.session_state.df_pagos_normalizado = df_pagos_normalizado  # Guardar para usar en Excel
+            st.session_state.df_pagos_normalizado = df_pagos_normalizado
             
             st.success(f"✅ Cruce completado en {fin - inicio:.2f} segundos")
     
@@ -985,23 +1058,33 @@ if not df_cobros.empty:
         # Métricas
         col1, col2, col3, col4 = st.columns(4)
         
-        total_pagos = len(df_resultados)
-        pagos_con_facturas = df_resultados['facturas_90_asignadas'].notna().sum()
-        pagos_sin_facturas = total_pagos - pagos_con_facturas
-        pagos_con_advertencia = df_resultados['advertencia'].notna().sum()  # Nueva métrica
+        total_pagos         = len(df_resultados)
+        pagos_con_facturas  = df_resultados['facturas_90_asignadas'].notna().sum()
+        pagos_sin_facturas  = total_pagos - pagos_con_facturas
+        pagos_con_advertencia = df_resultados['advertencia'].notna().sum()
         importe_total_pagos = df_resultados['importe_pago'].sum()
-        importe_total_90 = df_resultados['importe_facturas_90'].sum()
+        importe_total_90    = df_resultados['importe_facturas_90'].sum()
         diferencia_pago_vs_90 = df_resultados['diferencia_pago_vs_90'].sum()
         
-        # Calcular total de socios y diferencias desde el desglose
-        importe_total_socios = 0.0
+        # Calcular totales de socios desde el desglose
+        importe_total_socios         = 0.0
         diferencia_total_90_vs_socios = 0.0
+        caso1_count = 0
+        caso2_count = 0
+        caso2_tsol_ok = 0
+
         for _, row in df_resultados.iterrows():
             if row['desglose_facturas_90'] is not None:
                 for factura_90 in row['desglose_facturas_90']:
-                    importe_total_socios += factura_90['importe_socios']
+                    importe_total_socios          += factura_90['importe_socios']
                     diferencia_total_90_vs_socios += factura_90['diferencia_90_socios']
-        
+                    if factura_90.get('caso', '').startswith('CASO 1'):
+                        caso1_count += 1
+                    else:
+                        caso2_count += 1
+                        if factura_90.get('estado_cobra', '').startswith('✅'):
+                            caso2_tsol_ok += 1
+
         with col1:
             st.metric("Total Pagos", total_pagos)
         with col2:
@@ -1026,10 +1109,19 @@ if not df_cobros.empty:
             st.metric("🟢 Facturas Socios", f"{importe_total_socios:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
         with col4:
             st.metric("⚠️ Dif. 90 vs Socios", f"{diferencia_total_90_vs_socios:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+
+        # Resumen CASO 1 / CASO 2
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📘 CASO 1 (con PRISMA)", caso1_count)
+        with col2:
+            st.metric("📙 CASO 2 (sin PRISMA)", caso2_count)
+        with col3:
+            st.metric("✅ CASO 2 con TSOL encontrada", caso2_tsol_ok, delta=f"{(caso2_tsol_ok/caso2_count*100):.1f}%" if caso2_count else "0%")
         
-        # Tabla de resultados
         if pagos_con_advertencia > 0:
-            st.warning(f"⚠️ **{pagos_con_advertencia} pago(s) tienen advertencia**: Había múltiples facturas 90 similares. Se priorizaron las más antiguas. Revisa la columna 'advertencia' en el Excel.")
+            st.warning(f"⚠️ **{pagos_con_advertencia} pago(s) tienen advertencia**: Revisa la columna 'advertencia' en el Excel.")
         
         st.dataframe(df_resultados, use_container_width=True, height=400)
         
@@ -1042,44 +1134,43 @@ if not df_cobros.empty:
                     st.markdown(f"**🔵 Total facturas 90:** {row['importe_facturas_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
                     st.markdown(f"**⚠️ Diferencia Pago vs 90:** {row['diferencia_pago_vs_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
                     
-                    # Mostrar advertencia si existe
                     if pd.notna(row['advertencia']):
                         st.warning(row['advertencia'])
                     
                     st.markdown("---")
                     
-                    # Mostrar cada factura 90 individualmente con sus socios
                     for i, factura_90_data in enumerate(row['desglose_facturas_90'], 1):
-                        st.markdown(f"#### 📄 Factura 90 #{i}: {factura_90_data['factura_90']}")
-                        st.markdown(f"**Importe factura 90:** {factura_90_data['importe_90']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                        caso_label = factura_90_data.get('caso', '')
+                        cif_cliente = factura_90_data.get('cif_cliente_final', '')
+                        st.markdown(f"#### 📄 Factura 90 #{i}: {factura_90_data['factura_90']} — {caso_label}")
+                        st.markdown(f"**Importe factura 90:** {factura_90_data['importe_90']:,.2f} €  |  **CIF cliente final:** `{cif_cliente}`".replace(",", "X").replace(".", ",").replace("X", "."))
                         
-                        # Socios de PRISMA
-                        socios_prisma = factura_90_data.get('socios_prisma', factura_90_data.get('socios', []))
-                        importe_prisma = factura_90_data.get('importe_socios_prisma', factura_90_data.get('importe_socios', 0))
+                        # Socios de PRISMA (solo CASO 1)
+                        socios_prisma = factura_90_data.get('socios_prisma', [])
+                        importe_prisma = factura_90_data.get('importe_socios_prisma', 0)
                         if socios_prisma:
                             st.markdown("**🔵 Socios en PRISMA:**")
                             for socio in socios_prisma:
                                 st.markdown(f"  • {socio['num_factura']} ({socio['cif']}): {socio['importe']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
                             st.markdown(f"**Total socios PRISMA:** {importe_prisma:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-                        else:
-                            st.markdown("**🔵 Socios PRISMA:** Sin socios en PRISMA")
+                        elif caso_label.startswith('CASO 1'):
+                            st.markdown("**🔵 Socios PRISMA:** Sin socios encontrados")
                         
-                        # Socios de COBRA (si los hay)
+                        # Socios de COBRA (TSOL)
                         socios_cobra = factura_90_data.get('socios_cobra', [])
                         importe_cobra = factura_90_data.get('importe_socios_cobra', 0)
                         estado_cobra = factura_90_data.get('estado_cobra', None)
                         
                         if estado_cobra:
                             if socios_cobra:
-                                st.markdown("**🟠 Socios en COBRA:**")
+                                st.markdown("**🟠 Facturas COBRA (TSOL):**")
                                 for socio in socios_cobra:
                                     st.markdown(f"  • {socio['num_factura']} ({socio['fuente']}): {socio['importe']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-                                st.markdown(f"**Total socios COBRA:** {importe_cobra:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                                st.markdown(f"**Total TSOL:** {importe_cobra:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
                             st.markdown(f"**Estado COBRA:** {estado_cobra}")
                         
-                        # Diferencia final
                         diferencia_color = "🔴" if abs(factura_90_data['diferencia_90_socios']) > 0.01 else "✅"
-                        st.markdown(f"{diferencia_color} **Diferencia 90 vs Socios (total):** {factura_90_data['diferencia_90_socios']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+                        st.markdown(f"{diferencia_color} **Diferencia 90 vs Socios:** {factura_90_data['diferencia_90_socios']:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
                         
                         if i < len(row['desglose_facturas_90']):
                             st.markdown("---")
@@ -1105,14 +1196,12 @@ if not df_cobros.empty:
             
             if row['desglose_facturas_90'] is not None:
                 for f90 in row['desglose_facturas_90']:
-                    # Socios PRISMA
-                    socios_prisma = f90.get('socios_prisma', f90.get('socios', []))
+                    socios_prisma = f90.get('socios_prisma', [])
                     socios_prisma_str = ' | '.join([
                         f"{s['num_factura']} ({s['cif']}): {s['importe']:.2f}€"
                         for s in socios_prisma
                     ]) if socios_prisma else "Sin socios en PRISMA"
                     
-                    # Socios COBRA
                     socios_cobra = f90.get('socios_cobra', [])
                     socios_cobra_str = ' | '.join([
                         f"{s['num_factura']} ({s['fuente']}): {s['importe']:.2f}€"
@@ -1122,39 +1211,43 @@ if not df_cobros.empty:
                     estado_cobra = f90.get('estado_cobra', '')
                     
                     filas_excel.append({
-                        'CIF_UTE': row['CIF_UTE'],
-                        'Nombre_UTE': nombre_ute,
-                        'Fecha_Pago': row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,
-                        'Importe_Pago': row['importe_pago'],
-                        'Factura_90': f90['factura_90'],
-                        'Importe_90': f90['importe_90'],
-                        'Socios_PRISMA': socios_prisma_str,
-                        'Importe_Socios_PRISMA': f90.get('importe_socios_prisma', f90.get('importe_socios', 0)),
-                        'Socios_COBRA': socios_cobra_str if socios_cobra_str else ('N/A' if not estado_cobra else ''),
-                        'Importe_Socios_COBRA': f90.get('importe_socios_cobra', 0),
-                        'Estado_COBRA': estado_cobra if estado_cobra else 'Sin diferencia',
-                        'Total_Socios': f90['importe_socios'],
+                        'CIF_UTE':                row['CIF_UTE'],
+                        'Nombre_UTE':             nombre_ute,
+                        'Fecha_Pago':             row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,
+                        'Importe_Pago':           row['importe_pago'],
+                        'Factura_90':             f90['factura_90'],
+                        'Caso':                   f90.get('caso', ''),
+                        'CIF_Cliente_Final':      f90.get('cif_cliente_final', ''),
+                        'Importe_90':             f90['importe_90'],
+                        'Socios_PRISMA':          socios_prisma_str,
+                        'Importe_Socios_PRISMA':  f90.get('importe_socios_prisma', 0),
+                        'Socios_COBRA_TSOL':      socios_cobra_str if socios_cobra_str else ('N/A' if not estado_cobra else ''),
+                        'Importe_Socios_COBRA':   f90.get('importe_socios_cobra', 0),
+                        'Estado_COBRA':           estado_cobra if estado_cobra else 'Sin diferencia',
+                        'Total_Socios':           f90['importe_socios'],
                         'Diferencia_90_vs_Socios': f90['diferencia_90_socios'],
-                        'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90'],
-                        'Advertencia': row['advertencia'] if pd.notna(row['advertencia']) else ''
+                        'Diferencia_Pago_vs_90':  row['diferencia_pago_vs_90'],
+                        'Advertencia':            row['advertencia'] if pd.notna(row['advertencia']) else ''
                     })
             else:
                 filas_excel.append({
-                    'CIF_UTE': row['CIF_UTE'],
-                    'Nombre_UTE': nombre_ute,
-                    'Fecha_Pago': row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,
-                    'Importe_Pago': row['importe_pago'],
-                    'Factura_90': None,
-                    'Importe_90': 0.0,
-                    'Socios_PRISMA': None,
-                    'Importe_Socios_PRISMA': 0.0,
-                    'Socios_COBRA': None,
-                    'Importe_Socios_COBRA': 0.0,
-                    'Estado_COBRA': '',
-                    'Total_Socios': 0.0,
+                    'CIF_UTE':                row['CIF_UTE'],
+                    'Nombre_UTE':             nombre_ute,
+                    'Fecha_Pago':             row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,
+                    'Importe_Pago':           row['importe_pago'],
+                    'Factura_90':             None,
+                    'Caso':                   '',
+                    'CIF_Cliente_Final':      '',
+                    'Importe_90':             0.0,
+                    'Socios_PRISMA':          None,
+                    'Importe_Socios_PRISMA':  0.0,
+                    'Socios_COBRA_TSOL':      None,
+                    'Importe_Socios_COBRA':   0.0,
+                    'Estado_COBRA':           '',
+                    'Total_Socios':           0.0,
                     'Diferencia_90_vs_Socios': 0.0,
-                    'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90'],
-                    'Advertencia': row['advertencia'] if pd.notna(row['advertencia']) else ''
+                    'Diferencia_Pago_vs_90':  row['diferencia_pago_vs_90'],
+                    'Advertencia':            row['advertencia'] if pd.notna(row['advertencia']) else ''
                 })
         
         df_excel = pd.DataFrame(filas_excel)
