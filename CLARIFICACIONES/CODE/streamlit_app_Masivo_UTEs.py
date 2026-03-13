@@ -1052,10 +1052,22 @@ if not df_cobros.empty:
     # -------------------------------
     # 4️⃣ BOTÓN PARA EJECUTAR EL SOLVER
     # -------------------------------
-    
+
     st.markdown("---")
     st.subheader("🚀 Ejecutar cruce de pagos con facturas")
-    
+
+    col_tol, _ = st.columns([1, 2])
+    with col_tol:
+        tolerancia_centimos = st.number_input(
+            "Tolerancia (céntimos)",
+            min_value=0,
+            max_value=10000,
+            value=0,
+            step=1,
+            help="Margen permitido en céntimos para cuadrar pagos con facturas 90. 0 = exacto. Ej: 500 permite diferencias de hasta 5,00 €."
+        )
+    tolerancia_euros = tolerancia_centimos / 100.0
+
     col1, col2 = st.columns([3, 1])
     with col1:
         st.info(f"📅 Día seleccionado: **{fecha_seleccionada.strftime('%d/%m/%Y')}** ({len(df_pagos)} pagos)")
@@ -1097,8 +1109,8 @@ if not df_cobros.empty:
                 col_sociedad,            # Columna Sociedad de COBRA
                 col_factura,             # Columna Factura de COBRA
                 col_importe,             # Columna Importe de COBRA
-                col_grupo,               # Columna CIF Grupo de COBRA  ← NUEVO
-                0.01
+                col_grupo,               # Columna CIF Grupo de COBRA
+                tolerancia_euros         # Tolerancia configurable por el usuario
             )
             
             fin = time.time()
