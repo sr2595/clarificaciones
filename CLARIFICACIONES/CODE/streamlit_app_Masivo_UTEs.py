@@ -80,10 +80,12 @@ def filtrar_cobra_ligero(df, col_sociedad, col_importe):
     """
     filas_originales = len(df)
     
-    # 1️⃣ Filtrar por sociedad TSS y TSOL
+    # 1️⃣ Filtrar por sociedad TSS, TSOL, TDE y TME
+    # TSS/TSOL = facturas 90 y socios TSOL
+    # TDE/TME  = socios de UTEs (necesarios para CASO 2 sin match en PRISMA)
     if col_sociedad:
         soc_norm = df[col_sociedad].astype(str).str.strip().str.upper()
-        df = df[soc_norm.isin(['TSS', 'TSOL'])].copy()
+        df = df[soc_norm.isin(['TSS', 'TSOL', 'TDE', 'TME'])].copy()
     
     # 2️⃣ Eliminar importes negativos y cero
     if col_importe:
@@ -210,7 +212,11 @@ archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cob
 # Guardar bytes en session_state
 if archivo_cobra is not None:
     st.session_state.cobra_bytes = archivo_cobra.getvalue()
-    st.session_state.cobra_nombre = archivo_cobra.name  
+    st.session_state.cobra_nombre = archivo_cobra.name
+    # Invalidar cachés dependientes de COBRA
+    for key in ['df_cobra_procesado', 'df_prisma_90_preparado']:
+        if key in st.session_state:
+            del st.session_state[key]  
 
 # Si no hay bytes, no seguimos
 if "cobra_bytes" not in st.session_state and "df_cobra_procesado" not in st.session_state:
@@ -749,7 +755,21 @@ if not df_cobros.empty:
             socios_por_ute[str(id_ute).strip()] = grupo[cols_socios].copy()
 
         # ── Agrupar facturas 90 por CIF_UTE_REAL ────────────────────────────────
-        facturas_por_cif = {cif: g.copy() for cif, g in df_prisma_90.groupby('CIF_UTE_REAL')}
+        # Las UTEs en COBRA tienen CIF_UTE_REAL empezando por U (quitando L-00U...)
+        # pero en el archivo de pagos el CIF fiscal de la UTE empieza por J
+        # → indexamos por ambos para garantizar el match
+        facturas_por_cif = {}
+        for cif, g in df_prisma_90.groupby('CIF_UTE_REAL'):
+            facturas_por_cif[cif] = g.copy()
+            # Si empieza por U, añadir también la versión con J
+            cif_str = str(cif)
+            if cif_str.startswith('U'):
+                cif_j = 'J' + cif_str[1:]
+                facturas_por_cif[cif_j] = g.copy()
+            # Si empieza por J, añadir también la versión con U
+            elif cif_str.startswith('J'):
+                cif_u = 'U' + cif_str[1:]
+                facturas_por_cif[cif_u] = g.copy()
 
         # ── Bucle de pagos ───────────────────────────────────────────────────────
         for idx, pago in df_pagos.iterrows():
@@ -775,8 +795,11 @@ if not df_cobros.empty:
                 if cif_pago not in facturas_por_cif:
                     resultados.append({
                         'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
-                        'facturas_90_asignadas': None, 'importe_facturas_90': 0.0,
-                        'desglose_facturas_90': None, 'diferencia_pago_vs_90': importe_pago, 'advertencia': None
+                        'facturas_90_asignadas': 'SIN_90s_PARA_ESTE_CIF',
+                        'importe_facturas_90': 0.0,
+                        'desglose_facturas_90': None,
+                        'diferencia_pago_vs_90': importe_pago,
+                        'advertencia': f'No existen facturas 90 en COBRA para CIF {cif_pago}'
                     })
                     continue
 
@@ -794,23 +817,41 @@ if not df_cobros.empty:
                 ].copy()
 
                 if df_facturas.empty:
-                    # Buscar sin filtro de importe para informar qué 90s existen
+                    # Buscar 90s que cuadren en importe pero fallen en fecha
                     todas_90 = facturas_por_cif[cif_pago].copy()
-                    todas_90 = todas_90[
-                        (todas_90['IMPORTE_CON_IMPUESTO'] > 0) &
-                        (
-                            todas_90['Fecha Emisión'].isna() |
-                            (todas_90['Fecha Emisión'] <= fecha_pago)
-                        )
-                    ]
-                    lista_90s = ', '.join(todas_90['Num_Factura_Norm'].tolist()) if not todas_90.empty else 'ninguna'
+                    TOLERANCIA_IMPORTE = max(tolerancia, 2.0)
+                    razones = []
+                    for _, f90 in todas_90.iterrows():
+                        num = f90['Num_Factura_Norm']
+                        imp = f90['IMPORTE_CON_IMPUESTO']
+                        fec = f90['Fecha Emisión']
+                        dif_importe = round(imp - importe_pago, 2)
+                        cuadra_importe = (imp > 0) and (imp <= importe_pago + TOLERANCIA_IMPORTE)
+                        fec_str = fec.strftime('%d/%m/%Y') if pd.notna(fec) else 'sin fecha'
+                        if cuadra_importe:
+                            # Esta 90 cuadra en importe — explicar por qué no se usa
+                            if pd.notna(fec) and fec > fecha_pago:
+                                motivo = f"FECHA POSTERIOR AL PAGO (emisión {fec_str} > pago {fecha_pago.strftime('%d/%m/%Y')})"
+                            else:
+                                motivo = "motivo desconocido (pasa filtro importe y fecha)"
+                            razones.append(f"{num} | importe={imp:.2f}€ (dif={dif_importe:+.2f}€) | {motivo}")
+                        # Las que no cuadran en importe las ignoramos — no son candidatas
+                    if razones:
+                        advertencia_detalle = '90s que cuadran en importe pero se descartan: ' + ' || '.join(razones)
+                    else:
+                        # Ninguna cuadra en importe tampoco — mostrar las disponibles con su diferencia
+                        resumen = ' | '.join([
+                            f"{f90['Num_Factura_Norm']} ({f90['IMPORTE_CON_IMPUESTO']:.2f}€, dif={round(f90['IMPORTE_CON_IMPUESTO']-importe_pago,2):+.2f}€)"
+                            for _, f90 in todas_90.iterrows()
+                        ]) if not todas_90.empty else 'ninguna'
+                        advertencia_detalle = f'Ninguna 90 cuadra en importe con pago {importe_pago:.2f}€. Disponibles: {resumen}'
                     resultados.append({
                         'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
                         'facturas_90_asignadas': 'SIN_COMBINACION_VALIDA',
                         'importe_facturas_90': 0.0,
                         'desglose_facturas_90': None,
                         'diferencia_pago_vs_90': importe_pago,
-                        'advertencia': f'90s disponibles para este CIF (no cuadran con el pago): {lista_90s}'
+                        'advertencia': advertencia_detalle
                     })
                     continue
 
@@ -1047,11 +1088,18 @@ if not df_cobros.empty:
                     facturas_90_str = ', '.join([d['factura_90'] for d in desglose_por_factura_90])
 
                 else:
-                    # Solver no encontró combinación exacta — listar las 90s disponibles como informativo
-                    lista_90s_disponibles = ', '.join([
-                        f"{numeros_facturas[i]} ({importes_facturas[i]:.2f}€)"
-                        for i in range(len(numeros_facturas))
-                    ])
+                    # Solver no encontró combinación exacta — explicar diferencias de cada 90 vs pago
+                    suma_total = sum(importes_facturas)
+                    razones_solver = []
+                    for i in range(len(numeros_facturas)):
+                        dif = round(importes_facturas[i] - importe_pago, 2)
+                        razones_solver.append(
+                            f"{numeros_facturas[i]} ({importes_facturas[i]:.2f}€, dif_vs_pago={dif:+.2f}€)"
+                        )
+                    detalle_solver = (
+                        f"Suma de todas las 90s disponibles={suma_total:.2f}€ vs pago={importe_pago:.2f}€. "
+                        f"90s candidatas: {' | '.join(razones_solver)}"
+                    )
                     facturas_90_str         = 'SIN_COMBINACION_EXACTA'
                     importe_facturas_90     = 0.0
                     desglose_por_factura_90 = None
@@ -1062,7 +1110,7 @@ if not df_cobros.empty:
                         'importe_facturas_90': 0.0,
                         'desglose_facturas_90': None,
                         'diferencia_pago_vs_90': importe_pago,
-                        'advertencia': f'90s disponibles (no cuadran exacto con pago {importe_pago:.2f}€): {lista_90s_disponibles}'
+                        'advertencia': detalle_solver
                     })
                     continue
 
@@ -1142,6 +1190,30 @@ if not df_cobros.empty:
             if not cif_orig_buscar.empty:
                 st.warning(f"⚠️ SÍ está en CIF_ORIGINAL pero NO en CIF_UTE_REAL — problema de mapeo")
                 st.dataframe(cif_orig_buscar[['Num_Factura_Norm','CIF_UTE_REAL','CIF_ORIGINAL','IMPORTE_CON_IMPUESTO','TIENE_MATCH_PRISMA']].head(10))
+
+        # ── Debug específico para U67666479 y el pago de 143K ──
+        st.markdown("---")
+        st.write("**🔬 Análisis detallado U67666479 / pago 143K:**")
+        df_90_666 = df_prisma_90[df_prisma_90['CIF_UTE_REAL'] == 'U67666479'].copy()
+        if not df_90_666.empty:
+            # Simular el filtro exacto que aplica el solver
+            importe_test = 143429.88
+            TOLERANCIA_BUSQUEDA_90 = 2.0
+            mask_importe = df_90_666['IMPORTE_CON_IMPUESTO'] <= importe_test + TOLERANCIA_BUSQUEDA_90
+            mask_positivo = df_90_666['IMPORTE_CON_IMPUESTO'] > 0
+            mask_fecha = df_90_666['Fecha Emisión'].isna() | (df_90_666['Fecha Emisión'] <= pd.Timestamp('2025-12-16'))
+            st.write(f"Total 90s para U67666479: {len(df_90_666)}")
+            st.write(f"Pasan filtro importe (≤ {importe_test + TOLERANCIA_BUSQUEDA_90}): {mask_importe.sum()}")
+            st.write(f"Pasan filtro positivo: {mask_positivo.sum()}")
+            st.write(f"Pasan filtro fecha ≤ 16/12/2025: {mask_fecha.sum()}")
+            st.write(f"Pasan LOS TRES filtros: {(mask_importe & mask_positivo & mask_fecha).sum()}")
+            st.dataframe(df_90_666[['Num_Factura_Norm','IMPORTE_CON_IMPUESTO','Fecha Emisión','TIENE_MATCH_PRISMA']].assign(
+                pasa_importe=mask_importe,
+                pasa_positivo=mask_positivo,
+                pasa_fecha=mask_fecha
+            ))
+        else:
+            st.error("U67666479 no encontrado en df_prisma_90")
 
     # -------------------------------
     # 4️⃣ BOTÓN PARA EJECUTAR EL SOLVER
