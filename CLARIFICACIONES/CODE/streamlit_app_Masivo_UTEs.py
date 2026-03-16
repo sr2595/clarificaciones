@@ -381,11 +381,33 @@ if "df_maestro_utes" not in st.session_state and "maestro_bytes" in st.session_s
     m_bytes = st.session_state.maestro_bytes
 
     # Maestro UTEs siempre xlsm, pestaña "Datos"
+    # openpyxl no soporta xlsm directamente — guardar como xlsx temporal y releer
     try:
-        df_maestro = pd.read_excel(BytesIO(m_bytes), sheet_name="Datos", engine="openpyxl")
-    except Exception as e:
-        st.error(f"❌ Error leyendo Maestro UTEs (pestaña 'Datos'): {e}")
-        st.stop()
+        import tempfile, shutil, zipfile, os
+        # xlsm es un zip — copiarlo como xlsx (mismo formato XML, sin macros)
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+            tmp_path = tmp.name
+        with open(tmp_path, 'wb') as f:
+            f.write(m_bytes)
+        df_maestro = pd.read_excel(tmp_path, sheet_name="Datos", engine="openpyxl")
+        os.unlink(tmp_path)
+    except Exception as e1:
+        # Segundo intento: renombrar extensión xlsm→xlsx en memoria via zipfile
+        try:
+            import zipfile, io as _io
+            buf = _io.BytesIO(m_bytes)
+            out = _io.BytesIO()
+            with zipfile.ZipFile(buf, 'r') as zin:
+                with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zout:
+                    for item in zin.infolist():
+                        # Excluir las macros para que openpyxl no se queje
+                        if item.filename not in ('xl/vbaProject.bin',):
+                            zout.writestr(item, zin.read(item.filename))
+            out.seek(0)
+            df_maestro = pd.read_excel(out, sheet_name="Datos", engine="openpyxl")
+        except Exception as e2:
+            st.error(f"❌ Error leyendo Maestro UTEs: {e2}")
+            st.stop()
 
     col_ute_m   = find_col(df_maestro, ['UTE', 'CIF UTE', 'CIF_UTE'])
     col_tde_m   = find_col(df_maestro, ['Porc. TdE', 'Porc TdE', 'TDE', 'PORC_TDE'])
@@ -1695,4 +1717,3 @@ if not df_cobros.empty:
     
     elif ejecutar_cruce is False and "df_resultados" not in st.session_state:
         st.info("👆 Pulsa el botón 'Ejecutar Cruce' para iniciar el proceso")
-
