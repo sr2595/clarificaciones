@@ -1,3 +1,5 @@
+
+
 import pandas as pd
 import streamlit as st
 from ortools.sat.python import cp_model
@@ -80,10 +82,12 @@ def filtrar_cobra_ligero(df, col_sociedad, col_importe):
     """
     filas_originales = len(df)
     
-    # 1️⃣ Filtrar por sociedad TSS y TSOL
+    # 1️⃣ Filtrar por sociedad TSS, TSOL, TDE y TME
+    # TSS/TSOL = facturas 90 y socios TSOL
+    # TDE/TME  = socios de UTEs (necesarios para CASO 2 sin match en PRISMA)
     if col_sociedad:
         soc_norm = df[col_sociedad].astype(str).str.strip().str.upper()
-        df = df[soc_norm.isin(['TSS', 'TSOL'])].copy()
+        df = df[soc_norm.isin(['TSS', 'TSOL', 'TDE', 'TME'])].copy()
     
     # 2️⃣ Eliminar importes negativos y cero
     if col_importe:
@@ -1504,4 +1508,15 @@ if not df_cobros.empty:
     
     elif ejecutar_cruce is False and "df_resultados" not in st.session_state:
         st.info("👆 Pulsa el botón 'Ejecutar Cruce' para iniciar el proceso")
+
+
+
+
+
+
+
+
+
+
+
 
