@@ -72,49 +72,31 @@ def aplicar_impuestos_a_prisma(df_prisma, col_importe='IMPORTE_CORRECTO', col_ti
     )
     return df_prisma
 
-def filtrar_cobra_ligero(df, col_sociedad, col_importe, col_fecha=None, col_cif=None,
-                         importe_max=None, fecha_max=None, cifs_pagos=None):
+def filtrar_cobra_ligero(df, col_sociedad, col_importe):
     """
-    Filtra COBRA para quedarse solo con lo necesario.
-    Filtros aplicados:
-    1. Sociedades TSS, TSOL, TDE, TME
-    2. Importes positivos y <= importe_max (máximo pago)
-    3. Fecha emisión <= fecha_max (fecha máxima de pagos, estricto)
+    Filtra COBRA para quedarse solo con lo necesario:
+    - Sociedades TSS y TSOL
+    - Importes positivos
     """
-    SOCIEDADES_VALIDAS = {'TSS', 'TSOL', 'TDE', 'TME'}
     filas_originales = len(df)
-
-    # 1️⃣ Filtrar por sociedades válidas
+    
+    # 1️⃣ Filtrar por sociedad TSS, TSOL, TDE y TME
+    # TSS/TSOL = facturas 90 y socios TSOL
+    # TDE/TME  = socios de UTEs (necesarios para CASO 2 sin match en PRISMA)
     if col_sociedad:
         soc_norm = df[col_sociedad].astype(str).str.strip().str.upper()
-        df = df[soc_norm.isin(SOCIEDADES_VALIDAS)].copy()
-
-    # 2️⃣ Importes positivos
+        df = df[soc_norm.isin(['TSS', 'TSOL', 'TDE', 'TME'])].copy()
+    
+    # 2️⃣ Eliminar importes negativos y cero
     if col_importe:
         importes = df[col_importe].apply(convertir_importe_europeo)
         df = df[importes > 0].copy()
-
-    # 3️⃣ Importe <= importe máximo de pagos + 2€ de margen
-    if col_importe and importe_max is not None:
-        importes2 = df[col_importe].apply(convertir_importe_europeo)
-        df = df[importes2 <= importe_max + 2.0].copy()
-
-    # 4️⃣ Fecha <= fecha máxima de pagos (estricto, sin margen)
-    # Una factura posterior al pago nunca puede ser su pareja
-    if col_fecha and fecha_max is not None:
-        fechas = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
-        df = df[fechas.isna() | (fechas <= fecha_max)].copy()
-
+    
     filas_finales = len(df)
     reduccion = (1 - filas_finales / filas_originales) * 100 if filas_originales > 0 else 0
-
-    st.success(
-        f"✂️ COBRA reducido: {filas_originales:,} → {filas_finales:,} filas ({reduccion:.1f}% eliminado) "
-        f"— sociedades: TSS, TSOL, TDE, TME"
-        + (f" | importe ≤ {importe_max + 2:.2f}€" if importe_max else "")
-        + (f" | fecha ≤ {fecha_max.strftime('%d/%m/%Y')}" if fecha_max is not None else "")
-    )
-
+    
+    st.success(f"✂️ COBRA reducido: {filas_originales:,} → {filas_finales:,} filas ({reduccion:.1f}% eliminado)")
+    
     return df
 
 # --------- 1) Subida y normalización de PRISMA ---------
@@ -298,41 +280,21 @@ if "df_cobra_procesado" not in st.session_state:
         st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
         st.stop()
 
-    # 🔥 FILTRAR COBRA — usar límites del archivo de pagos para reducir RAM al máximo
-    importe_max_pagos = None
-    fecha_max_pagos   = None
-    if "df_cobros_procesado" in st.session_state:
-        _p = st.session_state.df_cobros_procesado
-        if 'importe' in _p.columns:
-            importe_max_pagos = float(_p['importe'].dropna().max())
-        if 'fec_operacion' in _p.columns:
-            fecha_max_pagos = pd.to_datetime(_p['fec_operacion'].dropna()).max()
-
-    df = filtrar_cobra_ligero(
-        df, col_sociedad, col_importe,
-        col_fecha=col_fecha_emision,
-        importe_max=importe_max_pagos,
-        fecha_max=fecha_max_pagos
-    )
+    # 🔥 FILTRAR COBRA AQUÍ — antes de normalizar y guardar en session_state
+    df = filtrar_cobra_ligero(df, col_sociedad, col_importe)
     
     # 🧹 Liberar bytes crudos — ya no los necesitamos
     del st.session_state.cobra_bytes
 
-    # --- Normalizar solo las columnas necesarias y descartar el resto ---
+    # --- Normalizar ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
-    df[col_cif] = df[col_cif].astype(str).str.strip()
+    df[col_cif] = df[col_cif].astype(str).str.strip()  # conservar original (con L-00)
     if col_grupo:
         df[col_grupo] = df[col_grupo].astype(str).str.strip()
     df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
-
-    # 🧹 Quedarse SOLO con las columnas que se usan en el cruce — libera mucha RAM
-    cols_necesarias = [col_fecha_emision, col_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']
-    if col_sociedad and col_sociedad in df.columns:
-        cols_necesarias.append(col_sociedad)
-    if col_grupo and col_grupo in df.columns:
-        cols_necesarias.append(col_grupo)
-    df = df[cols_necesarias].copy()
+    df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
+    df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
 
     # Guardar en session_state
     st.session_state.df_cobra_procesado = df
