@@ -286,15 +286,21 @@ if "df_cobra_procesado" not in st.session_state:
     # 🧹 Liberar bytes crudos — ya no los necesitamos
     del st.session_state.cobra_bytes
 
-    # --- Normalizar ---
+    # --- Normalizar solo las columnas necesarias y descartar el resto ---
     df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
     df[col_factura] = df[col_factura].astype(str)
-    df[col_cif] = df[col_cif].astype(str).str.strip()  # conservar original (con L-00)
+    df[col_cif] = df[col_cif].astype(str).str.strip()
     if col_grupo:
         df[col_grupo] = df[col_grupo].astype(str).str.strip()
     df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
-    df['IMPORTE_CENT'] = (df['IMPORTE_CORRECTO'] * 100).round().astype("Int64")
-    df['ES_UTE'] = df[col_cif].astype(str).str.replace(" ", "").str.contains(r"L-00U")
+
+    # 🧹 Quedarse SOLO con las columnas que se usan en el cruce — libera mucha RAM
+    cols_necesarias = [col_fecha_emision, col_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']
+    if col_sociedad and col_sociedad in df.columns:
+        cols_necesarias.append(col_sociedad)
+    if col_grupo and col_grupo in df.columns:
+        cols_necesarias.append(col_grupo)
+    df = df[cols_necesarias].copy()
 
     # Guardar en session_state
     st.session_state.df_cobra_procesado = df
