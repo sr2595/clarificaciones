@@ -802,6 +802,7 @@ if not df_cobros.empty:
                 cobra_utes_por_grupo[grp] = {}
                 for cif_ute, ute_df in utes_df.groupby('CIF_SIN_PREFIJO'):
                     cobra_utes_por_grupo[grp][cif_ute] = ute_df.copy()
+            del df_no_tss
 
         # ── Preparar COBRA no-TSS indexada por CIF normalizado (para CASO 1) ────
         SOCIEDADES_EXCLUIDAS = {'TSS', 'TM01', 'T001'}
@@ -826,6 +827,8 @@ if not df_cobros.empty:
             ~df_cobra_socios['SOCIEDAD_NORM'].isin(SOCIEDADES_EXCLUIDAS)
         ].copy()
         cobra_otros_por_cif = {cif: g for cif, g in df_cobra_otros.groupby('CIF_UTE_NORM')}
+        # 🧹 Liberar DataFrames intermedios — ya tenemos los lookups
+        del df_cobra_socios, df_cobra_otros
 
         # ── Socios PRISMA por Id UTE ─────────────────────────────────────────────
         df_socios = df_prisma_completo[
@@ -845,6 +848,7 @@ if not df_cobros.empty:
             if col_fecha_factura:
                 cols_socios.append(col_fecha_factura)
             socios_por_ute[str(id_ute).strip()] = grupo[cols_socios].copy()
+        del df_socios
 
         # ── Agrupar facturas 90 por CIF_UTE_REAL ────────────────────────────────
         # Las UTEs en COBRA tienen CIF_UTE_REAL empezando por U (quitando L-00U...)
@@ -1320,84 +1324,6 @@ if not df_cobros.empty:
                 continue
 
         return pd.DataFrame(resultados)
-
-    st.write(f"⚠️ Filas en df_prisma_90 ANTES del solver: {len(df_prisma_90)}")
-    st.write(f"⚠️ Facturas únicas: {df_prisma_90['Num_Factura_Norm'].nunique()}")
-    st.write(f"⚠️ CIFs únicos: {df_prisma_90['CIF_UTE_REAL'].nunique()}")
-
-    # ── DEBUG: comparar CIFs de pagos vs CIFs de facturas 90 ──────────────────
-    with st.expander("🔍 DEBUG: CIFs pagos vs CIFs facturas 90 (sin ejecutar cruce)", expanded=False):
-        # CIFs normalizados de los pagos del día
-        cifs_pagos = (
-            df_pagos['CIF_UTE']
-            .astype(str)
-            .str.replace(".0", "", regex=False)
-            .str.strip()
-            .str.upper()
-            .unique()
-        )
-        # CIFs en df_prisma_90
-        cifs_90 = df_prisma_90['CIF_UTE_REAL'].dropna().unique()
-
-        coinciden = set(cifs_pagos) & set(cifs_90)
-        solo_en_pagos = set(cifs_pagos) - set(cifs_90)
-
-        st.write(f"**CIFs en pagos del día:** {len(cifs_pagos)}")
-        st.write(f"**CIFs en facturas 90:** {len(cifs_90)}")
-        st.write(f"**✅ Coinciden:** {len(coinciden)} → {sorted(coinciden)[:10]}")
-        st.write(f"**❌ Solo en pagos (no tienen 90):** {len(solo_en_pagos)}")
-
-        # Para los que no coinciden, mostrar ejemplos y buscar similares
-        if solo_en_pagos:
-            st.markdown("---")
-            st.write("**Detalle de CIFs en pagos sin match en 90s:**")
-            for cif_p in sorted(solo_en_pagos)[:15]:
-                similares = [c for c in cifs_90 if cif_p in str(c) or str(c) in cif_p]
-                st.write(f"- Pago CIF: `{repr(cif_p)}` → similares en 90s: {similares[:3] if similares else '❌ ninguno'}")
-
-        # Mostrar ejemplos raw de ambos lados para detectar diferencias de formato
-        st.markdown("---")
-        st.write("**Ejemplos raw CIFs en pagos:**", list(cifs_pagos)[:5])
-        st.write("**Ejemplos raw CIFs en 90s:**", list(cifs_90)[:5])
-
-        # Mostrar las 90s del CIF 666479 (el del pago de 143K) si existe
-        cif_buscar = [c for c in cifs_90 if '666479' in str(c)]
-        if cif_buscar:
-            st.write(f"**90s encontradas para CIF que contiene '666479': {cif_buscar}**")
-            st.dataframe(df_prisma_90[df_prisma_90['CIF_UTE_REAL'].isin(cif_buscar)][
-                ['Num_Factura_Norm','CIF_UTE_REAL','CIF_ORIGINAL','IMPORTE_CON_IMPUESTO','Fecha Emisión','TIENE_MATCH_PRISMA']
-            ])
-        else:
-            st.error("❌ Ningún CIF_UTE_REAL en df_prisma_90 contiene '666479'")
-            # Buscar en CIF_ORIGINAL por si está ahí
-            cif_orig_buscar = df_prisma_90[df_prisma_90['CIF_ORIGINAL'].astype(str).str.contains('666479', na=False)]
-            if not cif_orig_buscar.empty:
-                st.warning(f"⚠️ SÍ está en CIF_ORIGINAL pero NO en CIF_UTE_REAL — problema de mapeo")
-                st.dataframe(cif_orig_buscar[['Num_Factura_Norm','CIF_UTE_REAL','CIF_ORIGINAL','IMPORTE_CON_IMPUESTO','TIENE_MATCH_PRISMA']].head(10))
-
-        # ── Debug específico para U67666479 y el pago de 143K ──
-        st.markdown("---")
-        st.write("**🔬 Análisis detallado U67666479 / pago 143K:**")
-        df_90_666 = df_prisma_90[df_prisma_90['CIF_UTE_REAL'] == 'U67666479'].copy()
-        if not df_90_666.empty:
-            # Simular el filtro exacto que aplica el solver
-            importe_test = 143429.88
-            TOLERANCIA_BUSQUEDA_90 = 2.0
-            mask_importe = df_90_666['IMPORTE_CON_IMPUESTO'] <= importe_test + TOLERANCIA_BUSQUEDA_90
-            mask_positivo = df_90_666['IMPORTE_CON_IMPUESTO'] > 0
-            mask_fecha = df_90_666['Fecha Emisión'].isna() | (df_90_666['Fecha Emisión'] <= pd.Timestamp('2025-12-16'))
-            st.write(f"Total 90s para U67666479: {len(df_90_666)}")
-            st.write(f"Pasan filtro importe (≤ {importe_test + TOLERANCIA_BUSQUEDA_90}): {mask_importe.sum()}")
-            st.write(f"Pasan filtro positivo: {mask_positivo.sum()}")
-            st.write(f"Pasan filtro fecha ≤ 16/12/2025: {mask_fecha.sum()}")
-            st.write(f"Pasan LOS TRES filtros: {(mask_importe & mask_positivo & mask_fecha).sum()}")
-            st.dataframe(df_90_666[['Num_Factura_Norm','IMPORTE_CON_IMPUESTO','Fecha Emisión','TIENE_MATCH_PRISMA']].assign(
-                pasa_importe=mask_importe,
-                pasa_positivo=mask_positivo,
-                pasa_fecha=mask_fecha
-            ))
-        else:
-            st.error("U67666479 no encontrado en df_prisma_90")
 
     # -------------------------------
     # 4️⃣ BOTÓN PARA EJECUTAR EL SOLVER
