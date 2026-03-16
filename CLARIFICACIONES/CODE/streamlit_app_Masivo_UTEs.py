@@ -367,7 +367,7 @@ else:
     st.success(f"✅ Archivo COBRA ya cargado ({len(df)} filas)")
 
 # --------- 3) Subida del Maestro UTEs ---------
-archivo_maestro = st.file_uploader("Sube el Maestro UTEs (Excel)", type=["xlsx", "xls", "csv"], key="maestro")
+archivo_maestro = st.file_uploader("Sube el Maestro UTEs (.xlsm)", type=["xlsm", "xlsx"], key="maestro")
 
 if archivo_maestro is not None:
     st.session_state.maestro_bytes = archivo_maestro.getvalue()
@@ -380,10 +380,12 @@ if "df_maestro_utes" not in st.session_state and "maestro_bytes" in st.session_s
     nombre_m = st.session_state.get('maestro_nombre', '')
     m_bytes = st.session_state.maestro_bytes
 
-    if nombre_m.endswith('.csv'):
-        df_maestro = pd.read_csv(BytesIO(m_bytes), sep=";", encoding="latin1", on_bad_lines="skip")
-    else:
-        df_maestro = pd.read_excel(BytesIO(m_bytes), engine="openpyxl")
+    # Maestro UTEs siempre xlsm, pestaña "Datos"
+    try:
+        df_maestro = pd.read_excel(BytesIO(m_bytes), sheet_name="Datos", engine="openpyxl")
+    except Exception as e:
+        st.error(f"❌ Error leyendo Maestro UTEs (pestaña 'Datos'): {e}")
+        st.stop()
 
     col_ute_m   = find_col(df_maestro, ['UTE', 'CIF UTE', 'CIF_UTE'])
     col_tde_m   = find_col(df_maestro, ['Porc. TdE', 'Porc TdE', 'TDE', 'PORC_TDE'])
@@ -1693,3 +1695,4 @@ if not df_cobros.empty:
     
     elif ejecutar_cruce is False and "df_resultados" not in st.session_state:
         st.info("👆 Pulsa el botón 'Ejecutar Cruce' para iniciar el proceso")
+
