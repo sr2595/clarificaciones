@@ -581,21 +581,18 @@ if not df_cobros.empty:
                         (df_todas['Fecha Emisión'].isna() | (df_todas['Fecha Emisión'] <= fecha_pago))
                     ].copy()
 
-                    # Filtrar por coherencia con maestro: la 90 debe tener socios
-                    # que cubran todas las sociedades con porcentaje > 0 en el maestro
-                    socs_requeridas = {soc for soc, porc in porcentajes.items() if porc and porc > 0 and soc not in ('TSOL', 'OTROS')}
-                    if socs_requeridas and not df_cands.empty:
+                    # Filtrar por coherencia con maestro: solo excluir 90s que tengan
+                    # socios con porcentaje 0 en el maestro (si está a 0 nunca puede aparecer)
+                    socs_prohibidas = {soc for soc, porc in porcentajes.items() if porc == 0}
+                    if socs_prohibidas and not df_cands.empty:
                         candidatas_validas = []
                         for _, f90 in df_cands.iterrows():
                             id_ute_90 = str(f90.get('Id UTE', 'DESCONOCIDO')).strip()
                             if id_ute_90 in socios_por_ute:
                                 df_soc_90 = socios_por_ute[id_ute_90]
-                                if col_fecha_factura and col_fecha_factura in df_soc_90.columns and pd.notna(f90.get('Fecha Emisión')):
-                                    df_soc_90 = df_soc_90[df_soc_90[col_fecha_factura] <= f90['Fecha Emisión']]
-                                socs_disponibles = set(df_soc_90['SOCIEDAD_PRISMA'].unique())
-                                # Solo rechazar si hay socios pero no cubren los requeridos
-                                if socs_disponibles and not socs_requeridas.issubset(socs_disponibles):
-                                    continue  # esta 90 no tiene los socios requeridos
+                                socs_en_90 = set(df_soc_90['SOCIEDAD_PRISMA'].unique())
+                                if socs_en_90 & socs_prohibidas:
+                                    continue  # tiene un socio que debería estar a 0%
                             candidatas_validas.append(f90)
                         df_facturas = pd.DataFrame(candidatas_validas) if candidatas_validas else pd.DataFrame()
                     else:
