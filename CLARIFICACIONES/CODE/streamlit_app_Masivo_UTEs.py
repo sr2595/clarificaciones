@@ -563,10 +563,15 @@ if not df_cobros.empty:
                     forzar_row = forzar_90 if isinstance(forzar_90, dict) else forzar_90.to_dict()
                     df_facturas = pd.DataFrame([forzar_row])
                     for col_req, val_def in [('IMPORTE_CON_IMPUESTO', 0.0), ('Fecha Emisión', pd.NaT),
-                                              ('TIENE_MATCH_PRISMA', True), ('Id UTE', 'DESCONOCIDO'),
+                                              ('TIENE_MATCH_PRISMA', True),
                                               ('CIF_ORIGINAL', ''), ('Num_Factura_Norm', posible_num)]:
                         if col_req not in df_facturas.columns:
                             df_facturas[col_req] = val_def
+                    # Id UTE: intentar obtenerlo de df_prisma_90 si no está
+                    if 'Id UTE' not in df_facturas.columns or str(df_facturas['Id UTE'].iloc[0]).strip() in ('', 'DESCONOCIDO', 'nan'):
+                        if posible_num in todas_90_por_num:
+                            id_ute_real = todas_90_por_num[posible_num].get('Id UTE', 'DESCONOCIDO')
+                            df_facturas['Id UTE'] = str(id_ute_real).strip()
                 else:
                     df_todas = facturas_por_cif[cif_pago].copy()
                     # Filtrar por importe y fecha
@@ -668,9 +673,6 @@ if not df_cobros.empty:
 
                     if id_ute in socios_por_ute:
                         df_soc = socios_por_ute[id_ute].copy()
-                        # Solo socios con fecha <= fecha de la 90
-                        if col_fecha_factura and col_fecha_factura in df_soc.columns and pd.notna(fecha_90):
-                            df_soc = df_soc[df_soc[col_fecha_factura] <= fecha_90]
                         for _, socio in df_soc.iterrows():
                             sociedad = str(socio.get('SOCIEDAD_PRISMA', 'OTROS'))
                             socios_prisma.append({
