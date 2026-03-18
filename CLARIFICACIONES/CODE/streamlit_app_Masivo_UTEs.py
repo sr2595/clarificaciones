@@ -365,7 +365,11 @@ if not df_cobros.empty:
                         x = [model.NewBoolVar(f"x{i}") for i in range(n)]
                         model.Add(sum(x[i]*fact_cent[i] for i in range(n)) >= pagos_cent-tol_cent)
                         model.Add(sum(x[i]*fact_cent[i] for i in range(n)) <= pagos_cent+tol_cent)
-                        model.Minimize(sum(x))
+                        # Objetivo: minimizar nº facturas primero, y como desempate
+                        # priorizar las más antiguas (índice menor = más antigua por el sort previo)
+                        # Multiplicamos el índice por un peso pequeño para no interferir con el objetivo principal
+                        peso_orden = [i for i in range(n)]  # 0=más antigua, n-1=más nueva
+                        model.Minimize(sum(x[i] for i in range(n)) * 10000 + sum(x[i]*peso_orden[i] for i in range(n)))
                         solver = cp_model.CpSolver()
                         solver.parameters.max_time_in_seconds = 3
                         solver.parameters.log_search_progress = False
