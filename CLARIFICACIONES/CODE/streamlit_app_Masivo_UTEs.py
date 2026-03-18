@@ -225,7 +225,7 @@ if not df_prisma.empty:
         st.write(f"- Total importe con impuesto: {df_prisma['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
 # --------- 2) Subida y normalización de COBRA ---------
-archivo_cobra = st.file_uploader("Sube el archivo Excel DetalleDocumentos de Cobra", type=["xlsx", "xls", "csv"])
+archivo_cobra = st.file_uploader("Sube el archivo CSV DetalleDocumentos de Cobra", type=["csv"])
 
 # Guardar bytes en session_state
 if archivo_cobra is not None:
@@ -246,35 +246,18 @@ if "df_cobra_procesado" not in st.session_state:
     nombre = st.session_state.get('cobra_nombre', '')
     cobra_bytes = st.session_state.cobra_bytes
 
-    # --- Leer archivo ---
-    if nombre.endswith('.csv'):
-        chunks = []
-        for chunk in pd.read_csv(
-            BytesIO(cobra_bytes),
-            sep=";",
-            encoding="latin1",
-            on_bad_lines="skip",
-            chunksize=50_000
-        ):
-            chunks.append(chunk)
-        df = pd.concat(chunks, ignore_index=True)
-        del chunks
-    else:
-        # Detectar cabecera solo leyendo 20 filas
-        df_raw = pd.read_excel(BytesIO(cobra_bytes), header=None, engine="openpyxl", nrows=20)
-        header_row = None
-        for i in range(len(df_raw)):
-            vals = [str(x).lower() for x in df_raw.iloc[i].tolist()]
-            if any("factura" in v or "fecha" in v or "importe" in v for v in vals):
-                header_row = i
-                break
-        del df_raw  # 🧹 liberar
-        
-        if header_row is None:
-            st.error("❌ No se encontró cabecera reconocible en el archivo Excel")
-            st.stop()
-        
-        df = pd.read_excel(BytesIO(cobra_bytes), header=header_row, engine="openpyxl")
+    # --- Leer CSV por chunks para no saturar RAM ---
+    chunks = []
+    for chunk in pd.read_csv(
+        BytesIO(cobra_bytes),
+        sep=";",
+        encoding="latin1",
+        on_bad_lines="skip",
+        chunksize=50_000
+    ):
+        chunks.append(chunk)
+    df = pd.concat(chunks, ignore_index=True)
+    del chunks
     
     # --- Detectar columnas ANTES de filtrar ---
     col_fecha_emision = find_col(df, ['FECHA', 'Fecha Emision', 'Fecha Emisión', 'FX_EMISION'])
@@ -882,6 +865,100 @@ if not df_cobros.empty:
                 num = str(row[col_factura_cobra]).strip().upper()
                 cobra_90_por_num[num] = row
 
+        # ── Función auxiliar: validar socios de una 90 contra el maestro ─────────
+        def validar_socios_90_vs_maestro(num_factura_90, importe_90, id_ute, tiene_match_prisma,
+                                          cif_pago, maestro_map, socios_por_ute,
+                                          cobra_otros_por_cif, col_num_factura_prisma,
+                                          col_fecha_factura, fecha_pago, tolerancia):
+            """
+            Comprueba si los socios de una factura 90 son coherentes con los porcentajes
+            del maestro UTEs. Devuelve (es_valida, advertencia_socios).
+            - es_valida: True si los socios cuadran con el maestro (o no hay maestro para esta UTE)
+            - advertencia_socios: descripción del problema si no cuadra
+            """
+            # Obtener porcentajes del maestro para esta UTE
+            cif_ute_j = str(cif_pago).strip().upper()
+            cif_ute_u = ('U' + cif_ute_j[1:]) if cif_ute_j.startswith('J') else cif_ute_j
+            porcentajes = maestro_map.get(cif_ute_j) or maestro_map.get(cif_ute_u)
+
+            if not porcentajes:
+                return True, None  # Sin maestro → aceptar sin validar
+
+            # Sociedades que deben existir (porcentaje > 0)
+            socs_requeridas = {soc: porc for soc, porc in porcentajes.items() if porc and porc > 0}
+            if not socs_requeridas:
+                return True, None  # Todos los porcentajes son 0 → aceptar
+
+            # Obtener socios reales de esta 90
+            socios_reales = {}  # sociedad → importe
+
+            if tiene_match_prisma and id_ute and id_ute != 'DESCONOCIDO':
+                # CASO 1: socios vienen de PRISMA
+                if id_ute in socios_por_ute:
+                    df_soc = socios_por_ute[id_ute]
+                    if col_fecha_factura and col_fecha_factura in df_soc.columns:
+                        df_soc = df_soc[df_soc[col_fecha_factura] <= fecha_pago].copy()
+                    for _, s in df_soc.iterrows():
+                        # En PRISMA no tenemos sociedad directamente — usamos el CIF del socio
+                        # El CIF del socio corresponde a TDE (A81874984) o TME, etc.
+                        # Solo podemos validar que hay socios; la sociedad exacta es difícil sin más info
+                        pass
+                # Para CASO 1 con PRISMA no podemos validar sociedad fácilmente → aceptar
+                return True, None
+
+            else:
+                # CASO 2: socios vienen de COBRA (no-TSS)
+                for cif_key in [cif_ute_j, cif_ute_u]:
+                    if cif_key in cobra_otros_por_cif:
+                        df_cob = cobra_otros_por_cif[cif_key]
+                        # Filtrar por fecha <= fecha_pago
+                        if 'FECHA_EMISION_COBRA' in df_cob.columns:
+                            df_cob = df_cob[
+                                df_cob['FECHA_EMISION_COBRA'].isna() |
+                                (df_cob['FECHA_EMISION_COBRA'] <= fecha_pago)
+                            ]
+                        for soc, grp in df_cob.groupby('SOCIEDAD_NORM'):
+                            socios_reales[soc] = grp['IMPORTE_COBRA'].sum()
+                        break
+
+                if not socios_reales:
+                    return True, None  # Sin socios en COBRA → no podemos validar, aceptar
+
+                # Verificar que todas las sociedades requeridas existen
+                socs_faltantes = [soc for soc in socs_requeridas if soc not in socios_reales]
+                if socs_faltantes:
+                    return False, f"Faltan socios requeridos por maestro: {', '.join(socs_faltantes)}"
+
+                # Verificar proporciones aproximadas
+                total_socios = sum(socios_reales.values())
+                if total_socios <= 0:
+                    return True, None
+
+                advertencias_prop = []
+                for soc, porc_esperado in socs_requeridas.items():
+                    if soc in socios_reales:
+                        porc_real = (socios_reales[soc] / total_socios) * 100
+                        diff_porc = abs(porc_real - porc_esperado)
+                        if diff_porc > 5.0:  # tolerancia de 5 puntos porcentuales
+                            advertencias_prop.append(
+                                f"{soc}: esperado {porc_esperado:.1f}% real {porc_real:.1f}%"
+                            )
+
+                if advertencias_prop:
+                    return True, f"⚠️ Proporciones difieren del maestro: {'; '.join(advertencias_prop)}"
+
+                return True, None
+
+        # ── Función auxiliar: obtener sociedades requeridas para una UTE ──────────
+        def get_socs_requeridas(cif_pago, maestro_map):
+            """Devuelve set de sociedades con porcentaje > 0 según maestro, o None si no hay maestro."""
+            cif_j = str(cif_pago).strip().upper()
+            cif_u = ('U' + cif_j[1:]) if cif_j.startswith('J') else cif_j
+            porcentajes = maestro_map.get(cif_j) or maestro_map.get(cif_u)
+            if not porcentajes:
+                return None
+            return {soc for soc, porc in porcentajes.items() if porc and porc > 0}
+
         # ── Bucle de pagos ───────────────────────────────────────────────────────
         for idx, pago in df_pagos.iterrows():
             try:
@@ -943,47 +1020,83 @@ if not df_cobros.empty:
                     if 'CIF_ORIGINAL' not in df_facturas.columns:
                         df_facturas['CIF_ORIGINAL'] = ''
                 else:
-                    df_facturas = facturas_por_cif[cif_pago].copy()
-                    # Tolerancia de búsqueda: la 90 puede ser hasta 2€ mayor que el pago
+                    todas_90_cif = facturas_por_cif[cif_pago].copy()
                     TOLERANCIA_BUSQUEDA_90 = 2.0
-                    df_facturas = df_facturas[
-                        (df_facturas['IMPORTE_CON_IMPUESTO'] > 0) &
-                        (df_facturas['IMPORTE_CON_IMPUESTO'] <= importe_pago + max(tolerancia, TOLERANCIA_BUSQUEDA_90)) &
-                        (
-                            df_facturas['Fecha Emisión'].isna() |
-                            (df_facturas['Fecha Emisión'] <= fecha_pago)
-                        )
-                    ].copy()
 
-                if df_facturas.empty:
-                    # Buscar 90s que cuadren en importe pero fallen en fecha
-                    todas_90 = facturas_por_cif[cif_pago].copy()
-                    TOLERANCIA_IMPORTE = max(tolerancia, 2.0)
-                    razones = []
-                    for _, f90 in todas_90.iterrows():
+                    # Obtener sociedades requeridas por el maestro para esta UTE
+                    socs_requeridas = get_socs_requeridas(cif_pago, maestro_map)
+
+                    # Filtrar candidatas: importe, fecha y coherencia con maestro
+                    candidatas_validas = []
+                    candidatas_rechazadas = []  # para el mensaje de advertencia
+
+                    for _, f90 in todas_90_cif.iterrows():
                         num = f90['Num_Factura_Norm']
                         imp = f90['IMPORTE_CON_IMPUESTO']
-                        fec = f90['Fecha Emisión']
-                        dif_importe = round(imp - importe_pago, 2)
-                        cuadra_importe = (imp > 0) and (imp <= importe_pago + TOLERANCIA_IMPORTE)
+                        fec = f90.get('Fecha Emisión', pd.NaT)
+                        id_ute_90 = str(f90.get('Id UTE', 'DESCONOCIDO')).strip()
+                        tiene_match_90 = bool(f90.get('TIENE_MATCH_PRISMA', False))
                         fec_str = fec.strftime('%d/%m/%Y') if pd.notna(fec) else 'sin fecha'
-                        if cuadra_importe:
-                            # Esta 90 cuadra en importe — explicar por qué no se usa
-                            if pd.notna(fec) and fec > fecha_pago:
-                                motivo = f"FECHA POSTERIOR AL PAGO (emisión {fec_str} > pago {fecha_pago.strftime('%d/%m/%Y')})"
-                            else:
-                                motivo = "motivo desconocido (pasa filtro importe y fecha)"
-                            razones.append(f"{num} | importe={imp:.2f}€ (dif={dif_importe:+.2f}€) | {motivo}")
-                        # Las que no cuadran en importe las ignoramos — no son candidatas
-                    if razones:
-                        advertencia_detalle = '90s que cuadran en importe pero se descartan: ' + ' || '.join(razones)
+
+                        # Filtro 1: importe
+                        if not (imp > 0 and imp <= importe_pago + max(tolerancia, TOLERANCIA_BUSQUEDA_90)):
+                            candidatas_rechazadas.append(
+                                f"{num} ({imp:.2f}€): importe fuera de rango"
+                            )
+                            continue
+
+                        # Filtro 2: fecha
+                        if pd.notna(fec) and fec > fecha_pago:
+                            candidatas_rechazadas.append(
+                                f"{num} ({imp:.2f}€): FECHA POSTERIOR AL PAGO (emisión {fec_str} > pago {fecha_pago.strftime('%d/%m/%Y')})"
+                            )
+                            continue
+
+                        # Filtro 3: validar socios contra maestro (solo CASO 2, sin match PRISMA)
+                        # Para CASO 1 (match PRISMA) la validación de sociedad es más difícil
+                        # porque PRISMA no guarda el nombre de sociedad, solo el CIF del socio.
+                        # En CASO 2, sí podemos verificar que existen las sociedades requeridas en COBRA.
+                        if socs_requeridas and not tiene_match_90:
+                            # Buscar qué sociedades tiene esta 90 en COBRA (no-TSS)
+                            cif_ute_j = str(cif_pago).strip().upper()
+                            cif_ute_u = ('U' + cif_ute_j[1:]) if cif_ute_j.startswith('J') else cif_ute_j
+                            socs_disponibles = set()
+                            for cif_key in [cif_ute_j, cif_ute_u]:
+                                if cif_key in cobra_otros_por_cif:
+                                    df_cob = cobra_otros_por_cif[cif_key]
+                                    if 'FECHA_EMISION_COBRA' in df_cob.columns:
+                                        df_cob = df_cob[
+                                            df_cob['FECHA_EMISION_COBRA'].isna() |
+                                            (df_cob['FECHA_EMISION_COBRA'] <= fecha_pago)
+                                        ]
+                                    socs_disponibles = set(df_cob['SOCIEDAD_NORM'].unique())
+                                    break
+
+                            socs_faltantes = socs_requeridas - socs_disponibles
+                            if socs_faltantes:
+                                candidatas_rechazadas.append(
+                                    f"{num} ({imp:.2f}€): faltan socios {', '.join(socs_faltantes)} requeridos por maestro"
+                                )
+                                continue
+
+                        candidatas_validas.append(f90)
+
+                    if candidatas_validas:
+                        df_facturas = pd.DataFrame(candidatas_validas)
                     else:
-                        # Ninguna cuadra en importe tampoco — mostrar las disponibles con su diferencia
+                        df_facturas = pd.DataFrame()
+
+                if df_facturas.empty:
+                    # Explicar por qué no hay candidatas
+                    if candidatas_rechazadas:
+                        advertencia_detalle = 'Ninguna 90 pasó los filtros: ' + ' || '.join(candidatas_rechazadas)
+                    else:
+                        todas_90 = facturas_por_cif.get(cif_pago, pd.DataFrame())
                         resumen = ' | '.join([
-                            f"{f90['Num_Factura_Norm']} ({f90['IMPORTE_CON_IMPUESTO']:.2f}€, dif={round(f90['IMPORTE_CON_IMPUESTO']-importe_pago,2):+.2f}€)"
+                            f"{f90['Num_Factura_Norm']} ({f90['IMPORTE_CON_IMPUESTO']:.2f}€)"
                             for _, f90 in todas_90.iterrows()
                         ]) if not todas_90.empty else 'ninguna'
-                        advertencia_detalle = f'Ninguna 90 cuadra en importe con pago {importe_pago:.2f}€. Disponibles: {resumen}'
+                        advertencia_detalle = f'Sin 90s disponibles para pago {importe_pago:.2f}€. Existentes: {resumen}'
                     resultados.append({
                         'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
                         'facturas_90_asignadas': 'SIN_COMBINACION_VALIDA',
@@ -1304,7 +1417,16 @@ if not df_cobros.empty:
 
                 diferencia_pago_vs_90 = importe_pago - importe_facturas_90
                 advertencia = None
-                if hay_facturas_duplicadas and facturas_90_str is not None:
+
+                # Recoger advertencias de proporciones de socios vs maestro
+                advertencias_maestro = [
+                    d.get('estado_cobra', '')
+                    for d in desglose_por_factura_90
+                    if d.get('estado_cobra', '').startswith('⚠️ Proporciones')
+                ]
+                if advertencias_maestro:
+                    advertencia = ' | '.join(advertencias_maestro)
+                elif hay_facturas_duplicadas and facturas_90_str is not None:
                     advertencia = "⚠️ ATENCIÓN: Había múltiples facturas 90 con importes similares. Se priorizaron las más antiguas."
 
                 resultados.append({
