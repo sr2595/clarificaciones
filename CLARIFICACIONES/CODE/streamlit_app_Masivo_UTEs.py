@@ -480,7 +480,9 @@ if not df_cobros.empty:
         if pagos_con_advertencia > 0:
             st.warning(f"⚠️ {pagos_con_advertencia} pago(s) con advertencia — revisa la columna 'Advertencia' en el Excel.")
 
-        st.dataframe(df_resultados, use_container_width=True, height=400)
+        st.dataframe(df_resultados[['CIF_UTE','fecha_pago','importe_pago','facturas_90_asignadas',
+                                    'importe_facturas_90','diferencia_pago_vs_90','advertencia']],
+                     use_container_width=True, height=400)
 
         # --------- 9) EXCEL ---------
         cif_a_nombre = {}
