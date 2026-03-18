@@ -484,9 +484,25 @@ if not df_cobros.empty:
             (~df_prisma_completo[col_num_factura_prisma].astype(str).str.startswith("90")) &
             (df_prisma_completo['IMPORTE_CON_IMPUESTO'] > 0)
         ].copy()
+
+        # Identificar sociedad por prefijo de número de factura:
+        #   60... → TDE (fijo)
+        #   ADM... → TME (móvil)
+        #   otros → OTROS
+        def detectar_sociedad_prisma(num_factura):
+            n = str(num_factura).strip().upper()
+            if n.startswith('60'):
+                return 'TDE'
+            elif n.startswith('ADM'):
+                return 'TME'
+            else:
+                return 'OTROS'
+
+        df_socios_raw['SOCIEDAD_PRISMA'] = df_socios_raw[col_num_factura_prisma].apply(detectar_sociedad_prisma)
+
         socios_por_ute = {}
         for id_ute, grupo in df_socios_raw.groupby('Id UTE'):
-            cols_s = [col_num_factura_prisma, 'IMPORTE_CON_IMPUESTO', 'CIF']
+            cols_s = [col_num_factura_prisma, 'IMPORTE_CON_IMPUESTO', 'CIF', 'SOCIEDAD_PRISMA']
             if col_fecha_factura:
                 cols_s.append(col_fecha_factura)
             socios_por_ute[str(id_ute).strip()] = grupo[cols_s].copy()
@@ -554,11 +570,31 @@ if not df_cobros.empty:
                 else:
                     df_todas = facturas_por_cif[cif_pago].copy()
                     # Filtrar por importe y fecha
-                    df_facturas = df_todas[
+                    df_cands = df_todas[
                         (df_todas['IMPORTE_CON_IMPUESTO'] > 0) &
                         (df_todas['IMPORTE_CON_IMPUESTO'] <= importe_pago + TOLERANCIA_90) &
                         (df_todas['Fecha Emisión'].isna() | (df_todas['Fecha Emisión'] <= fecha_pago))
                     ].copy()
+
+                    # Filtrar por coherencia con maestro: la 90 debe tener socios
+                    # que cubran todas las sociedades con porcentaje > 0 en el maestro
+                    socs_requeridas = {soc for soc, porc in porcentajes.items() if porc and porc > 0 and soc not in ('TSOL', 'OTROS')}
+                    if socs_requeridas and not df_cands.empty:
+                        candidatas_validas = []
+                        for _, f90 in df_cands.iterrows():
+                            id_ute_90 = str(f90.get('Id UTE', 'DESCONOCIDO')).strip()
+                            if id_ute_90 in socios_por_ute:
+                                df_soc_90 = socios_por_ute[id_ute_90]
+                                if col_fecha_factura and col_fecha_factura in df_soc_90.columns and pd.notna(f90.get('Fecha Emisión')):
+                                    df_soc_90 = df_soc_90[df_soc_90[col_fecha_factura] <= f90['Fecha Emisión']]
+                                socs_disponibles = set(df_soc_90['SOCIEDAD_PRISMA'].unique())
+                                # Solo rechazar si hay socios pero no cubren los requeridos
+                                if socs_disponibles and not socs_requeridas.issubset(socs_disponibles):
+                                    continue  # esta 90 no tiene los socios requeridos
+                            candidatas_validas.append(f90)
+                        df_facturas = pd.DataFrame(candidatas_validas) if candidatas_validas else pd.DataFrame()
+                    else:
+                        df_facturas = df_cands
 
                     if df_facturas.empty:
                         # Explicar por qué se descartaron
@@ -636,11 +672,12 @@ if not df_cobros.empty:
                         if col_fecha_factura and col_fecha_factura in df_soc.columns and pd.notna(fecha_90):
                             df_soc = df_soc[df_soc[col_fecha_factura] <= fecha_90]
                         for _, socio in df_soc.iterrows():
+                            sociedad = str(socio.get('SOCIEDAD_PRISMA', 'OTROS'))
                             socios_prisma.append({
                                 'num_factura': str(socio[col_num_factura_prisma]),
                                 'cif':         str(socio['CIF']),
                                 'importe':     float(socio['IMPORTE_CON_IMPUESTO']),
-                                'fuente':      'PRISMA'
+                                'fuente':      f'PRISMA ({sociedad})'
                             })
                             importe_socios_prisma += float(socio['IMPORTE_CON_IMPUESTO'])
 
@@ -649,11 +686,12 @@ if not df_cobros.empty:
                     socios_estimados = []  # socios calculados por % del maestro que no están en PRISMA
 
                     if abs(diferencia) > tolerancia and porcentajes:
-                        # Calcular qué parte de la diferencia corresponde a TSOL y OTROS
-                        # según los porcentajes del maestro
+                        # Los socios TDE/TME ya están en PRISMA.
+                        # La diferencia restante corresponde a TSOL u OTROS según el maestro.
+                        socs_en_prisma = {s['fuente'].split('(')[-1].rstrip(')') for s in socios_prisma}
                         for soc_nombre, porc in porcentajes.items():
-                            if soc_nombre in ('TDE', 'TME'):
-                                continue  # estos ya deberían estar en PRISMA
+                            if soc_nombre in socs_en_prisma:
+                                continue  # ya está cubierto por PRISMA
                             if porc and porc > 0:
                                 imp_estimado = round(imp_90 * porc / 100.0, 2)
                                 socios_estimados.append({
