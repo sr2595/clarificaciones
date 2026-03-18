@@ -72,51 +72,6 @@ def aplicar_impuestos_a_prisma(df_prisma, col_importe='IMPORTE_CORRECTO', col_ti
     )
     return df_prisma
 
-def filtrar_cobra_ligero(df, col_sociedad, col_importe, col_fecha=None, col_cif=None,
-                         importe_max=None, fecha_max=None, cifs_pagos=None):
-    """
-    Filtra COBRA para quedarse solo con lo necesario.
-    Filtros aplicados:
-    1. Sociedades TSS, TSOL, TDE, TME
-    2. Importes positivos y <= importe_max (máximo pago)
-    3. Fecha emisión <= fecha_max (fecha máxima de pagos, estricto)
-    """
-    SOCIEDADES_VALIDAS = {'TSS', 'TSOL', 'TDE', 'TME'}
-    filas_originales = len(df)
-
-    # 1️⃣ Filtrar por sociedades válidas
-    if col_sociedad:
-        soc_norm = df[col_sociedad].astype(str).str.strip().str.upper()
-        df = df[soc_norm.isin(SOCIEDADES_VALIDAS)].copy()
-
-    # 2️⃣ Importes positivos
-    if col_importe:
-        importes = df[col_importe].apply(convertir_importe_europeo)
-        df = df[importes > 0].copy()
-
-    # 3️⃣ Importe <= importe máximo de pagos + 2€ de margen
-    if col_importe and importe_max is not None:
-        importes2 = df[col_importe].apply(convertir_importe_europeo)
-        df = df[importes2 <= importe_max + 2.0].copy()
-
-    # 4️⃣ Fecha <= fecha máxima de pagos (estricto, sin margen)
-    # Una factura posterior al pago nunca puede ser su pareja
-    if col_fecha and fecha_max is not None:
-        fechas = pd.to_datetime(df[col_fecha], dayfirst=True, errors='coerce')
-        df = df[fechas.isna() | (fechas <= fecha_max)].copy()
-
-    filas_finales = len(df)
-    reduccion = (1 - filas_finales / filas_originales) * 100 if filas_originales > 0 else 0
-
-    st.success(
-        f"✂️ COBRA reducido: {filas_originales:,} → {filas_finales:,} filas ({reduccion:.1f}% eliminado) "
-        f"— sociedades: TSS, TSOL, TDE, TME"
-        + (f" | importe ≤ {importe_max + 2:.2f}€" if importe_max else "")
-        + (f" | fecha ≤ {fecha_max.strftime('%d/%m/%Y')}" if fecha_max is not None else "")
-    )
-
-    return df
-
 # --------- 1) Subida y normalización de PRISMA ---------
 archivo_prisma = st.file_uploader("Sube el archivo PRISMA (CSV)", type=["csv"])
 
@@ -224,132 +179,7 @@ if not df_prisma.empty:
         st.write(f"- Total importe original: {df_prisma['IMPORTE_CORRECTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
         st.write(f"- Total importe con impuesto: {df_prisma['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
 
-# --------- 2) Subida y normalización de COBRA ---------
-archivo_cobra = st.file_uploader("Sube el archivo CSV DetalleDocumentos de Cobra", type=["csv"])
-
-# Guardar bytes en session_state
-if archivo_cobra is not None:
-    st.session_state.cobra_bytes = archivo_cobra.getvalue()
-    st.session_state.cobra_nombre = archivo_cobra.name
-    # Invalidar cachés dependientes de COBRA
-    for key in ['df_cobra_procesado', 'df_prisma_90_preparado']:
-        if key in st.session_state:
-            del st.session_state[key]  
-
-# Si no hay bytes, no seguimos
-if "cobra_bytes" not in st.session_state and "df_cobra_procesado" not in st.session_state:
-    st.stop()
-
-if "df_cobra_procesado" not in st.session_state:
-    st.info("⏳ Procesando archivo COBRA por primera vez...")
-    
-    nombre = st.session_state.get('cobra_nombre', '')
-    cobra_bytes = st.session_state.cobra_bytes
-
-    # --- Leer CSV por chunks para no saturar RAM ---
-    chunks = []
-    for chunk in pd.read_csv(
-        BytesIO(cobra_bytes),
-        sep=";",
-        encoding="latin1",
-        on_bad_lines="skip",
-        chunksize=50_000
-    ):
-        chunks.append(chunk)
-    df = pd.concat(chunks, ignore_index=True)
-    del chunks
-    
-    # --- Detectar columnas ANTES de filtrar ---
-    col_fecha_emision = find_col(df, ['FECHA', 'Fecha Emision', 'Fecha Emisión', 'FX_EMISION'])
-    col_factura       = find_col(df, ['FACTURA', 'Nº Factura', 'NRO_FACTURA', 'Núm.Doc.Deuda'])
-    col_importe       = find_col(df, ['IMPORTE', 'TOTAL', 'TOTAL_FACTURA'])
-    col_cif           = find_col(df, ['T.Doc. - Núm.Doc.', 'CIF', 'NIF', 'CIF_CLIENTE', 'NIF_CLIENTE'])
-    col_nombre_cliente= find_col(df, ['NOMBRE', 'CLIENTE', 'RAZON_SOCIAL'])
-    col_sociedad      = find_col(df, ['SOCIEDAD', 'Sociedad', 'SOC', 'EMPRESA'])
-    col_grupo         = find_col(df, ['CIF_GRUPO', 'GRUPO', 'CIF Grupo'])
-    col_nombre_grupo  = find_col(df, ['Nombre Grupo', 'GRUPO_NOMBRE', 'RAZON_SOCIAL_GRUPO'])
-
-    faltan = []
-    if not col_fecha_emision: faltan.append("fecha emisión")
-    if not col_factura:       faltan.append("nº factura")
-    if not col_importe:       faltan.append("importe")
-    if not col_cif:           faltan.append("CIF")
-    if not col_grupo:         faltan.append("CIF grupo")
-    if not col_nombre_grupo:  faltan.append("Nombre grupo")
-
-    if faltan:
-        st.error("❌ No se pudieron localizar estas columnas: " + ", ".join(faltan))
-        st.stop()
-
-    # 🔥 FILTRAR COBRA — usar límites del archivo de pagos para reducir RAM al máximo
-    importe_max_pagos = None
-    fecha_max_pagos   = None
-    if "df_cobros_procesado" in st.session_state:
-        _p = st.session_state.df_cobros_procesado
-        if 'importe' in _p.columns:
-            importe_max_pagos = float(_p['importe'].dropna().max())
-        if 'fec_operacion' in _p.columns:
-            fecha_max_pagos = pd.to_datetime(_p['fec_operacion'].dropna()).max()
-
-    df = filtrar_cobra_ligero(
-        df, col_sociedad, col_importe,
-        col_fecha=col_fecha_emision,
-        importe_max=importe_max_pagos,
-        fecha_max=fecha_max_pagos
-    )
-    
-    # 🧹 Liberar bytes crudos — ya no los necesitamos
-    del st.session_state.cobra_bytes
-
-    # --- Normalizar solo las columnas necesarias y descartar el resto ---
-    df[col_fecha_emision] = pd.to_datetime(df[col_fecha_emision], dayfirst=True, errors='coerce')
-    df[col_factura] = df[col_factura].astype(str)
-    df[col_cif] = df[col_cif].astype(str).str.strip()
-    if col_grupo:
-        df[col_grupo] = df[col_grupo].astype(str).str.strip()
-    df['IMPORTE_CORRECTO'] = df[col_importe].apply(convertir_importe_europeo)
-
-    # 🧹 Quedarse SOLO con las columnas que se usan en el cruce — libera mucha RAM
-    cols_necesarias = [col_fecha_emision, col_factura, col_cif, col_importe, 'IMPORTE_CORRECTO']
-    if col_sociedad and col_sociedad in df.columns:
-        cols_necesarias.append(col_sociedad)
-    if col_grupo and col_grupo in df.columns:
-        cols_necesarias.append(col_grupo)
-    df = df[cols_necesarias].copy()
-
-    # Guardar en session_state
-    st.session_state.df_cobra_procesado = df
-    st.session_state.col_fecha_emision = col_fecha_emision
-    st.session_state.col_factura = col_factura
-    st.session_state.col_importe = col_importe
-    st.session_state.col_cif = col_cif
-    st.session_state.col_sociedad = col_sociedad
-    st.session_state.col_grupo = col_grupo
-
-    # ✅ Calcular resumen DESPUÉS de normalizar
-    total  = df['IMPORTE_CORRECTO'].sum(skipna=True)
-    minimo = df['IMPORTE_CORRECTO'].min(skipna=True)
-    maximo = df['IMPORTE_CORRECTO'].max(skipna=True)
-
-    st.write("**📊 Resumen del archivo COBRA:**")
-    st.write(f"- Número total de facturas: {len(df)}")
-    st.write(f"- Suma total importes: {total:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-    st.write(f"- Importe mínimo: {minimo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-    st.write(f"- Importe máximo: {maximo:,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
-
-else:
-    # Recuperar desde session_state
-    df = st.session_state.df_cobra_procesado
-    col_fecha_emision = st.session_state.col_fecha_emision
-    col_factura = st.session_state.col_factura
-    col_importe = st.session_state.col_importe
-    col_cif = st.session_state.col_cif
-    col_sociedad = st.session_state.get('col_sociedad', None)
-    col_grupo = st.session_state.get('col_grupo', None)
-    
-    st.success(f"✅ Archivo COBRA ya cargado ({len(df)} filas)")
-
-# --------- 3) Subida del Maestro UTEs ---------
+# --------- 2) Subida del Maestro UTEs ---------
 archivo_maestro = st.file_uploader("Sube el Maestro UTEs (.xlsx — guarda desde Excel como xlsx)", type=["xlsx"], key="maestro")
 
 if archivo_maestro is not None:
@@ -407,7 +237,7 @@ if "df_maestro_utes" not in st.session_state and "maestro_bytes" in st.session_s
 elif "df_maestro_utes" in st.session_state:
     st.success(f"✅ Maestro UTEs ya cargado ({len(st.session_state.maestro_map)} UTEs)")
 
-# --------- 4) Subida de archivo de pagos (Cruce_Movs) ---------
+# --------- 3) Subida de archivo de pagos (Cruce_Movs) ---------
 cobros_file = st.file_uploader(
     "Sube el Excel de pagos de UTE ej. Informe_Cruce_Movimientos 19052025 a 19082025",
     type=['xlsm', 'xlsx', 'csv'],
@@ -592,132 +422,37 @@ if not df_cobros.empty:
         df_prisma_90_base = st.session_state.df_prisma_90_base
         st.success(f"✅ Base PRISMA ya cargada ({len(df_prisma_90_base)} facturas 90)")
 
-    # PASO B: Base = todas las facturas 90 de COBRA (TSS)
+    # PASO B simplificado: df_prisma_90 = df_prisma_90_base directamente
+    # Sin COBRA — usamos las 90s de PRISMA como base directa
     if "df_prisma_90_preparado" not in st.session_state:
-        st.info("🔄 Preparando facturas 90 desde COBRA como base...")
-
-        df_cobra_cruce = df.copy()
-        df_cobra_cruce['Num_Factura_Norm'] = df_cobra_cruce[col_factura].astype(str).str.strip().str.upper()
-        df_cobra_cruce['CIF_Norm'] = (
-            df_cobra_cruce[col_cif]
-            .astype(str)
-            .str.replace(" ", "")
-            .str.strip()
-            .str.upper()
-            .str.replace("L-00", "", regex=False)
-        )
-        # CIF original sin normalizar (para buscar en TSOL)
-        df_cobra_cruce['CIF_ORIGINAL'] = df_cobra_cruce[col_cif].astype(str).str.strip()
-
-        if col_sociedad:
-            df_cobra_cruce['Sociedad_Norm'] = df_cobra_cruce[col_sociedad].astype(str).str.strip().str.upper()
-            df_cobra_tss = df_cobra_cruce[df_cobra_cruce['Sociedad_Norm'] == 'TSS'].copy()
-        else:
-            df_cobra_tss = df_cobra_cruce.copy()
-            st.warning("⚠️ No se detectó columna 'Sociedad'. Se usarán todas las facturas.")
-
-        df_cobra_90 = df_cobra_tss[
-            df_cobra_tss['Num_Factura_Norm'].str.startswith('90')
-        ].copy()
-
-        st.write(f"📊 Facturas 90 en COBRA (TSS): **{len(df_cobra_90)}**")
-
-        df_prisma_90_base['Num_Factura_Norm_P'] = df_prisma_90_base['Num_Factura_Norm']
-
-        df_prisma_90 = pd.merge(
-            df_cobra_90[['Num_Factura_Norm', 'CIF_Norm', 'CIF_ORIGINAL']].drop_duplicates(subset='Num_Factura_Norm'),
-            df_prisma_90_base,
-            on='Num_Factura_Norm',
-            how='left'
-        )
-
-        # Para las sin match en PRISMA: CIF_UTE_REAL = CIF_Norm (CIF de COBRA sin L-00)
-        df_prisma_90['CIF_UTE_REAL'] = df_prisma_90['CIF_UTE_REAL'].fillna(df_prisma_90['CIF_Norm'])
-        df_prisma_90['Id UTE'] = df_prisma_90['Id UTE'].fillna('DESCONOCIDO')
-
-        # Marcar si tiene match en PRISMA o no (para saber qué lógica usar en el solver)
-        df_prisma_90['TIENE_MATCH_PRISMA'] = df_prisma_90['Num_Factura_Norm_P'].notna()
-
-        # Importe: para las con match usamos PRISMA (con impuesto), para las sin match usamos COBRA directamente
-        df_cobra_90_importes = df_cobra_90[['Num_Factura_Norm', col_importe]].copy()
-        df_cobra_90_importes['IMPORTE_COBRA_DIRECTO'] = df_cobra_90_importes[col_importe].apply(convertir_importe_europeo)
-
-        df_prisma_90 = df_prisma_90.merge(
-            df_cobra_90_importes[['Num_Factura_Norm', 'IMPORTE_COBRA_DIRECTO']],
-            on='Num_Factura_Norm',
-            how='left'
-        )
-
-        # Sin match: usar importe de COBRA directamente (ya incluye impuesto)
-        mask_sin_prisma = df_prisma_90['IMPORTE_CON_IMPUESTO'].isna() | (df_prisma_90['IMPORTE_CON_IMPUESTO'] == 0)
-        df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_CON_IMPUESTO'] = df_prisma_90.loc[mask_sin_prisma, 'IMPORTE_COBRA_DIRECTO']
-        df_prisma_90['IMPORTE_CON_IMPUESTO'] = df_prisma_90['IMPORTE_CON_IMPUESTO'].fillna(0)
-        df_prisma_90 = df_prisma_90.drop(columns=['IMPORTE_COBRA_DIRECTO'])
-
-        # Fecha: para las sin match usar fecha de COBRA
-        df_cobra_90_fechas = df_cobra_90[['Num_Factura_Norm', col_fecha_emision]].copy()
-        df_cobra_90_fechas['FECHA_COBRA'] = pd.to_datetime(df_cobra_90_fechas[col_fecha_emision], dayfirst=True, errors='coerce')
-
-        df_prisma_90 = df_prisma_90.merge(
-            df_cobra_90_fechas[['Num_Factura_Norm', 'FECHA_COBRA']],
-            on='Num_Factura_Norm',
-            how='left'
-        )
-
+        df_prisma_90 = df_prisma_90_base.copy()
+        df_prisma_90['CIF_ORIGINAL'] = df_prisma_90['CIF'].astype(str).str.strip()
         if 'Fecha Emisión' not in df_prisma_90.columns:
-            df_prisma_90['Fecha Emisión'] = pd.NaT
+            col_f = find_col(df_prisma_90, ['Fecha Emisión', 'Fecha Emision', 'Fecha'])
+            if col_f:
+                df_prisma_90['Fecha Emisión'] = df_prisma_90[col_f]
+            else:
+                df_prisma_90['Fecha Emisión'] = pd.NaT
 
-        mask_sin_fecha = df_prisma_90['Fecha Emisión'].isna()
-        df_prisma_90.loc[mask_sin_fecha, 'Fecha Emisión'] = df_prisma_90.loc[mask_sin_fecha, 'FECHA_COBRA']
-        df_prisma_90 = df_prisma_90.drop(columns=['FECHA_COBRA'])
+        # Filtrar solo con importe positivo
+        df_prisma_90 = df_prisma_90[df_prisma_90['IMPORTE_CON_IMPUESTO'] > 0].copy()
 
-        con_match = df_prisma_90['TIENE_MATCH_PRISMA'].sum()
-        sin_match = (~df_prisma_90['TIENE_MATCH_PRISMA']).sum()
-        st.write(f"- 90s de COBRA con match en PRISMA: **{con_match}**")
-        st.write(f"- 90s de COBRA SIN match en PRISMA: **{sin_match}**")
+        with st.expander(f"🔍 Facturas 90 de PRISMA ({len(df_prisma_90)})"):
+            st.dataframe(df_prisma_90[['Num_Factura_Norm','CIF_UTE_REAL','Id UTE','IMPORTE_CON_IMPUESTO','Fecha Emisión']].head(20))
 
-        # DEBUG — dentro del if para que df_cobra_90 esté definido
-        with st.expander("🔍 Info facturas 90 (base COBRA + enriquecido con PRISMA)"):
-            facturas_90_positivas = (df_prisma_90['IMPORTE_CON_IMPUESTO'] > 0).sum()
-            facturas_90_negativas = (df_prisma_90['IMPORTE_CON_IMPUESTO'] <= 0).sum()
-            st.write(f"ℹ️ Total facturas 90 base (COBRA): {len(df_prisma_90)}")
-            st.write(f"✅ Con match en PRISMA (socios TDE/TME disponibles): {con_match}")
-            st.write(f"⚠️ Sin match en PRISMA (buscarán en COBRA TSOL): {sin_match}")
-            st.write(f"✅ Con importe positivo: {facturas_90_positivas}")
-            st.write(f"⛔ Con importe 0: {facturas_90_negativas}")
-            st.dataframe(df_prisma_90[['Num_Factura_Norm', 'Id UTE', 'CIF_UTE_REAL', 'CIF_ORIGINAL', 'TIENE_MATCH_PRISMA', 'IMPORTE_CON_IMPUESTO']].head(20))
-
-        # Informativo: solo en PRISMA, no en COBRA
-        facturas_solo_prisma = df_prisma_90_base[
-            ~df_prisma_90_base['Num_Factura_Norm'].isin(df_cobra_90['Num_Factura_Norm'])
-        ]
-        if len(facturas_solo_prisma) > 0:
-            with st.expander(f"📋 Facturas 90 en PRISMA pero NO en COBRA (informativo: {len(facturas_solo_prisma)})"):
-                st.info("Estas facturas existen en PRISMA pero no en COBRA — no se usarán en el cruce:")
-                st.dataframe(
-                    facturas_solo_prisma[['Num_Factura_Norm', 'CIF', 'CIF_Original_Norm', 'Id UTE', 'IMPORTE_CON_IMPUESTO']].head(50),
-                    use_container_width=True
-                )
-
-        # Facturas negativas
-        facturas_negativas = df_prisma_90[df_prisma_90['IMPORTE_CON_IMPUESTO'] < 0]
+        # Facturas negativas informativo
+        facturas_negativas = df_prisma_90_base[df_prisma_90_base['IMPORTE_CON_IMPUESTO'] < 0]
         if len(facturas_negativas) > 0:
-            with st.expander(f"⚠️ Facturas 90 NEGATIVAS que se ignorarán ({len(facturas_negativas)} facturas)"):
-                st.warning("Estas facturas negativas NO se considerarán en el cruce con pagos:")
-                st.dataframe(
-                    facturas_negativas[['Num_Factura_Norm', 'CIF_UTE_REAL', 'Id UTE', 'IMPORTE_CON_IMPUESTO']].sort_values('IMPORTE_CON_IMPUESTO'),
-                    use_container_width=True
-                )
-                st.write(f"**Total importe negativo:** {facturas_negativas['IMPORTE_CON_IMPUESTO'].sum():,.2f} €".replace(",", "X").replace(".", ",").replace("X", "."))
+            with st.expander(f"⚠️ Facturas 90 NEGATIVAS ignoradas ({len(facturas_negativas)})"):
+                st.dataframe(facturas_negativas[['Num_Factura_Norm','CIF_UTE_REAL','IMPORTE_CON_IMPUESTO']].sort_values('IMPORTE_CON_IMPUESTO'))
 
         st.session_state.df_prisma_90_preparado = df_prisma_90
-        st.success(f"✅ Facturas 90 preparadas: {len(df_prisma_90)}")
-
+        st.success(f"✅ Facturas 90 de PRISMA listas: {len(df_prisma_90)}")
     else:
         df_prisma_90 = st.session_state.df_prisma_90_preparado
         st.success(f"✅ Facturas 90 ya cargadas ({len(df_prisma_90)} facturas)")
 
-    # -------------------------------
+        # -------------------------------
     # 3️⃣ FUNCIÓN OR-TOOLS CON SOCIOS (solo PRISMA + Maestro UTEs)
     # -------------------------------
     def cruzar_pagos_con_prisma_exacto(
