@@ -620,6 +620,7 @@ if not df_cobros.empty:
                         continue
 
                 # ── Solver OR-Tools: qué 90s suman el importe del pago ───────────
+                # Preferencia: primero intentar con 1 sola factura, luego combinaciones
                 df_facturas = df_facturas.sort_values(['Fecha Emisión', 'IMPORTE_CON_IMPUESTO'], ascending=[True, True])
                 numeros_facturas  = df_facturas['Num_Factura_Norm'].tolist()
                 importes_facturas = df_facturas['IMPORTE_CON_IMPUESTO'].tolist()
@@ -631,29 +632,38 @@ if not df_cobros.empty:
                 facturas_cent = [int(round(f * 100)) for f in importes_facturas]
                 tol_cent      = int(round(tolerancia * 100))
 
-                model  = cp_model.CpModel()
-                x      = [model.NewBoolVar(f"x_{i}") for i in range(n)]
-                model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
-                model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
-                solver = cp_model.CpSolver()
-                solver.parameters.max_time_in_seconds = 3
-                solver.parameters.log_search_progress = False
-                status = solver.Solve(model)
+                # Intento 1: buscar una sola factura que cuadre exactamente
+                seleccion = None
+                for i in range(n):
+                    if abs(facturas_cent[i] - pagos_cent) <= tol_cent:
+                        seleccion = [i]
+                        break
 
-                if status not in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                    suma = sum(importes_facturas)
-                    detalle = ' | '.join([f"{numeros_facturas[i]} ({importes_facturas[i]:.2f}€)" for i in range(n)])
-                    resultados.append({
-                        'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
-                        'facturas_90_asignadas': 'SIN_COMBINACION_EXACTA',
-                        'importe_facturas_90': 0.0, 'desglose_facturas_90': None,
-                        'diferencia_pago_vs_90': importe_pago,
-                        'advertencia': f'No cuadra: suma disponible={suma:.2f}€ vs pago={importe_pago:.2f}€. 90s: {detalle}'
-                    })
-                    continue
+                # Intento 2: si no hay una sola, usar OR-Tools para combinaciones
+                if seleccion is None:
+                    model  = cp_model.CpModel()
+                    x      = [model.NewBoolVar(f"x_{i}") for i in range(n)]
+                    model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) >= pagos_cent - tol_cent)
+                    model.Add(sum(x[i] * facturas_cent[i] for i in range(n)) <= pagos_cent + tol_cent)
+                    # Minimizar número de facturas seleccionadas
+                    model.Minimize(sum(x[i] for i in range(n)))
+                    solver = cp_model.CpSolver()
+                    solver.parameters.max_time_in_seconds = 3
+                    solver.parameters.log_search_progress = False
+                    status = solver.Solve(model)
 
-                # ── Para cada 90 seleccionada: buscar socios en PRISMA ───────────
-                seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
+                    if status not in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                        suma = sum(importes_facturas)
+                        detalle = ' | '.join([f"{numeros_facturas[i]} ({importes_facturas[i]:.2f}€)" for i in range(n)])
+                        resultados.append({
+                            'CIF_UTE': cif_pago, 'fecha_pago': fecha_pago, 'importe_pago': importe_pago,
+                            'facturas_90_asignadas': 'SIN_COMBINACION_EXACTA',
+                            'importe_facturas_90': 0.0, 'desglose_facturas_90': None,
+                            'diferencia_pago_vs_90': importe_pago,
+                            'advertencia': f'No cuadra: suma disponible={suma:.2f}€ vs pago={importe_pago:.2f}€. 90s: {detalle}'
+                        })
+                        continue
+                    seleccion = [i for i in range(n) if solver.Value(x[i]) == 1]
                 desglose_por_factura_90 = []
                 importe_facturas_90     = 0.0
 
