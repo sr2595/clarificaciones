@@ -2,46 +2,60 @@ import pandas as pd
 import streamlit as st
 from ortools.sat.python import cp_model
 from io import BytesIO
-import unicodedata, re, io, os, time
+from datetime import datetime
+import unicodedata, re
+import io
+import os
+import time
 
-st.set_page_config(page_title="Clarificador UTE", page_icon="📄", layout="wide")
+st.set_page_config(page_title="Clarificador UTE con pagos", page_icon="📄", layout="wide")
 st.title("📄 Clarificador UTE Masivo")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
+# --------- Helpers ---------
 def _norm(texto):
-    if texto is None: return ""
-    s = str(texto).replace("\u00A0", " ")
+    if texto is None:
+        return ""
+    s = str(texto)
+    s = s.replace("\u00A0", " ")
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = re.sub(r"[^A-Za-z0-9]+", " ", s)
-    return re.sub(r"\s+", " ", s).strip().lower()
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s
 
 def find_col(df, candidates):
-    norm_map = {_norm(c): c for c in df.columns}
+    norm_map = { _norm(c): c for c in df.columns }
     for cand in candidates:
         key = _norm(cand)
-        if key in norm_map: return norm_map[key]
+        if key in norm_map:
+            return norm_map[key]
     cand_norms = [_norm(c) for c in candidates]
     for orig in df.columns:
         n = _norm(orig)
-        if any(cn in n or n in cn for cn in cand_norms if cn): return orig
+        if any(cn in n or n in cn for cn in cand_norms if cn):
+            return orig
     return None
 
-def conv_imp(valor):
-    if pd.isna(valor): return None
-    if isinstance(valor, (int, float)): return float(valor)
-    try: return float(str(valor).strip().replace('.','').replace(',','.'))
-    except: return None
+def convertir_importe_europeo(valor):
+    if pd.isna(valor):
+        return None
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    texto = str(valor).strip().replace('.', '').replace(',', '.')
+    try:
+        return float(texto)
+    except Exception:
+        return None
 
-def aplicar_impuestos(df, col_imp, col_tipo):
-    factores = {"IGIC - 7":1.07,"IPSIC - 10":1.10,"IPSIM - 8":1.08,
-                "IVA - 0":1.00,"IVA - 21":1.21,"EXENTO":1.0,"IVA - EXENTO":1.0}
-    df[col_tipo] = df[col_tipo].astype(str).str.strip().str.upper()
-    df['IMPORTE_CON_IMPUESTO'] = df.apply(
-        lambda r: float(r[col_imp] * factores.get(r[col_tipo], 1.0)), axis=1)
-    return df
+def aplicar_impuestos_a_prisma(df_prisma, col_importe='IMPORTE_CORRECTO', col_tipo_impuesto='Tipo Impuesto'):
+    factores = {
+        "IGIC - 7": 1.07, "IPSIC - 10": 1.10, "IPSIM - 8": 1.08,
+        "IVA - 0": 1.00, "IVA - 21": 1.21, "EXENTO": 1.0, "IVA - EXENTO": 1.0,
+    }
+    df_prisma[col_tipo_impuesto] = df_prisma[col_tipo_impuesto].astype(str).str.strip().str.upper()
+    df_prisma['IMPORTE_CON_IMPUESTO'] = df_prisma.apply(
+        lambda row: float(row[col_importe] * factores.get(row[col_tipo_impuesto], 1.0)), axis=1)
+    return df_prisma
 
 def sociedad_por_prefijo(num):
     n = str(num).strip().upper()
@@ -49,467 +63,474 @@ def sociedad_por_prefijo(num):
     if n.startswith('ADM'): return 'TME'
     return 'OTROS'
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1) PRISMA
-# ─────────────────────────────────────────────────────────────────────────────
-f_prisma = st.file_uploader("📂 PRISMA (CSV)", type=["csv"])
-if f_prisma:
-    st.session_state.prisma_bytes = f_prisma.getvalue()
-    for k in ['df_prisma','df_90_base','df_90_prep']: st.session_state.pop(k, None)
+# --------- 1) PRISMA ---------
+archivo_prisma = st.file_uploader("Sube el archivo PRISMA (CSV)", type=["csv"])
 
-if 'df_prisma' not in st.session_state:
-    if 'prisma_bytes' not in st.session_state: st.stop()
-    df = pd.read_csv(BytesIO(st.session_state.prisma_bytes), sep=";",
-                     skiprows=1, header=0, encoding="latin1", on_bad_lines="skip")
-    c_num  = find_col(df, ["Num. Factura","Factura"])
-    c_cif  = find_col(df, ["CIF"])
-    c_id   = find_col(df, ["id UTE"])
-    c_imp  = find_col(df, ["Total Base Imponible"])
-    c_tipo = find_col(df, ["Tipo Impuesto"])
-    c_fec  = find_col(df, ["Fecha Emisión","Fecha"])
-    faltan = [n for c,n in [(c_num,"Num.Factura"),(c_cif,"CIF"),(c_id,"Id UTE"),
-                             (c_imp,"Importe"),(c_tipo,"Tipo Imp")] if not c]
+if archivo_prisma is not None:
+    st.session_state.prisma_bytes = archivo_prisma.getvalue()
+    for k in ['df_prisma_procesado','df_prisma_90_base','df_prisma_90_preparado']:
+        st.session_state.pop(k, None)
+
+if "prisma_bytes" not in st.session_state and "df_prisma_procesado" not in st.session_state:
+    st.stop()
+
+if "df_prisma_procesado" not in st.session_state:
+    st.info("⏳ Procesando archivo PRISMA...")
+    df_prisma = pd.read_csv(BytesIO(st.session_state.prisma_bytes), sep=";",
+                            skiprows=1, header=0, encoding="latin1", on_bad_lines="skip")
+    col_id_ute_prisma      = find_col(df_prisma, ["id UTE"])
+    col_num_factura_prisma = find_col(df_prisma, ["Num. Factura", "Factura"])
+    col_fecha_prisma       = find_col(df_prisma, ["Fecha Emisión", "Fecha"])
+    col_cif_prisma         = find_col(df_prisma, ["CIF"])
+    col_importe_prisma     = find_col(df_prisma, ["Total Base Imponible"])
+    col_tipo_imp_prisma    = find_col(df_prisma, ["Tipo Impuesto"])
+    faltan = [n for c,n in [(col_id_ute_prisma,"id UTE"),(col_num_factura_prisma,"Num. Factura"),
+                             (col_cif_prisma,"CIF"),(col_importe_prisma,"Total Base Imponible"),
+                             (col_tipo_imp_prisma,"Tipo Impuesto")] if not c]
     if faltan: st.error(f"❌ PRISMA: faltan columnas {faltan}"); st.stop()
-    df[c_num] = df[c_num].astype(str).str.strip()
-    df[c_cif] = df[c_cif].astype(str).str.replace(" ","")
-    df[c_id]  = df[c_id].astype(str).str.strip()
-    df['IMPORTE_CORRECTO'] = df[c_imp].apply(conv_imp)
-    df[c_fec] = pd.to_datetime(df[c_fec], dayfirst=True, errors='coerce')
-    df = aplicar_impuestos(df, 'IMPORTE_CORRECTO', c_tipo)
+    df_prisma[col_num_factura_prisma] = df_prisma[col_num_factura_prisma].astype(str).str.strip()
+    df_prisma[col_cif_prisma]         = df_prisma[col_cif_prisma].astype(str).str.replace(" ","")
+    df_prisma[col_id_ute_prisma]      = df_prisma[col_id_ute_prisma].astype(str).str.strip()
+    df_prisma['IMPORTE_CORRECTO']     = df_prisma[col_importe_prisma].apply(convertir_importe_europeo)
+    df_prisma[col_fecha_prisma]       = pd.to_datetime(df_prisma[col_fecha_prisma], dayfirst=True, errors='coerce')
+    df_prisma = aplicar_impuestos_a_prisma(df_prisma, col_tipo_impuesto=col_tipo_imp_prisma)
     del st.session_state.prisma_bytes
-    st.session_state.df_prisma = df
-    st.session_state.c_num = c_num
-    st.session_state.c_cif = c_cif
-    st.session_state.c_id  = c_id
-    st.session_state.c_fec = c_fec
-    st.success(f"✅ PRISMA: {len(df):,} filas")
+    st.session_state.df_prisma_procesado    = df_prisma
+    st.session_state.col_num_factura_prisma = col_num_factura_prisma
+    st.session_state.col_cif_prisma         = col_cif_prisma
+    st.session_state.col_id_ute_prisma      = col_id_ute_prisma
+    st.session_state.col_fecha_prisma       = col_fecha_prisma
+    st.success(f"✅ PRISMA cargado: {len(df_prisma):,} filas")
 else:
-    df = st.session_state.df_prisma
-    c_num = st.session_state.c_num
-    c_cif = st.session_state.c_cif
-    c_id  = st.session_state.c_id
-    c_fec = st.session_state.c_fec
-    st.success(f"✅ PRISMA cargado ({len(df):,} filas)")
+    df_prisma              = st.session_state.df_prisma_procesado
+    col_num_factura_prisma = st.session_state.col_num_factura_prisma
+    col_cif_prisma         = st.session_state.col_cif_prisma
+    col_id_ute_prisma      = st.session_state.col_id_ute_prisma
+    col_fecha_prisma       = st.session_state.col_fecha_prisma
+    st.success(f"✅ PRISMA cargado ({len(df_prisma):,} filas)")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2) MAESTRO UTEs
-# ─────────────────────────────────────────────────────────────────────────────
-f_maestro = st.file_uploader("📂 Maestro UTEs (.xlsx)", type=["xlsx"], key="maestro")
-if f_maestro:
-    st.session_state.maestro_bytes = f_maestro.getvalue()
+# --------- 2) MAESTRO UTEs ---------
+archivo_maestro = st.file_uploader("Sube el Maestro UTEs (.xlsx)", type=["xlsx"], key="maestro")
+if archivo_maestro is not None:
+    st.session_state.maestro_bytes = archivo_maestro.getvalue()
     st.session_state.pop('maestro_map', None)
+    st.session_state.pop('df_maestro_utes', None)
 
-if 'maestro_map' not in st.session_state:
-    if 'maestro_bytes' in st.session_state:
-        try:
-            dm = pd.read_excel(BytesIO(st.session_state.maestro_bytes),
-                               sheet_name="Datos", engine="openpyxl")
-        except Exception as e:
-            st.error(f"❌ Maestro: {e}"); st.stop()
-        c_ute  = find_col(dm, ['UTE','CIF UTE','CIF_UTE'])
-        c_tde  = find_col(dm, ['Porc. TdE','Porc TdE','TDE'])
-        c_tme  = find_col(dm, ['Porc. TME','Porc TME','TME'])
-        c_tsol = find_col(dm, ['Porc. TSOL','Porc TSOL','TSOL'])
-        c_otr  = find_col(dm, ['Porc. Otros','Porc Otros','Otros'])
-        if not all([c_ute, c_tde, c_tme]):
-            st.error("❌ Maestro: faltan columnas UTE/TDE/TME"); st.stop()
-        dm[c_ute] = dm[c_ute].astype(str).str.strip().str.upper()
-        for c in [c for c in [c_tde,c_tme,c_tsol,c_otr] if c]:
-            dm[c] = pd.to_numeric(dm[c].astype(str).str.replace(',','.'), errors='coerce').fillna(0.0)
-        maestro_map = {}
-        for _, r in dm.iterrows():
-            maestro_map[str(r[c_ute])] = {
-                'TDE':   float(r[c_tde]),
-                'TME':   float(r[c_tme]),
-                'TSOL':  float(r[c_tsol]) if c_tsol else 0.0,
-                'OTROS': float(r[c_otr])  if c_otr  else 0.0,
-            }
-        del st.session_state.maestro_bytes
-        st.session_state.maestro_map = maestro_map
-        st.success(f"✅ Maestro: {len(maestro_map):,} UTEs")
-else:
-    st.success(f"✅ Maestro cargado ({len(st.session_state.maestro_map):,} UTEs)")
+if "df_maestro_utes" not in st.session_state and "maestro_bytes" in st.session_state:
+    st.info("⏳ Procesando Maestro UTEs...")
+    try:
+        df_maestro = pd.read_excel(BytesIO(st.session_state.maestro_bytes), sheet_name="Datos", engine="openpyxl")
+    except Exception as e:
+        st.error(f"❌ Error leyendo Maestro UTEs: {e}"); st.stop()
+    c_ute  = find_col(df_maestro, ['UTE','CIF UTE','CIF_UTE'])
+    c_tde  = find_col(df_maestro, ['Porc. TdE','Porc TdE','TDE'])
+    c_tme  = find_col(df_maestro, ['Porc. TME','Porc TME','TME'])
+    c_tsol = find_col(df_maestro, ['Porc. TSOL','Porc TSOL','TSOL'])
+    c_otr  = find_col(df_maestro, ['Porc. Otros','Porc Otros','Otros'])
+    if not all([c_ute,c_tde,c_tme]):
+        st.error("❌ Maestro UTEs: faltan columnas UTE/TDE/TME"); st.stop()
+    df_maestro[c_ute] = df_maestro[c_ute].astype(str).str.strip().str.upper()
+    for c in [c for c in [c_tde,c_tme,c_tsol,c_otr] if c]:
+        df_maestro[c] = pd.to_numeric(df_maestro[c].astype(str).str.replace(',','.'), errors='coerce').fillna(0.0)
+    maestro_map = {}
+    for _, row in df_maestro.iterrows():
+        maestro_map[str(row[c_ute])] = {
+            'TDE':   float(row[c_tde]),
+            'TME':   float(row[c_tme]),
+            'TSOL':  float(row[c_tsol]) if c_tsol else 0.0,
+            'OTROS': float(row[c_otr])  if c_otr  else 0.0,
+        }
+    del st.session_state.maestro_bytes
+    st.session_state.df_maestro_utes = df_maestro
+    st.session_state.maestro_map     = maestro_map
+    st.success(f"✅ Maestro UTEs cargado: {len(maestro_map):,} UTEs")
+elif "df_maestro_utes" in st.session_state:
+    st.success(f"✅ Maestro UTEs cargado ({len(st.session_state.maestro_map):,} UTEs)")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3) PAGOS
-# ─────────────────────────────────────────────────────────────────────────────
-f_pagos = st.file_uploader("📂 Pagos (Cruce_Movs)", type=['xlsm','xlsx','csv'], key="cobros")
-if f_pagos:
-    st.session_state.cobros_bytes = f_pagos.getvalue()
-    st.session_state.pop('df_cobros', None)
+# --------- 3) PAGOS ---------
+cobros_file = st.file_uploader("Sube el Excel de pagos (Cruce_Movs)", type=['xlsm','xlsx','csv'], key="cobros")
+if cobros_file is not None:
+    st.session_state.cobros_bytes = cobros_file.getvalue()
+    st.session_state.pop('df_cobros_procesado', None)
 
-if 'df_cobros' not in st.session_state:
-    if 'cobros_bytes' not in st.session_state: st.stop()
+if "cobros_bytes" not in st.session_state and "df_cobros_procesado" not in st.session_state:
+    st.stop()
+
+if "df_cobros_procesado" not in st.session_state:
+    st.info("⏳ Procesando archivo de PAGOS...")
     data = BytesIO(st.session_state.cobros_bytes)
     xls  = pd.ExcelFile(data, engine="openpyxl")
     sheet = "Cruce_Movs" if "Cruce_Movs" in xls.sheet_names else xls.sheet_names[0]
     data.seek(0)
-    dc = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
-    dc.columns = (dc.columns.astype(str).str.strip().str.lower()
-                  .str.replace(r'[áàäâ]','a',regex=True).str.replace(r'[éèëê]','e',regex=True)
-                  .str.replace(r'[íìïî]','i',regex=True).str.replace(r'[óòöô]','o',regex=True)
-                  .str.replace(r'[úùüû]','u',regex=True)
-                  .str.replace(r'[^0-9a-z]','_',regex=True).str.replace(r'__+','_',regex=True).str.strip('_'))
-    col_map = {'fec_operacion':['fec_operacion','fecha_operacion'],
-               'importe':['importe','imp','valor'],
-               'posible_factura':['posible_factura','posiblefactura'],
-               'CIF_UTE':['cif','cif_ute'],
-               'denominacion':['denominacion','nombre','razon_social']}
+    df_cobros = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
+    df_cobros.columns = (df_cobros.columns.astype(str).str.strip().str.lower()
+        .str.replace(r'[áàäâ]','a',regex=True).str.replace(r'[éèëê]','e',regex=True)
+        .str.replace(r'[íìïî]','i',regex=True).str.replace(r'[óòöô]','o',regex=True)
+        .str.replace(r'[úùüû]','u',regex=True)
+        .str.replace(r'[^0-9a-z]','_',regex=True).str.replace(r'__+','_',regex=True).str.strip('_'))
+    col_map = {
+        'fec_operacion': ['fec_operacion','fecha_operacion','fec_oper'],
+        'importe':       ['importe','imp','monto','amount','valor'],
+        'posible_factura':['posible_factura','factura','posiblefactura'],
+        'CIF_UTE':       ['cif','cif_ute'],
+        'denominacion':  ['denominacion','nombre','razon_social','nombre_ute']
+    }
     for tgt, opts in col_map.items():
         for p in opts:
-            if p in dc.columns: dc.rename(columns={p:tgt}, inplace=True); break
-    if 'fec_operacion' in dc.columns:
-        dc['fec_operacion'] = pd.to_datetime(dc['fec_operacion'], errors='coerce')
-    if 'importe' in dc.columns:
-        dc['importe'] = pd.to_numeric(dc['importe'], errors='coerce')
-    if 'posible_factura' in dc.columns:
-        dc['posible_factura'] = dc['posible_factura'].astype(str).str.strip()
-    if 'CIF_UTE' in dc.columns:
-        dc['CIF_UTE'] = dc['CIF_UTE'].astype(str).str.strip()
+            if p in df_cobros.columns: df_cobros.rename(columns={p:tgt}, inplace=True); break
+    if 'fec_operacion'   in df_cobros.columns: df_cobros['fec_operacion']   = pd.to_datetime(df_cobros['fec_operacion'], errors='coerce')
+    if 'importe'         in df_cobros.columns: df_cobros['importe']         = pd.to_numeric(df_cobros['importe'], errors='coerce')
+    if 'posible_factura' in df_cobros.columns: df_cobros['posible_factura'] = df_cobros['posible_factura'].astype(str).str.strip()
+    if 'CIF_UTE'         in df_cobros.columns: df_cobros['CIF_UTE']         = df_cobros['CIF_UTE'].astype(str).str.strip()
     del st.session_state.cobros_bytes
-    st.session_state.df_cobros = dc
-    st.success(f"✅ Pagos: {len(dc):,} filas")
+    st.session_state.df_cobros_procesado = df_cobros
+    st.success(f"✅ Pagos cargados: {len(df_cobros):,} filas")
 else:
-    dc = st.session_state.df_cobros
-    st.success(f"✅ Pagos cargados ({len(dc):,} filas)")
+    df_cobros = st.session_state.df_cobros_procesado
+    st.success(f"✅ Pagos cargados ({len(df_cobros):,} filas)")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 4) SELECTOR DE DÍA
-# ─────────────────────────────────────────────────────────────────────────────
-if 'df_cobros' not in st.session_state: st.stop()
-dc = st.session_state.df_cobros
-dc['fec_operacion'] = dc['fec_operacion'].dt.normalize()
-dias = sorted(dc['fec_operacion'].dropna().unique())
-fecha_sel = st.selectbox("📅 Día de cruce:", dias)
+# --------- 4) SELECTOR DÍA ---------
+if not df_cobros.empty:
+    df_cobros['fec_operacion'] = df_cobros['fec_operacion'].dt.normalize()
+    dias_disponibles = sorted(df_cobros['fec_operacion'].dropna().unique())
+    fecha_seleccionada = st.selectbox("📅 Selecciona el día:", dias_disponibles)
 
-cols_cruce = ['fec_operacion','importe','CIF_UTE']
-for c in ['posible_factura','denominacion']:
-    if c in dc.columns: cols_cruce.append(c)
-df_pagos = dc[dc['fec_operacion'] == pd.to_datetime(fecha_sel)][cols_cruce].copy()
-st.write(f"Pagos del día: **{len(df_pagos)}** | Total: **{df_pagos['importe'].sum():,.2f} €**"
-         .replace(",","X").replace(".",",").replace("X","."))
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 5) PREPARAR 90s (una sola vez)
-# ─────────────────────────────────────────────────────────────────────────────
-if 'df_90_prep' not in st.session_state:
-    df_tmp = st.session_state.df_prisma.copy()
-    df_tmp[c_num] = df_tmp[c_num].astype(str).str.strip()
-    df_tmp[c_id]  = df_tmp[c_id].astype(str).str.strip()
-    df_tmp[c_cif] = df_tmp[c_cif].astype(str).str.strip()
-
-    # CIF real del socio por Id UTE (primera factura no-90)
-    cif_por_ute = (df_tmp[~df_tmp[c_num].str.startswith("90")]
-                   .groupby(c_id)[c_cif].first().to_dict())
-
-    df90 = df_tmp[df_tmp[c_num].str.startswith("90")].copy()
-    df90['CIF_UTE_REAL'] = df90[c_id].map(lambda x: cif_por_ute.get(x, "NONE"))
-    df90['Num_Factura_Norm'] = df90[c_num].str.upper()
-    df90['Fecha Emisión'] = df90[c_fec]
-    df90 = df90[df90['IMPORTE_CON_IMPUESTO'] > 0].copy()
-
-    st.session_state.df_90_prep = df90
-    st.success(f"✅ Facturas 90 listas: {len(df90):,}")
-else:
-    st.success(f"✅ Facturas 90 ya preparadas ({len(st.session_state.df_90_prep):,})")
-
-df90 = st.session_state.df_90_prep
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 6) TOLERANCIA Y BOTÓN
-# ─────────────────────────────────────────────────────────────────────────────
-st.markdown("---")
-tol_cent = st.number_input("Tolerancia (céntimos)", min_value=0, max_value=10000, value=0, step=1)
-tolerancia = tol_cent / 100.0
-
-col1, col2 = st.columns([3,1])
-with col1: st.info(f"Día: {fecha_sel.strftime('%d/%m/%Y')} — {len(df_pagos)} pagos")
-with col2: ejecutar = st.button("🔄 Ejecutar Cruce", type="primary", use_container_width=True)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 7) CRUCE
-# ─────────────────────────────────────────────────────────────────────────────
-if ejecutar:
-    maestro_map = st.session_state.get('maestro_map', {})
-
-    # Construir socios por Id UTE
-    df_soc_raw = st.session_state.df_prisma.copy()
-    df_soc_raw = df_soc_raw[
-        (~df_soc_raw[c_num].astype(str).str.startswith("90")) &
-        (df_soc_raw['IMPORTE_CON_IMPUESTO'] > 0)
+    df_cobros_filtrado = df_cobros[
+        df_cobros['fec_operacion'].notna() &
+        (df_cobros['fec_operacion'].dt.normalize() == pd.to_datetime(fecha_seleccionada))
     ].copy()
-    df_soc_raw['SOCIEDAD'] = df_soc_raw[c_num].apply(sociedad_por_prefijo)
-    socios_por_ute = {}
-    for id_ute, g in df_soc_raw.groupby(c_id):
-        socios_por_ute[str(id_ute).strip()] = g[[c_num,'IMPORTE_CON_IMPUESTO',c_cif,'SOCIEDAD']].copy()
-    del df_soc_raw
+    st.write(f"ℹ️ Pagos del día: **{len(df_cobros_filtrado)}** | Total: **{df_cobros_filtrado['importe'].sum():,.2f} €**"
+             .replace(",","X").replace(".",",").replace("X","."))
 
-    # Índice 90s por CIF (U y J)
-    facturas_por_cif = {}
-    for cif, g in df90.groupby('CIF_UTE_REAL'):
-        facturas_por_cif[cif] = g
-        if str(cif).startswith('U'): facturas_por_cif['J'+str(cif)[1:]] = g
-        elif str(cif).startswith('J'): facturas_por_cif['U'+str(cif)[1:]] = g
+    columnas_cruce = ['fec_operacion','importe','posible_factura','CIF_UTE']
+    if 'denominacion' in df_cobros_filtrado.columns: columnas_cruce.append('denominacion')
+    df_pagos = df_cobros_filtrado[columnas_cruce].copy()
 
-    # Lookup por número de factura (posible_factura)
-    num_a_fila = {str(r['Num_Factura_Norm']).strip().upper(): r
-                  for _, r in df90.iterrows()}
+    # --------- 5) PREPARAR 90s (una sola vez) ---------
+    if "df_prisma_90_base" not in st.session_state:
+        df_prisma[col_cif_prisma] = df_prisma[col_cif_prisma].astype(str).str.replace(".0","",regex=False).str.strip().str.upper()
+        df_temp = df_prisma.copy()
+        df_temp[col_num_factura_prisma] = df_temp[col_num_factura_prisma].astype(str).str.strip()
+        df_temp[col_id_ute_prisma]      = df_temp[col_id_ute_prisma].astype(str).str.strip()
+        df_temp[col_cif_prisma]         = df_temp[col_cif_prisma].astype(str).str.strip()
+        cif_por_ute = df_temp[~df_temp[col_num_factura_prisma].str.startswith("90")].groupby(col_id_ute_prisma)[col_cif_prisma].first().to_dict()
+        df90_base = df_temp[df_temp[col_num_factura_prisma].str.startswith("90")].copy()
+        df90_base['CIF_UTE_REAL']     = df90_base[col_id_ute_prisma].apply(lambda x: cif_por_ute.get(x,"NONE"))
+        df90_base['Num_Factura_Norm'] = df90_base[col_num_factura_prisma].astype(str).str.strip().str.upper()
+        st.session_state.df_prisma_90_base = df90_base
+        st.success(f"✅ Base PRISMA preparada: {len(df90_base):,} facturas 90")
+    else:
+        df90_base = st.session_state.df_prisma_90_base
+        st.success(f"✅ Base PRISMA ya cargada ({len(df90_base):,} facturas 90)")
 
-    resultados = []
-    df_pag_norm = df_pagos.copy()
-    df_pag_norm['CIF_UTE'] = df_pag_norm['CIF_UTE'].astype(str).str.replace(".0","",regex=False).str.strip().str.upper()
+    if "df_prisma_90_preparado" not in st.session_state:
+        df90 = df90_base.copy()
+        df90['Fecha Emisión'] = df90[col_fecha_prisma]
+        df90 = df90[df90['IMPORTE_CON_IMPUESTO'] > 0].copy()
+        st.session_state.df_prisma_90_preparado = df90
+        st.success(f"✅ Facturas 90 listas: {len(df90):,}")
+    else:
+        df90 = st.session_state.df_prisma_90_preparado
+        st.success(f"✅ Facturas 90 ya cargadas ({len(df90):,})")
 
-    with st.spinner("⏳ Cruzando..."):
-        inicio = time.time()
-        for _, pago in df_pag_norm.iterrows():
-            try:
-                cif      = pago['CIF_UTE']
-                imp_pago = pago['importe']
-                fec_pago = pago['fec_operacion']
-                cif_u    = ('U'+cif[1:]) if cif.startswith('J') else cif
-                porc     = maestro_map.get(cif) or maestro_map.get(cif_u) or {}
+    # --------- 6) TOLERANCIA Y BOTÓN ---------
+    st.markdown("---")
+    col_tol, _ = st.columns([1,2])
+    with col_tol:
+        tolerancia_centimos = st.number_input("Tolerancia (céntimos)", min_value=0, max_value=10000, value=0, step=1)
+    tolerancia_euros = tolerancia_centimos / 100.0
 
-                # posible_factura
-                pos_num = str(pago.get('posible_factura','')).strip().upper()
-                forzar  = num_a_fila.get(pos_num) if pos_num not in ('','NAN','NONE','N/A') else None
+    col1, col2 = st.columns([3,1])
+    with col1: st.info(f"📅 Día: **{fecha_seleccionada.strftime('%d/%m/%Y')}** ({len(df_pagos)} pagos)")
+    with col2: ejecutar_cruce = st.button("🔄 Ejecutar Cruce", type="primary", use_container_width=True)
 
-                # candidatas
-                TOLS = max(tolerancia, 2.0)
-                if forzar is not None:
-                    row_d = forzar if isinstance(forzar, dict) else forzar.to_dict()
-                    df_cands = pd.DataFrame([row_d])
-                    for col_r, v_d in [('IMPORTE_CON_IMPUESTO',0.0),('Fecha Emisión',pd.NaT),
-                                        (c_id,'DESCONOCIDO'),('Num_Factura_Norm',pos_num)]:
-                        if col_r not in df_cands.columns: df_cands[col_r] = v_d
-                    if str(df_cands[c_id].iloc[0]).strip() in ('','DESCONOCIDO','nan'):
-                        df_cands[c_id] = str(forzar.get(c_id,'DESCONOCIDO') if isinstance(forzar,dict) else forzar.get(c_id,'DESCONOCIDO'))
-                elif cif not in facturas_por_cif:
-                    resultados.append({'CIF_UTE':cif,'fecha_pago':fec_pago,'importe_pago':imp_pago,
-                        'facturas_90_asignadas':'SIN_90s_PARA_ESTE_CIF','importe_facturas_90':0.0,
-                        'desglose_facturas_90':None,'diferencia_pago_vs_90':imp_pago,
-                        'advertencia':f'Sin 90s en PRISMA para {cif}'}); continue
-                else:
-                    df_todas = facturas_por_cif[cif]
-                    df_cands = df_todas[
-                        (df_todas['IMPORTE_CON_IMPUESTO'] > 0) &
-                        (df_todas['IMPORTE_CON_IMPUESTO'] <= imp_pago + TOLS) &
-                        (df_todas['Fecha Emisión'].isna() | (df_todas['Fecha Emisión'] <= fec_pago))
-                    ].copy()
+    # --------- 7) CRUCE ---------
+    if ejecutar_cruce:
+        with st.spinner("⏳ Buscando combinaciones óptimas de facturas..."):
+            inicio = time.time()
+            maestro_map = st.session_state.get('maestro_map', {})
 
-                    # Excluir 90s con socios prohibidos por maestro (porc == 0)
-                    socs_proh = {s for s,p in porc.items() if p == 0}
-                    if socs_proh and not df_cands.empty:
-                        validas = []
-                        for _, f90r in df_cands.iterrows():
-                            id90 = str(f90r.get(c_id,'DESCONOCIDO')).strip()
-                            if id90 in socios_por_ute:
-                                socs = set(socios_por_ute[id90]['SOCIEDAD'].unique())
-                                if socs & socs_proh: continue
-                            validas.append(f90r)
-                        df_cands = pd.DataFrame(validas) if validas else pd.DataFrame()
+            # Socios por Id UTE
+            df_soc_raw = df_prisma.copy()
+            df_soc_raw = df_soc_raw[
+                (~df_soc_raw[col_num_factura_prisma].astype(str).str.startswith("90")) &
+                (df_soc_raw['IMPORTE_CON_IMPUESTO'] > 0)
+            ].copy()
+            df_soc_raw['SOCIEDAD_PRISMA'] = df_soc_raw[col_num_factura_prisma].apply(sociedad_por_prefijo)
+            socios_por_ute = {}
+            for id_ute, g in df_soc_raw.groupby(col_id_ute_prisma):
+                socios_por_ute[str(id_ute).strip()] = g[[col_num_factura_prisma,'IMPORTE_CON_IMPUESTO',col_cif_prisma,'SOCIEDAD_PRISMA']].copy()
+            del df_soc_raw
 
-                    if df_cands.empty:
-                        razones = []
-                        for _, f90r in df_todas.iterrows():
-                            imp = f90r['IMPORTE_CON_IMPUESTO']
-                            fec = f90r.get('Fecha Emisión', pd.NaT)
-                            num = f90r['Num_Factura_Norm']
-                            if imp > 0 and imp <= imp_pago + TOLS:
-                                razones.append(f"{num} ({imp:.2f}€): fecha posterior al pago")
-                            else:
-                                razones.append(f"{num} ({imp:.2f}€): importe no encaja (dif={round(imp-imp_pago,2):+.2f}€)")
-                        resultados.append({'CIF_UTE':cif,'fecha_pago':fec_pago,'importe_pago':imp_pago,
-                            'facturas_90_asignadas':'SIN_COMBINACION_VALIDA','importe_facturas_90':0.0,
-                            'desglose_facturas_90':None,'diferencia_pago_vs_90':imp_pago,
-                            'advertencia':(' || '.join(razones) if razones else 'Sin candidatas')}); continue
+            # Índice 90s por CIF
+            facturas_por_cif = {}
+            for cif, g in df90.groupby('CIF_UTE_REAL'):
+                facturas_por_cif[cif] = g
+                if str(cif).startswith('U'): facturas_por_cif['J'+str(cif)[1:]] = g
+                elif str(cif).startswith('J'): facturas_por_cif['U'+str(cif)[1:]] = g
 
-                # Solver: preferir 1 factura, luego minimizar cantidad
-                df_cands = df_cands.sort_values(['Fecha Emisión','IMPORTE_CON_IMPUESTO'])
-                nums  = df_cands['Num_Factura_Norm'].tolist()
-                imps  = df_cands['IMPORTE_CON_IMPUESTO'].tolist()
-                iduts = df_cands[c_id].tolist()
-                n     = len(imps)
-                pc    = int(round(imp_pago*100))
-                fc    = [int(round(x*100)) for x in imps]
-                tc    = int(round(tolerancia*100))
+            todas_90_por_num = {str(r['Num_Factura_Norm']).strip().upper(): r for _, r in df90.iterrows()}
 
-                sel = None
-                for i in range(n):
-                    if abs(fc[i]-pc) <= tc: sel=[i]; break
+            resultados = []
+            df_pagos_normalizado = df_pagos.copy()
+            df_pagos_normalizado['CIF_UTE'] = df_pagos_normalizado['CIF_UTE'].astype(str).str.replace(".0","",regex=False).str.strip().str.upper()
 
-                if sel is None:
-                    m = cp_model.CpModel()
-                    x = [m.NewBoolVar(f"x{i}") for i in range(n)]
-                    m.Add(sum(x[i]*fc[i] for i in range(n)) >= pc-tc)
-                    m.Add(sum(x[i]*fc[i] for i in range(n)) <= pc+tc)
-                    m.Minimize(sum(x))
-                    sv = cp_model.CpSolver()
-                    sv.parameters.max_time_in_seconds = 3
-                    sv.parameters.log_search_progress = False
-                    st2 = sv.Solve(m)
-                    if st2 not in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
-                        resultados.append({'CIF_UTE':cif,'fecha_pago':fec_pago,'importe_pago':imp_pago,
-                            'facturas_90_asignadas':'SIN_COMBINACION_EXACTA','importe_facturas_90':0.0,
-                            'desglose_facturas_90':None,'diferencia_pago_vs_90':imp_pago,
-                            'advertencia':f'No cuadra. 90s: {" | ".join(f"{nums[i]} ({imps[i]:.2f}€)" for i in range(n))}'}); continue
-                    sel = [i for i in range(n) if sv.Value(x[i])==1]
+            for _, pago in df_pagos_normalizado.iterrows():
+                try:
+                    cif_pago     = pago['CIF_UTE']
+                    importe_pago = pago['importe']
+                    fecha_pago   = pago['fec_operacion']
+                    cif_u = ('U'+cif_pago[1:]) if cif_pago.startswith('J') else cif_pago
+                    porcentajes = maestro_map.get(cif_pago) or maestro_map.get(cif_u) or {}
 
-                # Desglose socios
-                desglose = []
-                imp_total_90 = 0.0
-                for i in sel:
-                    num90  = nums[i]
-                    imp90  = imps[i]
-                    id_ute = str(iduts[i]).strip()
-                    imp_total_90 += imp90
+                    posible_num = str(pago.get('posible_factura','')).strip().upper()
+                    forzar_90   = todas_90_por_num.get(posible_num) if posible_num not in ('','NAN','NONE','N/A') else None
 
-                    socios_p = []
-                    imp_soc_p = 0.0
-                    if id_ute in socios_por_ute:
-                        for _, s in socios_por_ute[id_ute].iterrows():
-                            socios_p.append({'num_factura':str(s[c_num]),'cif':str(s[c_cif]),
-                                             'importe':float(s['IMPORTE_CON_IMPUESTO']),
-                                             'fuente':f'PRISMA ({s["SOCIEDAD"]})'})
-                            imp_soc_p += float(s['IMPORTE_CON_IMPUESTO'])
+                    if cif_pago not in facturas_por_cif and forzar_90 is None:
+                        resultados.append({'CIF_UTE':cif_pago,'fecha_pago':fecha_pago,'importe_pago':importe_pago,
+                            'facturas_90_asignadas':'SIN_90s_PARA_ESTE_CIF','importe_facturas_90':0.0,
+                            'desglose_facturas_90':None,'diferencia_pago_vs_90':importe_pago,
+                            'advertencia':f'Sin 90s en PRISMA para {cif_pago}'}); continue
 
-                    # Diferencia → estimar TSOL/OTROS por maestro
-                    dif = round(imp90 - imp_soc_p, 2)
-                    estimados = []
-                    if abs(dif) > tolerancia and porc:
-                        socs_en_prisma = {s['fuente'].split('(')[-1].rstrip(')') for s in socios_p}
-                        for snom, pct in porc.items():
-                            if snom in socs_en_prisma: continue
-                            if pct and pct > 0:
-                                estimados.append({'num_factura':'PENDIENTE','cif':snom,
-                                    'importe':round(imp90*pct/100.0,2),
-                                    'fuente':f'ESTIMADO ({snom} {pct:.1f}%)'})
+                    TOLERANCIA_90 = max(tolerancia_euros, 2.0)
 
-                    dif_final = round(imp90 - imp_soc_p - sum(s['importe'] for s in estimados), 2)
-                    if abs(dif_final) > tolerancia:
-                        estado = f"⚠️ Diferencia sin cubrir: {dif_final:.2f}€"
-                    elif estimados:
-                        estado = f"✅ PRISMA + Maestro ({', '.join(s['cif'] for s in estimados)})"
+                    if forzar_90 is not None:
+                        forzar_row = forzar_90 if isinstance(forzar_90, dict) else forzar_90.to_dict()
+                        df_facturas = pd.DataFrame([forzar_row])
+                        for col_r, v_d in [('IMPORTE_CON_IMPUESTO',0.0),('Fecha Emisión',pd.NaT),
+                                            (col_id_ute_prisma,'DESCONOCIDO'),('Num_Factura_Norm',posible_num)]:
+                            if col_r not in df_facturas.columns: df_facturas[col_r] = v_d
+                        if str(df_facturas[col_id_ute_prisma].iloc[0]).strip() in ('','DESCONOCIDO','nan'):
+                            id_ute_real = todas_90_por_num[posible_num].get(col_id_ute_prisma,'DESCONOCIDO') if isinstance(todas_90_por_num.get(posible_num),dict) else getattr(todas_90_por_num.get(posible_num),col_id_ute_prisma,'DESCONOCIDO')
+                            df_facturas[col_id_ute_prisma] = str(id_ute_real).strip()
                     else:
-                        estado = "✅ Cuadra con socios PRISMA"
+                        df_todas = facturas_por_cif[cif_pago]
+                        df_cands = df_todas[
+                            (df_todas['IMPORTE_CON_IMPUESTO'] > 0) &
+                            (df_todas['IMPORTE_CON_IMPUESTO'] <= importe_pago + TOLERANCIA_90) &
+                            (df_todas['Fecha Emisión'].isna() | (df_todas['Fecha Emisión'] <= fecha_pago))
+                        ].copy()
 
-                    desglose.append({
-                        'factura_90':num90,'importe_90':imp90,'caso':'PRISMA',
-                        'socios':socios_p+estimados,'importe_socios':imp_soc_p+sum(s['importe'] for s in estimados),
-                        'diferencia_90_socios':dif_final,
-                        'socios_prisma':socios_p,'socios_estimados':estimados,
-                        'importe_socios_prisma':imp_soc_p,'importe_estimado':sum(s['importe'] for s in estimados),
-                        'estado':estado
+                        socs_proh = {s for s,p in porcentajes.items() if p == 0}
+                        if socs_proh and not df_cands.empty:
+                            validas = []
+                            for _, f90r in df_cands.iterrows():
+                                id90 = str(f90r.get(col_id_ute_prisma,'DESCONOCIDO')).strip()
+                                if id90 in socios_por_ute:
+                                    socs = set(socios_por_ute[id90]['SOCIEDAD_PRISMA'].unique())
+                                    if socs & socs_proh: continue
+                                validas.append(f90r)
+                            df_cands = pd.DataFrame(validas) if validas else pd.DataFrame()
+
+                        df_facturas = df_cands
+
+                        if df_facturas.empty:
+                            razones = []
+                            for _, f90r in df_todas.iterrows():
+                                imp = f90r['IMPORTE_CON_IMPUESTO']
+                                fec = f90r.get('Fecha Emisión', pd.NaT)
+                                num = f90r['Num_Factura_Norm']
+                                if imp > 0 and imp <= importe_pago + TOLERANCIA_90:
+                                    fec_str = fec.strftime('%d/%m/%Y') if pd.notna(fec) else 'sin fecha'
+                                    razones.append(f"{num} ({imp:.2f}€): FECHA POSTERIOR AL PAGO ({fec_str})")
+                                else:
+                                    razones.append(f"{num} ({imp:.2f}€): importe no encaja (dif={round(imp-importe_pago,2):+.2f}€)")
+                            resultados.append({'CIF_UTE':cif_pago,'fecha_pago':fecha_pago,'importe_pago':importe_pago,
+                                'facturas_90_asignadas':'SIN_COMBINACION_VALIDA','importe_facturas_90':0.0,
+                                'desglose_facturas_90':None,'diferencia_pago_vs_90':importe_pago,
+                                'advertencia':' || '.join(razones) if razones else 'Sin candidatas'}); continue
+
+                    # Solver
+                    df_facturas = df_facturas.sort_values(['Fecha Emisión','IMPORTE_CON_IMPUESTO'])
+                    numeros_facturas  = df_facturas['Num_Factura_Norm'].tolist()
+                    importes_facturas = df_facturas['IMPORTE_CON_IMPUESTO'].tolist()
+                    ids_ute           = df_facturas[col_id_ute_prisma].tolist()
+                    n          = len(importes_facturas)
+                    pagos_cent = int(round(importe_pago*100))
+                    fact_cent  = [int(round(f*100)) for f in importes_facturas]
+                    tol_cent   = int(round(tolerancia_euros*100))
+
+                    seleccion = None
+                    for i in range(n):
+                        if abs(fact_cent[i]-pagos_cent) <= tol_cent: seleccion=[i]; break
+
+                    if seleccion is None:
+                        model = cp_model.CpModel()
+                        x = [model.NewBoolVar(f"x{i}") for i in range(n)]
+                        model.Add(sum(x[i]*fact_cent[i] for i in range(n)) >= pagos_cent-tol_cent)
+                        model.Add(sum(x[i]*fact_cent[i] for i in range(n)) <= pagos_cent+tol_cent)
+                        model.Minimize(sum(x))
+                        solver = cp_model.CpSolver()
+                        solver.parameters.max_time_in_seconds = 3
+                        solver.parameters.log_search_progress = False
+                        status = solver.Solve(model)
+                        if status not in [cp_model.OPTIMAL, cp_model.FEASIBLE]:
+                            resultados.append({'CIF_UTE':cif_pago,'fecha_pago':fecha_pago,'importe_pago':importe_pago,
+                                'facturas_90_asignadas':'SIN_COMBINACION_EXACTA','importe_facturas_90':0.0,
+                                'desglose_facturas_90':None,'diferencia_pago_vs_90':importe_pago,
+                                'advertencia':f'No cuadra. 90s: {" | ".join(f"{numeros_facturas[i]} ({importes_facturas[i]:.2f}€)" for i in range(n))}'}); continue
+                        seleccion = [i for i in range(n) if solver.Value(x[i])==1]
+
+                    desglose_por_factura_90 = []
+                    importe_facturas_90 = 0.0
+
+                    for i in seleccion:
+                        num_90  = numeros_facturas[i]
+                        imp_90  = importes_facturas[i]
+                        id_ute  = str(ids_ute[i]).strip()
+                        importe_facturas_90 += imp_90
+
+                        socios_prisma = []
+                        importe_socios_prisma = 0.0
+                        if id_ute in socios_por_ute:
+                            for _, socio in socios_por_ute[id_ute].iterrows():
+                                sociedad = str(socio.get('SOCIEDAD_PRISMA','OTROS'))
+                                socios_prisma.append({'num_factura':str(socio[col_num_factura_prisma]),
+                                    'cif':str(socio[col_cif_prisma]),'importe':float(socio['IMPORTE_CON_IMPUESTO']),
+                                    'fuente':f'PRISMA ({sociedad})'})
+                                importe_socios_prisma += float(socio['IMPORTE_CON_IMPUESTO'])
+
+                        diferencia = round(imp_90 - importe_socios_prisma, 2)
+                        socios_estimados = []
+                        if abs(diferencia) > tolerancia_euros and porcentajes:
+                            socs_en_prisma = {s['fuente'].split('(')[-1].rstrip(')') for s in socios_prisma}
+                            for soc_nombre, porc in porcentajes.items():
+                                if soc_nombre in socs_en_prisma: continue
+                                if porc and porc > 0:
+                                    socios_estimados.append({'num_factura':'PENDIENTE','cif':soc_nombre,
+                                        'importe':round(imp_90*porc/100.0,2),
+                                        'fuente':f'ESTIMADO_MAESTRO ({soc_nombre} {porc:.1f}%)'})
+
+                        diferencia_final = round(imp_90 - importe_socios_prisma - sum(s['importe'] for s in socios_estimados), 2)
+                        if abs(diferencia_final) > tolerancia_euros:
+                            estado = f"⚠️ Diferencia sin cubrir: {diferencia_final:.2f}€"
+                        elif socios_estimados:
+                            estado = f"✅ Socios PRISMA + estimados por Maestro ({', '.join(s['cif'] for s in socios_estimados)})"
+                        else:
+                            estado = "✅ Cuadra con socios PRISMA"
+
+                        desglose_por_factura_90.append({
+                            'factura_90':num_90,'importe_90':imp_90,'caso':'PRISMA',
+                            'socios':socios_prisma+socios_estimados,
+                            'importe_socios':importe_socios_prisma+sum(s['importe'] for s in socios_estimados),
+                            'diferencia_90_socios':diferencia_final,
+                            'socios_prisma':socios_prisma,'socios_cobra':socios_estimados,
+                            'importe_socios_prisma':importe_socios_prisma,
+                            'importe_socios_cobra':sum(s['importe'] for s in socios_estimados),
+                            'estado_cobra':estado
+                        })
+
+                    facturas_90_str = ', '.join([d['factura_90'] for d in desglose_por_factura_90])
+                    diferencia_pago_vs_90 = round(importe_pago - importe_facturas_90, 2)
+                    difs = [d for d in desglose_por_factura_90 if abs(d['diferencia_90_socios']) > tolerancia_euros]
+                    advertencia = ' | '.join([f"{d['factura_90']}: dif={d['diferencia_90_socios']:.2f}€" for d in difs]) or None
+
+                    resultados.append({'CIF_UTE':cif_pago,'fecha_pago':fecha_pago,'importe_pago':importe_pago,
+                        'facturas_90_asignadas':facturas_90_str,'importe_facturas_90':importe_facturas_90,
+                        'desglose_facturas_90':desglose_por_factura_90,
+                        'diferencia_pago_vs_90':diferencia_pago_vs_90,'advertencia':advertencia})
+
+                except Exception as e:
+                    resultados.append({'CIF_UTE':pago.get('CIF_UTE','ERROR'),'fecha_pago':pago.get('fec_operacion'),
+                        'importe_pago':pago.get('importe',0),'facturas_90_asignadas':f'ERROR:{e}',
+                        'importe_facturas_90':0.0,'desglose_facturas_90':None,
+                        'diferencia_pago_vs_90':pago.get('importe',0),'advertencia':None})
+
+            fin = time.time()
+            df_resultados = pd.DataFrame(resultados)
+            st.session_state.df_resultados        = df_resultados
+            st.session_state.fecha_resultados     = fecha_seleccionada
+            st.session_state.df_pagos_normalizado = df_pagos_normalizado
+            st.success(f"✅ Cruce completado en {fin-inicio:.2f} segundos")
+
+    # --------- 8) RESULTADOS ---------
+    if "df_resultados" in st.session_state and st.session_state.df_resultados is not None:
+        df_resultados = st.session_state.df_resultados
+        st.markdown("---")
+        st.subheader("📊 Resultados del cruce")
+
+        total_pagos           = len(df_resultados)
+        pagos_con_facturas    = df_resultados['facturas_90_asignadas'].notna().sum()
+        pagos_con_advertencia = df_resultados['advertencia'].notna().sum()
+        importe_total_pagos   = df_resultados['importe_pago'].sum()
+        importe_total_90      = df_resultados['importe_facturas_90'].sum()
+        diferencia_pago_vs_90 = df_resultados['diferencia_pago_vs_90'].sum()
+
+        importe_total_socios = diferencia_total_90_vs_socios = 0.0
+        for _, row in df_resultados.iterrows():
+            if row['desglose_facturas_90']:
+                for f90 in row['desglose_facturas_90']:
+                    importe_total_socios         += f90['importe_socios']
+                    diferencia_total_90_vs_socios += f90['diferencia_90_socios']
+
+        c1,c2,c3,c4 = st.columns(4)
+        c1.metric("Total Pagos", total_pagos)
+        c2.metric("Con Facturas 90", pagos_con_facturas, f"{pagos_con_facturas/total_pagos*100:.1f}%" if total_pagos else "")
+        c3.metric("Sin Facturas", total_pagos-pagos_con_facturas)
+        c4.metric("⚠️ Con Advertencia", pagos_con_advertencia)
+
+        st.markdown("---")
+        c1,c2,c3,c4 = st.columns(4)
+        fmt = lambda x: f"{x:,.2f} €".replace(",","X").replace(".",",").replace("X",".")
+        c1.metric("💰 Total Pagos",    fmt(importe_total_pagos))
+        c2.metric("🔵 Facturas 90",    fmt(importe_total_90))
+        c3.metric("🟢 Facturas Socios",fmt(importe_total_socios))
+        c4.metric("⚠️ Dif. 90 vs Socios", fmt(diferencia_total_90_vs_socios))
+
+        if pagos_con_advertencia > 0:
+            st.warning(f"⚠️ {pagos_con_advertencia} pago(s) con advertencia — revisa la columna 'Advertencia' en el Excel.")
+
+        st.dataframe(df_resultados, use_container_width=True, height=400)
+
+        # --------- 9) EXCEL ---------
+        cif_a_nombre = {}
+        if 'denominacion' in st.session_state.df_pagos_normalizado.columns:
+            for _, p in st.session_state.df_pagos_normalizado.iterrows():
+                if pd.notna(p.get('denominacion')): cif_a_nombre[p['CIF_UTE']] = str(p['denominacion'])
+
+        filas_excel = []
+        for _, row in df_resultados.iterrows():
+            nombre_ute = cif_a_nombre.get(row['CIF_UTE'], 'DESCONOCIDO')
+            if row['desglose_facturas_90']:
+                for f90 in row['desglose_facturas_90']:
+                    sp_str = ' | '.join(f"{s['num_factura']} ({s['cif']}): {s['importe']:.2f}€" for s in f90.get('socios_prisma',[])) or 'Sin socios en PRISMA'
+                    se_str = ' | '.join(f"{s['num_factura']} ({s['fuente']}): {s['importe']:.2f}€" for s in f90.get('socios_cobra',[]))
+                    filas_excel.append({
+                        'CIF_UTE': row['CIF_UTE'], 'Nombre_UTE': nombre_ute,
+                        'Fecha_Pago': row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,
+                        'Importe_Pago': row['importe_pago'],
+                        'Factura_90': f90['factura_90'], 'Caso': f90.get('caso',''),
+                        'Importe_90': f90['importe_90'],
+                        'Socios_PRISMA': sp_str, 'Importe_Socios_PRISMA': f90.get('importe_socios_prisma',0),
+                        'Socios_Estimados': se_str, 'Importe_Estimado': f90.get('importe_socios_cobra',0),
+                        'Estado': f90.get('estado_cobra',''),
+                        'Total_Socios': f90['importe_socios'],
+                        'Diferencia_90_vs_Socios': f90['diferencia_90_socios'],
+                        'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90'],
+                        'Advertencia': row['advertencia'] if pd.notna(row['advertencia']) else ''
                     })
-
-                dif_pago = round(imp_pago - imp_total_90, 2)
-                difs = [d for d in desglose if abs(d['diferencia_90_socios']) > tolerancia]
-                resultados.append({
-                    'CIF_UTE':cif,'fecha_pago':fec_pago,'importe_pago':imp_pago,
-                    'facturas_90_asignadas':', '.join(d['factura_90'] for d in desglose),
-                    'importe_facturas_90':imp_total_90,
-                    'desglose_facturas_90':desglose,
-                    'diferencia_pago_vs_90':dif_pago,
-                    'advertencia':' | '.join(f"{d['factura_90']}: dif={d['diferencia_90_socios']:.2f}€" for d in difs) or None
-                })
-            except Exception as e:
-                resultados.append({'CIF_UTE':pago.get('CIF_UTE','ERR'),'fecha_pago':pago.get('fec_operacion'),
-                    'importe_pago':pago.get('importe',0),'facturas_90_asignadas':f'ERROR:{e}',
-                    'importe_facturas_90':0.0,'desglose_facturas_90':None,
-                    'diferencia_pago_vs_90':pago.get('importe',0),'advertencia':None})
-
-        fin = time.time()
-        df_res = pd.DataFrame(resultados)
-        st.session_state.df_resultados  = df_res
-        st.session_state.fecha_resultados = fecha_sel
-        st.session_state.df_pag_norm    = df_pag_norm
-        st.success(f"✅ Cruce completado en {fin-inicio:.1f}s")
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 8) RESULTADOS
-# ─────────────────────────────────────────────────────────────────────────────
-if 'df_resultados' in st.session_state:
-    df_res = st.session_state.df_resultados
-    st.markdown("---")
-    st.subheader("📊 Resultados")
-
-    total = len(df_res)
-    con_90 = df_res['facturas_90_asignadas'].notna().sum()
-    con_adv = df_res['advertencia'].notna().sum()
-    imp_pagos = df_res['importe_pago'].sum()
-    imp_90s   = df_res['importe_facturas_90'].sum()
-
-    imp_soc_p = imp_soc_e = dif_total = 0.0
-    for _, row in df_res.iterrows():
-        if row['desglose_facturas_90']:
-            for d in row['desglose_facturas_90']:
-                imp_soc_p += d['importe_socios_prisma']
-                imp_soc_e += d['importe_estimado']
-                dif_total += d['diferencia_90_socios']
-
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Total pagos", total)
-    c2.metric("Con 90 asignada", con_90, f"{con_90/total*100:.1f}%" if total else "")
-    c3.metric("Sin 90", total-con_90)
-    c4.metric("⚠️ Con advertencia", con_adv)
-
-    st.markdown("---")
-    c1,c2,c3,c4 = st.columns(4)
-    fmt = lambda x: f"{x:,.2f} €".replace(",","X").replace(".",",").replace("X",".")
-    c1.metric("💰 Total pagos",   fmt(imp_pagos))
-    c2.metric("🔵 Total 90s",     fmt(imp_90s))
-    c3.metric("🟢 Socios PRISMA", fmt(imp_soc_p))
-    c4.metric("🟡 Estimado Maestro", fmt(imp_soc_e))
-
-    st.dataframe(df_res[['CIF_UTE','fecha_pago','importe_pago','facturas_90_asignadas',
-                          'importe_facturas_90','diferencia_pago_vs_90','advertencia']],
-                 use_container_width=True, height=350)
-
-    # Excel
-    cif_nombre = {}
-    if 'df_pag_norm' in st.session_state and 'denominacion' in st.session_state.df_pag_norm.columns:
-        for _, p in st.session_state.df_pag_norm.iterrows():
-            if pd.notna(p.get('denominacion')): cif_nombre[p['CIF_UTE']] = str(p['denominacion'])
-
-    filas = []
-    for _, row in df_res.iterrows():
-        nombre = cif_nombre.get(row['CIF_UTE'], '')
-        if row['desglose_facturas_90']:
-            for d in row['desglose_facturas_90']:
-                sp_str = ' | '.join(f"{s['num_factura']} ({s['cif']}): {s['importe']:.2f}€"
-                                    for s in d['socios_prisma']) or 'Sin socios PRISMA'
-                se_str = ' | '.join(f"{s['cif']} {s['importe']:.2f}€ ({s['fuente']})"
-                                    for s in d['socios_estimados'])
-                filas.append({
-                    'CIF_UTE': row['CIF_UTE'], 'Nombre_UTE': nombre,
+            else:
+                filas_excel.append({
+                    'CIF_UTE': row['CIF_UTE'], 'Nombre_UTE': nombre_ute,
                     'Fecha_Pago': row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,
                     'Importe_Pago': row['importe_pago'],
-                    'Factura_90': d['factura_90'], 'Importe_90': d['importe_90'],
-                    'Socios_PRISMA': sp_str, 'Importe_Socios_PRISMA': d['importe_socios_prisma'],
-                    'Socios_Estimados_Maestro': se_str, 'Importe_Estimado': d['importe_estimado'],
-                    'Diferencia_90_vs_Socios': d['diferencia_90_socios'],
+                    'Factura_90': None, 'Caso': '', 'Importe_90': 0.0,
+                    'Socios_PRISMA': None, 'Importe_Socios_PRISMA': 0.0,
+                    'Socios_Estimados': None, 'Importe_Estimado': 0.0,
+                    'Estado': row['facturas_90_asignadas'] or '',
+                    'Total_Socios': 0.0, 'Diferencia_90_vs_Socios': 0.0,
                     'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90'],
-                    'Estado': d['estado'],
-                    'Advertencia': row['advertencia'] or ''
+                    'Advertencia': row['advertencia'] if pd.notna(row['advertencia']) else ''
                 })
-        else:
-            filas.append({
-                'CIF_UTE': row['CIF_UTE'], 'Nombre_UTE': nombre,
-                'Fecha_Pago': row['fecha_pago'].date() if pd.notna(row['fecha_pago']) else None,
-                'Importe_Pago': row['importe_pago'],
-                'Factura_90': None, 'Importe_90': 0.0,
-                'Socios_PRISMA': '', 'Importe_Socios_PRISMA': 0.0,
-                'Socios_Estimados_Maestro': '', 'Importe_Estimado': 0.0,
-                'Diferencia_90_vs_Socios': 0.0,
-                'Diferencia_Pago_vs_90': row['diferencia_pago_vs_90'],
-                'Estado': row['facturas_90_asignadas'] or '',
-                'Advertencia': row['advertencia'] or ''
-            })
 
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine='openpyxl') as w:
-        pd.DataFrame(filas).to_excel(w, index=False, sheet_name="Resultados")
-    out.seek(0)
-    st.download_button("📥 Descargar Excel", data=out,
-        file_name=f"cruce_{st.session_state.fecha_resultados.strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True)
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            pd.DataFrame(filas_excel).to_excel(writer, index=False, sheet_name="Desglose_Detallado")
+        output.seek(0)
+        st.download_button("📥 Descargar resultados en Excel", data=output,
+            file_name=f"resultados_cruce_{st.session_state.fecha_resultados.strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True)
+
+    elif not ejecutar_cruce and "df_resultados" not in st.session_state:
+        st.info("👆 Pulsa el botón 'Ejecutar Cruce' para iniciar el proceso")
