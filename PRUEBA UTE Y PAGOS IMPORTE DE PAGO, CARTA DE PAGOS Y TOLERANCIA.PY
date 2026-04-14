@@ -1067,4 +1067,3 @@ if archivo:
                         file_name="Carta_de_Pago.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
-
