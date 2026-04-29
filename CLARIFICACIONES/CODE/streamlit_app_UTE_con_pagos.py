@@ -585,7 +585,7 @@ if archivo:
                 # Mapeo seguro de columnas que usamos
                 col_map = {
                     'fec_operacion': ['fec_operacion', 'fecha_operacion', 'fec_oper'],
-                    'importe': ['importe', 'imp', 'monto', 'amount', 'valor'],
+                    'importe': ['importe', 'imp', 'monto', 'amount', 'valor', 'Imp. Divisa', 'imp_divisa'],
                     'posible_factura': ['posible_factura', 'factura', 'posiblefactura'],
                     'norma_43': ['norma_43', 'norma43']
                 }
