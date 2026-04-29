@@ -549,6 +549,9 @@ if archivo:
                     # resetear puntero y leer la hoja
                     data.seek(0)
                     df_cobros = pd.read_excel(data, sheet_name=sheet, engine="openpyxl")
+                    # Eliminar columnas de porcentaje de socios (no se usan aún)
+                    cols_ignorar = [c for c in df_cobros.columns if str(c).strip().startswith('%')]
+                    df_cobros = df_cobros.drop(columns=cols_ignorar)
 
                 else:  # CSV
                     df_cobros = pd.read_csv(cobros_file, sep=None, engine="python")
