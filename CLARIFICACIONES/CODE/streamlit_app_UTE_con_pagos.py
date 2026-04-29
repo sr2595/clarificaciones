@@ -1052,6 +1052,6 @@ if archivo:
                     st.download_button(
                         label="📥 Descargar Carta de Pago",
                         data=output.getvalue(),
-                        file_name=f"Carta_de_Pago_{cif_cliente}_{col_nombre_cliente}_{nro_fra_ute}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        file_name=f"Carta_de_Pago_{cif_cliente}_{nro_fra_ute}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
